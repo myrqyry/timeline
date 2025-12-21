@@ -20,6 +20,11 @@ public:
     const std::vector<TimelineEvent>& getEvents() const;
     void clearEvents();
 
+    // Updates
+    void updateEventTime(int index, double newTimeMs);
+    void replaceEvent(int index, const TimelineEvent &event);
+    int findEventIndex(double timeMs) const;
+
     // Serialization
     QJsonArray toJson() const;
     void fromJson(const QJsonArray &json);

@@ -3,6 +3,7 @@
 #include <QGraphicsLineItem>
 #include <QGraphicsRectItem>
 #include <QResizeEvent>
+#include <obs-frontend-api.h>
 
 #include <QFile>
 #include <QJsonDocument>
@@ -13,6 +14,9 @@
 #include <QGraphicsSimpleTextItem>
 #include <QWheelEvent>
 #include <cmath>
+#include <QDialog>
+#include <QComboBox>
+#include <QDialogButtonBox>
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
     blog(LOG_INFO, "TimelineDock constructor started");
@@ -39,6 +43,7 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
 
 TimelineDock::~TimelineDock() {
     obs_frontend_remove_save_callback(saveCallback, this);
+    clearRuler();
 }
 
 void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *private_data) {
@@ -150,9 +155,10 @@ void TimelineDock::updateLayout() {
     // 1. Update scene rect
     scene->setSceneRect(0, 0, std::max(5000.0, 300.0 * pixelsPerSecond), view->viewport()->height());
     
-    // ... rest of function ...
+    // 2. Rebuild event items from model
+    rebuildEventItems();
     
-    // 2. Update all event items
+    // 3. Update all existing event items (setPixelsPerSecond recalculates position)
     for (auto item : scene->items()) {
         TimelineEventItem *evtItem = dynamic_cast<TimelineEventItem*>(item);
         if (evtItem) {
@@ -160,28 +166,25 @@ void TimelineDock::updateLayout() {
         }
     }
     
-    // 3. Redraw ruler
+    // 4. Redraw ruler
     drawRuler();
     
-    // 4. Update playhead
+    // 5. Update playhead
     updatePlayhead(scheduler->getCurrentTime());
+}
+
+void TimelineDock::clearRuler() {
+    for (QGraphicsItem* item : rulerItems) {
+        scene->removeItem(item);
+        delete item;
+    }
+    rulerItems.clear();
 }
 
 void TimelineDock::drawRuler() {
     if (!scene) return;
-
-    if (rulerGroup) {
-        // destroyItemGroup only removes the group item and deletes it.
-        // It does NOT delete children. We must do that manually.
-        QList<QGraphicsItem*> items = rulerGroup->childItems();
-        scene->destroyItemGroup(rulerGroup);
-        for (auto item : items) {
-             delete item;
-        }
-        rulerGroup = nullptr;
-    }
     
-    rulerGroup = scene->createItemGroup({});
+    clearRuler(); // Clean up old ruler
     
     // Draw ticks every second
     double durationSec = scene->width() / pixelsPerSecond;
@@ -189,23 +192,23 @@ void TimelineDock::drawRuler() {
     if (pixelsPerSecond < 50) step = 5;
     if (pixelsPerSecond < 10) step = 10;
     
-    for (int i = 0; i < durationSec; i += step) {
+    for (int i = 0; i <= durationSec; i += step) {
         double x = i * pixelsPerSecond;
         QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, QPen(Qt::lightGray));
-        rulerGroup->addToGroup(line);
+        rulerItems.append(line);
         
         QGraphicsSimpleTextItem *text = scene->addSimpleText(QString::number(i) + "s");
         text->setPos(x + 2, 0);
         text->setBrush(QBrush(Qt::lightGray));
         text->setFont(QFont("Arial", 8));
-        rulerGroup->addToGroup(text);
+        rulerItems.append(text);
         
         // Minor ticks
         if (pixelsPerSecond > 50) {
            for (int j=1; j<10; j++) {
                double xm = x + (j * pixelsPerSecond / 10.0);
                QGraphicsLineItem *minor = scene->addLine(xm, 10, xm, 20, QPen(Qt::darkGray));
-               rulerGroup->addToGroup(minor);
+               rulerItems.append(minor);
            }
         }
     }
@@ -217,12 +220,15 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event) {
              QWheelEvent *wheelEvent = static_cast<QWheelEvent*>(event);
              if (wheelEvent->modifiers() & Qt::ControlModifier) {
                  double steps = wheelEvent->angleDelta().y() / 120.0;
-                 double factor = std::pow(1.1, steps);
+                 double factor = std::pow(1.15, steps); // Slightly faster zoom
                  pixelsPerSecond *= factor;
-                 if (pixelsPerSecond < 10.0) pixelsPerSecond = 10.0;
-                 if (pixelsPerSecond > 500.0) pixelsPerSecond = 500.0;
+                 
+                 // Expanded zoom range
+                 if (pixelsPerSecond < 5.0) pixelsPerSecond = 5.0;
+                 if (pixelsPerSecond > 1000.0) pixelsPerSecond = 1000.0;
                  
                  updateLayout();
+                 updateZoomLabel();
                  return true;
              }
         }
@@ -277,10 +283,19 @@ void TimelineDock::onTick(double currentTimeMs) {
     int minutes = totalSeconds / 60;
     int seconds = totalSeconds % 60;
     
-    timeLabel->setText(QString("%1:%2.%3")
+    QString baseText = QString("%1:%2.%3")
         .arg(minutes, 2, 10, QChar('0'))
         .arg(seconds, 2, 10, QChar('0'))
-        .arg(ms / 10, 2, 10, QChar('0')));
+        .arg(ms / 10, 2, 10, QChar('0'));
+        
+    // Append zoom info if available
+    QString currentText = timeLabel->text();
+    if (currentText.contains("|")) {
+        QString zoomPart = currentText.split("|").last();
+        timeLabel->setText(baseText + " |" + zoomPart);
+    } else {
+        timeLabel->setText(baseText);
+    }
 }
 
 void TimelineDock::updatePlayhead(double timeMs) {
@@ -297,16 +312,126 @@ void TimelineDock::onAddEventClicked() {
     evt.timeMs = time;
     evt.type = TimelineEventType::SceneSwitch;
     evt.targetId = "Scene 2";
+    
+    // Add to model first
     model->addEvent(evt);
     
-    TimelineEventItem *item = new TimelineEventItem(time, pixelsPerSecond);
-    scene->addItem(item);
-    item->setToolTip(QString("Event: %1").arg(evt.targetId));
+    // Rebuild visual items to reflect model state and setup connections
+    rebuildEventItems();
+}
+
+void TimelineDock::rebuildEventItems() {
+    clearEventItems();
     
-    // Connect move signal
-    connect(item, &TimelineEventItem::eventMoved, [this, evt](double newTime) {
-         // Logic to update model would go here. 
-         // For now, demo just logs. Ideally Model needs updateEvent(index)
-         blog(LOG_INFO, "Event moved to %f", newTime);
-    });
+    const auto& events = model->getEvents();
+    for (size_t i = 0; i < events.size(); i++) {
+        const auto& evt = events[i];
+        TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond);
+        scene->addItem(item);
+        item->setToolTip(QString("Event: %1").arg(evt.targetId));
+        eventItemMap[evt.timeMs] = item;
+        
+        int eventIndex = static_cast<int>(i);
+        
+        // Connect movement
+        connect(item, &TimelineEventItem::eventMoved, 
+                [this, eventIndex](double newTime) {
+            model->updateEventTime(eventIndex, newTime);
+        });
+        
+        // Connect double-click
+        connect(item, &TimelineEventItem::doubleClicked,
+                [this, item, eventIndex]() {
+            onEventDoubleClicked(item, eventIndex);
+        });
+        
+        // Connect deletion
+        connect(item, &TimelineEventItem::deleteRequested,
+                [this, item, eventIndex]() {
+            model->removeEvent(eventIndex);
+            rebuildEventItems(); // Rebuild to clean up and re-index
+        });
+    }
+}
+
+void TimelineDock::clearEventItems() {
+    for (auto& pair : eventItemMap) {
+        if (pair.second) {
+             scene->removeItem(pair.second);
+             delete pair.second;
+        }
+    }
+    eventItemMap.clear();
+}
+
+void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex) {
+    if (eventIndex < 0 || eventIndex >= model->getEvents().size()) return;
+    
+    const TimelineEvent& evt = model->getEvents()[eventIndex];
+    
+    QDialog dialog(this);
+    dialog.setWindowTitle("Edit Timeline Event");
+    dialog.setMinimumWidth(300);
+    
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    
+    // Event type
+    layout->addWidget(new QLabel("Event Type:"));
+    QComboBox *typeCombo = new QComboBox(&dialog);
+    typeCombo->addItem("Scene Switch", static_cast<int>(TimelineEventType::SceneSwitch));
+    typeCombo->addItem("Media Start", static_cast<int>(TimelineEventType::MediaStart));
+    typeCombo->addItem("Media Stop", static_cast<int>(TimelineEventType::MediaStop));
+    typeCombo->setCurrentIndex(static_cast<int>(evt.type));
+    layout->addWidget(typeCombo);
+    
+    // Target scene
+    layout->addWidget(new QLabel("Target Scene:"));
+    QComboBox *sceneCombo = new QComboBox(&dialog);
+    
+    // Populate with OBS scenes
+    struct obs_frontend_source_list scenes = {};
+    obs_frontend_get_scenes(&scenes);
+    for (size_t i = 0; i < scenes.sources.num; i++) {
+        obs_source_t *source = scenes.sources.array[i];
+        const char *name = obs_source_get_name(source);
+        sceneCombo->addItem(QString::fromUtf8(name));
+        if (evt.targetId == QString::fromUtf8(name)) {
+            sceneCombo->setCurrentIndex(sceneCombo->count() - 1);
+        }
+    }
+    obs_frontend_source_list_free(&scenes);
+    layout->addWidget(sceneCombo);
+    
+    QDialogButtonBox *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        TimelineEvent updatedEvt = evt;
+        updatedEvt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+        updatedEvt.targetId = sceneCombo->currentText();
+        
+        model->replaceEvent(eventIndex, updatedEvt);
+        item->setToolTip(QString("Event: %1").arg(updatedEvt.targetId));
+        rebuildEventItems(); // Refresh view
+    }
+}
+
+void TimelineDock::updateZoomLabel() {
+    QString zoomText;
+    if (pixelsPerSecond < 20) {
+        zoomText = QString("Zoom: %1x (Wide)").arg(pixelsPerSecond / 10.0, 0, 'f', 1);
+    } else if (pixelsPerSecond > 200) {
+        zoomText = QString("Zoom: %1x (Close)").arg(pixelsPerSecond / 10.0, 0, 'f', 1);
+    } else {
+        zoomText = QString("Zoom: %1x").arg(pixelsPerSecond / 10.0, 0, 'f', 1);
+    }
+    
+    QString currentText = timeLabel->text();
+    if (currentText.contains("|")) {
+        currentText = currentText.split("|").first().trimmed();
+    }
+    timeLabel->setText(currentText + " | " + zoomText);
 }

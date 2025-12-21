@@ -18,12 +18,16 @@ public:
 
 signals:
     void eventMoved(double newTimeMs);
+    void doubleClicked();
+    void deleteRequested();
 
 protected:
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
+    void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override;
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
     double pixelsPerSecond;
-    double timeMs;
 };

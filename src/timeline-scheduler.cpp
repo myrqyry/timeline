@@ -18,35 +18,30 @@ void TimelineScheduler::start() {
     if (playing) return;
     
     playing = true;
+    // Reset start time to now, preserving currentOffsetMs
     startTime = std::chrono::high_resolution_clock::now();
-    
-    // Reset event fired status if starting from 0 (implied by seek(0) before start usually)
-    // But if just resuming, we need to handle that. 
-    // Implementing simpler start/resume logic:
-    // start() resumes from currentOffsetMs
-    
     timer->start();
 }
 
 void TimelineScheduler::stop() {
     playing = false;
     timer->stop();
+    currentOffsetMs = 0; // Reset to beginning
     seek(0);
 }
 
 void TimelineScheduler::pause() {
     if (!playing) return;
     
-    // Calculate elapsed time and add to offset
-    auto now = std::chrono::high_resolution_clock::now();
-    auto elapsed = std::chrono::duration<double, std::milli>(now - startTime).count();
-    currentOffsetMs += elapsed;
+    // Capture current playback position
+    currentOffsetMs = getCurrentTime();
     
     playing = false;
     timer->stop();
 }
 
 void TimelineScheduler::resume() {
+    // start() will continue from currentOffsetMs
     start();
 }
 

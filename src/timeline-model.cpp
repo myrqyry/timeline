@@ -27,6 +27,31 @@ void TimelineModel::clearEvents() {
     emit modelChanged();
 }
 
+void TimelineModel::updateEventTime(int index, double newTimeMs) {
+    if (index >= 0 && index < events.size()) {
+        events[index].timeMs = newTimeMs;
+        sortEvents();
+        emit modelChanged();
+    }
+}
+
+void TimelineModel::replaceEvent(int index, const TimelineEvent &event) {
+    if (index >= 0 && index < events.size()) {
+        events[index] = event;
+        sortEvents();
+        emit modelChanged();
+    }
+}
+
+int TimelineModel::findEventIndex(double timeMs) const {
+    for (size_t i = 0; i < events.size(); i++) {
+        if (std::abs(events[i].timeMs - timeMs) < 10.0) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 QJsonArray TimelineModel::toJson() const {
     QJsonArray array;
     for (const auto& evt : events) {

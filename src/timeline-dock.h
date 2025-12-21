@@ -45,6 +45,7 @@ private:
     ObsExecutor *executor;
     
     // UI Elements
+    // UI Elements
     QGraphicsView *view;
     QGraphicsScene *scene;
     QPushButton *playButton;
@@ -52,7 +53,17 @@ private:
     QLabel *timeLabel;
     
     QGraphicsLineItem *playheadItem;
-    QGraphicsItemGroup *rulerGroup = nullptr;
+    QList<QGraphicsItem*> rulerItems;
     
+    // Event tracking
+    std::map<double, TimelineEventItem*> eventItemMap;
+    void rebuildEventItems();
+    void clearEventItems();
+    void updateZoomLabel();
+
+private slots:
+    void onEventDoubleClicked(TimelineEventItem *item, int eventIndex);
+
+private:
     double pixelsPerSecond = 100.0;
 };
