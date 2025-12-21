@@ -1,59 +1,55 @@
-# OBS Plugin Template
+# OBS Timeline Sequencer
 
-## Introduction
+A timeline-based sequencer plugin for OBS Studio. This plugin allows you to schedule and automate events, such as scene switching, using a visual timeline interface.
 
-The plugin template is meant to be used as a starting point for OBS Studio plugin development. It includes:
+## Features
 
-* Boilerplate plugin source code
-* A CMake project file
-* GitHub Actions workflows and repository actions
+-   **Visual Timeline Dock**: A dedicated, resizable dock in OBS (View -> Docks -> Timeline) to visualize and manage automation.
+-   **Event Scheduling**: Place events on the timeline to trigger actions at specific times.
+    -   *Current implementation supports Scene Switching.*
+-   **Playback Control**: Play, Pause, and Scrub through the timeline.
+    -   Click the "Play" button to start automation.
+    -   Click on the timeline track to scrub/seek.
+-   **Zooming**: Hold `Ctrl` and scroll the mouse wheel to zoom in and out of the timeline.
+-   **Persistence**: The timeline state (events and positions) is automatically saved and loaded with your OBS profile.
 
-## Supported Build Environments
+## Installation
 
-| Platform  | Tool   |
-|-----------|--------|
-| Windows   | Visual Studio 17 2022 |
-| macOS     | XCode 16.0 |
-| Windows, macOS  | CMake 3.30.5 |
-| Ubuntu 24.04 | CMake 3.28.3 |
-| Ubuntu 24.04 | `ninja-build` |
-| Ubuntu 24.04 | `pkg-config`
-| Ubuntu 24.04 | `build-essential` |
+### Linux (Manual Build)
 
-## Quick Start
+1.  **Prerequisites**:
+    -   OBS Studio (installed via PPA or built from source)
+    -   CMake 3.20+
+    -   Qt6 Development packages
+    -   Build Essentials (`build-essential`)
 
-An absolute bare-bones [Quick Start Guide](https://github.com/obsproject/obs-plugintemplate/wiki/Quick-Start-Guide) is available in the wiki.
+2.  **Build**:
+    ```bash
+    mkdir build && cd build
+    cmake ..
+    cmake --build .
+    ```
 
-## Documentation
+3.  **Install**:
+    ```bash
+    cmake --install .
+    ```
+    This will install the plugin to `~/.config/obs-studio/plugins/obs-timeline-plugin/`.
 
-All documentation can be found in the [Plugin Template Wiki](https://github.com/obsproject/obs-plugintemplate/wiki).
+## Usage
 
-Suggested reading to get up and running:
+1.  **Open the Dock**: Go to **View** > **Docks** and select **Timeline**.
+2.  **Add Event**: Click the "Add Event" button. A new event will appear at the current playhead position + 2 seconds.
+3.  **Move Event**: Drag the red event block to retime it.
+4.  **Edit Event**: *Coming Soon* (Currently defaults to switching to "Scene 2").
+5.  **Zoom**: Hover over the timeline, hold `Ctrl`, and scroll to zoom.
 
-* [Getting started](https://github.com/obsproject/obs-plugintemplate/wiki/Getting-Started)
-* [Build system requirements](https://github.com/obsproject/obs-plugintemplate/wiki/Build-System-Requirements)
-* [Build system options](https://github.com/obsproject/obs-plugintemplate/wiki/CMake-Build-System-Options)
+## Development
 
-## GitHub Actions & CI
+-   **Source**: `src/` contains all C++ source code.
+-   **UI**: Built with Qt Widgets and QGraphicsView.
+-   **Persistence**: Uses `obs_frontend_add_save_callback` to save `timeline_events.json` in the plugin config directory.
 
-Default GitHub Actions workflows are available for the following repository actions:
+## License
 
-* `push`: Run for commits or tags pushed to `master` or `main` branches.
-* `pr-pull`: Run when a Pull Request has been pushed or synchronized.
-* `dispatch`: Run when triggered by the workflow dispatch in GitHub's user interface.
-* `build-project`: Builds the actual project and is triggered by other workflows.
-* `check-format`: Checks CMake and plugin source code formatting and is triggered by other workflows.
-
-The workflows make use of GitHub repository actions (contained in `.github/actions`) and build scripts (contained in `.github/scripts`) which are not needed for local development, but might need to be adjusted if additional/different steps are required to build the plugin.
-
-### Retrieving build artifacts
-
-Successful builds on GitHub Actions will produce build artifacts that can be downloaded for testing. These artifacts are commonly simple archives and will not contain package installers or installation programs.
-
-### Building a Release
-
-To create a release, an appropriately named tag needs to be pushed to the `main`/`master` branch using semantic versioning (e.g., `12.3.4`, `23.4.5-beta2`). A draft release will be created on the associated repository with generated installer packages or installation programs attached as release artifacts.
-
-## Signing and Notarizing on macOS
-
-Basic concepts of codesigning and notarization on macOS are explained in the correspodning [Wiki article](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS) which has a specific section for the [GitHub Actions setup](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS#setting-up-code-signing-for-github-actions).
+GPL-2.0-or-later
