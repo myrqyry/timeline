@@ -8,6 +8,8 @@ enum class TimelineEventType {
     MediaStart,
     MediaStop,
     MediaSeek,
+    SourceShow,
+    SourceHide,
     FilterEnable,
     FilterDisable
 };

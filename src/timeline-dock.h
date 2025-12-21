@@ -7,9 +7,12 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <map>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "obs-executor.h"
+
+class TimelineEventItem;
 
 class TimelineDock : public QWidget {
     Q_OBJECT
@@ -32,19 +35,22 @@ private slots:
     void onPlayClicked();
     void onTick(double currentTimeMs);
     void onAddEventClicked();
+    void onEventDoubleClicked(TimelineEventItem *item, int eventIndex);
 
 private:
     void setupUi();
     void updatePlayhead(double timeMs);
-
     void updateLayout();
     void drawRuler();
+    void clearRuler();
+    void rebuildEventItems();
+    void clearEventItems();
+    void updateZoomLabel();
 
     TimelineModel *model;
     TimelineScheduler *scheduler;
     ObsExecutor *executor;
     
-    // UI Elements
     // UI Elements
     QGraphicsView *view;
     QGraphicsScene *scene;
@@ -57,13 +63,6 @@ private:
     
     // Event tracking
     std::map<double, TimelineEventItem*> eventItemMap;
-    void rebuildEventItems();
-    void clearEventItems();
-    void updateZoomLabel();
-
-private slots:
-    void onEventDoubleClicked(TimelineEventItem *item, int eventIndex);
-
-private:
+    
     double pixelsPerSecond = 100.0;
 };

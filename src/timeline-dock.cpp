@@ -90,8 +90,11 @@ void TimelineDock::setupUi() {
     // Controls
     QHBoxLayout *controlsLayout = new QHBoxLayout();
     playButton = new QPushButton("Play", this);
+    playButton->setToolTip("Start/pause timeline playback (events will trigger at their scheduled times)");
     addEventButton = new QPushButton("Add Event", this);
+    addEventButton->setToolTip("Add a new event at the current playhead position");
     timeLabel = new QLabel("00:00:00", this);
+    timeLabel->setToolTip("Current timeline position | Zoom level");
     
     connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
     connect(addEventButton, &QPushButton::clicked, this, &TimelineDock::onAddEventClicked);
@@ -307,17 +310,179 @@ void TimelineDock::updatePlayhead(double timeMs) {
 }
 
 void TimelineDock::onAddEventClicked() {
-    double time = scheduler->getCurrentTime() + 2000.0;
-    TimelineEvent evt;
-    evt.timeMs = time;
-    evt.type = TimelineEventType::SceneSwitch;
-    evt.targetId = "Scene 2";
+    double time = scheduler->getCurrentTime(); // Place at playhead
     
-    // Add to model first
-    model->addEvent(evt);
+    // Show configuration dialog first
+    QDialog dialog(this);
+    dialog.setWindowTitle("New Timeline Event");
+    dialog.setMinimumWidth(400);
     
-    // Rebuild visual items to reflect model state and setup connections
-    rebuildEventItems();
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    
+    // Event type
+    layout->addWidget(new QLabel("Event Type:"));
+    QComboBox *typeCombo = new QComboBox(&dialog);
+    typeCombo->addItem("Scene Switch", static_cast<int>(TimelineEventType::SceneSwitch));
+    typeCombo->addItem("Source Show", static_cast<int>(TimelineEventType::SourceShow));
+    typeCombo->addItem("Source Hide", static_cast<int>(TimelineEventType::SourceHide));
+    typeCombo->addItem("Media Start", static_cast<int>(TimelineEventType::MediaStart));
+    typeCombo->addItem("Media Stop", static_cast<int>(TimelineEventType::MediaStop));
+    typeCombo->addItem("Filter Enable", static_cast<int>(TimelineEventType::FilterEnable));
+    typeCombo->addItem("Filter Disable", static_cast<int>(TimelineEventType::FilterDisable));
+    layout->addWidget(typeCombo);
+    
+    // Target label (updates based on type)
+    QLabel *targetLabel = new QLabel("Target Scene:", &dialog);
+    layout->addWidget(targetLabel);
+    
+    // Target combo (scenes, sources, or filters)
+    QComboBox *targetCombo = new QComboBox(&dialog);
+    layout->addWidget(targetCombo);
+    
+    // Helper lambda to populate targets based on event type
+    auto populateTargets = [&](int eventType) {
+        targetCombo->clear();
+        targetCombo->setEnabled(true);
+        
+        TimelineEventType evtType = static_cast<TimelineEventType>(eventType);
+        
+        if (evtType == TimelineEventType::SceneSwitch) {
+            targetLabel->setText("Target Scene:");
+            struct obs_frontend_source_list scenes = {};
+            obs_frontend_get_scenes(&scenes);
+            for (size_t i = 0; i < scenes.sources.num; i++) {
+                obs_source_t *source = scenes.sources.array[i];
+                const char *name = obs_source_get_name(source);
+                targetCombo->addItem(QString::fromUtf8(name));
+            }
+            obs_frontend_source_list_free(&scenes);
+            
+            if (targetCombo->count() == 0) {
+                targetCombo->addItem("(No scenes available)");
+                targetCombo->setEnabled(false);
+            }
+        } 
+        else if (evtType == TimelineEventType::SourceShow || evtType == TimelineEventType::SourceHide) {
+            targetLabel->setText("Target Source:");
+            obs_source_t *currentScene = obs_frontend_get_current_scene();
+            if (currentScene) {
+                obs_scene_t *scene = obs_scene_from_source(currentScene);
+                if (scene) {
+                    obs_scene_enum_items(scene, [](obs_scene_t*, obs_sceneitem_t *item, void *param) {
+                        QComboBox *combo = static_cast<QComboBox*>(param);
+                        obs_source_t *source = obs_sceneitem_get_source(item);
+                        const char *name = obs_source_get_name(source);
+                        combo->addItem(QString::fromUtf8(name));
+                        return true;
+                    }, targetCombo);
+                }
+                obs_source_release(currentScene);
+            }
+            
+            if (targetCombo->count() == 0) {
+                targetCombo->addItem("(No sources in current scene)");
+                targetCombo->setEnabled(false);
+            }
+        }
+        else if (evtType == TimelineEventType::MediaStart || evtType == TimelineEventType::MediaStop) {
+            targetLabel->setText("Target Media Source:");
+            obs_source_t *currentScene = obs_frontend_get_current_scene();
+            if (currentScene) {
+                obs_scene_t *scene = obs_scene_from_source(currentScene);
+                if (scene) {
+                    obs_scene_enum_items(scene, [](obs_scene_t*, obs_sceneitem_t *item, void *param) {
+                        QComboBox *combo = static_cast<QComboBox*>(param);
+                        obs_source_t *source = obs_sceneitem_get_source(item);
+                        const char *id = obs_source_get_id(source);
+                        if (id && (strcmp(id, "ffmpeg_source") == 0 || strcmp(id, "vlc_source") == 0)) {
+                            const char *name = obs_source_get_name(source);
+                            combo->addItem(QString::fromUtf8(name));
+                        }
+                        return true;
+                    }, targetCombo);
+                }
+                obs_source_release(currentScene);
+            }
+            
+            if (targetCombo->count() == 0) {
+                targetCombo->addItem("(No media sources in current scene)");
+                targetCombo->setEnabled(false);
+            }
+        }
+        else if (evtType == TimelineEventType::FilterEnable || evtType == TimelineEventType::FilterDisable) {
+            targetLabel->setText("Target Filter (Source::Filter):");
+            obs_source_t *currentScene = obs_frontend_get_current_scene();
+            if (currentScene) {
+                obs_scene_t *scene = obs_scene_from_source(currentScene);
+                if (scene) {
+                    // Enumerate sources and their filters
+                    obs_scene_enum_items(scene, [](obs_scene_t*, obs_sceneitem_t *item, void *param) {
+                        QComboBox *combo = static_cast<QComboBox*>(param);
+                        obs_source_t *source = obs_sceneitem_get_source(item);
+                        QString sourceName = QString::fromUtf8(obs_source_get_name(source));
+                        
+                        // Enumerate filters on this source
+                        obs_source_enum_filters(source, [](obs_source_t*, obs_source_t *filter, void *data) {
+                            auto *info = static_cast<std::pair<QComboBox*, QString>*>(data);
+                            QString filterName = QString::fromUtf8(obs_source_get_name(filter));
+                            info->first->addItem(QString("%1::%2").arg(info->second).arg(filterName));
+                        }, new std::pair<QComboBox*, QString>(combo, sourceName));
+                        
+                        return true;
+                    }, targetCombo);
+                }
+                obs_source_release(currentScene);
+            }
+            
+            if (targetCombo->count() == 0) {
+                targetCombo->addItem("(No filters found in current scene)");
+                targetCombo->setEnabled(false);
+            }
+        }
+    };
+    
+    // Initial population
+    populateTargets(static_cast<int>(TimelineEventType::SceneSwitch));
+    
+    // Update targets when type changes
+    connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [&](int) {
+        populateTargets(typeCombo->currentData().toInt());
+    });
+    
+    // Time display (read-only info)
+    int minutes = static_cast<int>(time / 1000.0) / 60;
+    int seconds = static_cast<int>(time / 1000.0) % 60;
+    int ms = static_cast<int>(time) % 1000;
+    QString timeStr = QString("Event will be placed at: %1:%2.%3")
+        .arg(minutes, 2, 10, QChar('0'))
+        .arg(seconds, 2, 10, QChar('0'))
+        .arg(ms / 10, 2, 10, QChar('0'));
+    QLabel *timeInfo = new QLabel(timeStr, &dialog);
+    timeInfo->setStyleSheet("color: gray; font-style: italic;");
+    layout->addWidget(timeInfo);
+    
+    QDialogButtonBox *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        // Validate: ensure we have a valid target
+        if (!targetCombo->isEnabled() || targetCombo->currentText().startsWith("(")) {
+            blog(LOG_WARNING, "Cannot create event: No valid target selected");
+            return;
+        }
+        
+        TimelineEvent evt;
+        evt.timeMs = time;
+        evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+        evt.targetId = targetCombo->currentText();
+        
+        model->addEvent(evt);
+        rebuildEventItems();
+    }
 }
 
 void TimelineDock::rebuildEventItems() {
@@ -328,7 +493,30 @@ void TimelineDock::rebuildEventItems() {
         const auto& evt = events[i];
         TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond);
         scene->addItem(item);
-        item->setToolTip(QString("Event: %1").arg(evt.targetId));
+        
+        // Enhanced tooltip with event details
+        QString typeStr;
+        switch (evt.type) {
+            case TimelineEventType::SceneSwitch: typeStr = "Scene Switch"; break;
+            case TimelineEventType::SourceShow: typeStr = "Source Show"; break;
+            case TimelineEventType::SourceHide: typeStr = "Source Hide"; break;
+            case TimelineEventType::MediaStart: typeStr = "Media Start"; break;
+            case TimelineEventType::MediaStop: typeStr = "Media Stop"; break;
+            case TimelineEventType::FilterEnable: typeStr = "Filter Enable"; break;
+            case TimelineEventType::FilterDisable: typeStr = "Filter Disable"; break;
+            default: typeStr = "Unknown"; break;
+        }
+        double timeSec = evt.timeMs / 1000.0;
+        int minutes = static_cast<int>(timeSec) / 60;
+        int seconds = static_cast<int>(timeSec) % 60;
+        int ms = static_cast<int>(evt.timeMs) % 1000;
+        QString tooltip = QString("%1\nTarget: %2\nTime: %3:%4.%5\n\nDouble-click to edit | Right-click for options")
+            .arg(typeStr)
+            .arg(evt.targetId)
+            .arg(minutes, 2, 10, QChar('0'))
+            .arg(seconds, 2, 10, QChar('0'))
+            .arg(ms / 10, 2, 10, QChar('0'));
+        item->setToolTip(tooltip);
         eventItemMap[evt.timeMs] = item;
         
         int eventIndex = static_cast<int>(i);
