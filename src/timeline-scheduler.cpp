@@ -47,7 +47,9 @@ void TimelineScheduler::resume() {
 
 void TimelineScheduler::seek(double timeMs) {
     currentOffsetMs = timeMs;
-    // Reset fired status for events after this time
+    startTime = std::chrono::high_resolution_clock::now();
+    
+    // Reset fired status for events
     if (model) {
         const auto& events = model->getEvents();
         eventFired.resize(events.size());
@@ -66,8 +68,40 @@ double TimelineScheduler::getCurrentTime() const {
     return currentOffsetMs + elapsed;
 }
 
+void TimelineScheduler::setEndTime(double endTime) {
+    endTimeMs = endTime;
+    blog(LOG_INFO, "Timeline end time set to %.1f ms", endTimeMs);
+}
+
+void TimelineScheduler::setLooping(bool loop) {
+    looping = loop;
+    blog(LOG_INFO, "Timeline looping %s", looping ? "enabled" : "disabled");
+}
+
 void TimelineScheduler::onTimerTick() {
     double currentTime = getCurrentTime();
+    
+    // Check if we've reached the end time
+    if (endTimeMs > 0 && currentTime >= endTimeMs) {
+        if (looping) {
+            // Loop back to start
+            seek(0);
+            // Reset all event fired states
+            if (model) {
+                eventFired.assign(model->getEvents().size(), false);
+            }
+            emit looped();
+            blog(LOG_INFO, "Timeline looped back to start");
+            return;
+        } else {
+            // Stop at end
+            pause();
+            emit finished();
+            blog(LOG_INFO, "Timeline reached end time");
+            return;
+        }
+    }
+    
     emit tick(currentTime);
 
     if (!model) return;
@@ -85,3 +119,4 @@ void TimelineScheduler::onTimerTick() {
         }
     }
 }
+

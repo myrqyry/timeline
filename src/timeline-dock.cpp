@@ -87,24 +87,55 @@ void TimelineDock::load() {
 void TimelineDock::setupUi() {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     
-    // Controls
+    // Controls Row 1
     QHBoxLayout *controlsLayout = new QHBoxLayout();
     playButton = new QPushButton("Play", this);
-    playButton->setToolTip("Start/pause timeline playback (events will trigger at their scheduled times)");
+    playButton->setToolTip("Start/pause timeline playback");
+    stopButton = new QPushButton("Stop", this);
+    stopButton->setToolTip("Stop and reset to beginning");
     addEventButton = new QPushButton("Add Event", this);
     addEventButton->setToolTip("Add a new event at the current playhead position");
     timeLabel = new QLabel("00:00:00", this);
     timeLabel->setToolTip("Current timeline position | Zoom level");
     
     connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
+    connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
     connect(addEventButton, &QPushButton::clicked, this, &TimelineDock::onAddEventClicked);
     
     controlsLayout->addWidget(playButton);
+    controlsLayout->addWidget(stopButton);
     controlsLayout->addWidget(addEventButton);
     controlsLayout->addWidget(timeLabel);
     controlsLayout->addStretch();
     
     mainLayout->addLayout(controlsLayout);
+    
+    // Controls Row 2 - Loop and End Time
+    QHBoxLayout *loopLayout = new QHBoxLayout();
+    loopCheckbox = new QCheckBox("Loop", this);
+    loopCheckbox->setToolTip("Loop playback when end time is reached");
+    connect(loopCheckbox, &QCheckBox::toggled, this, &TimelineDock::onLoopToggled);
+    
+    QLabel *endLabel = new QLabel("End Time (sec):", this);
+    endTimeSpinbox = new QDoubleSpinBox(this);
+    endTimeSpinbox->setRange(0, 3600); // Up to 1 hour
+    endTimeSpinbox->setValue(0);
+    endTimeSpinbox->setDecimals(1);
+    endTimeSpinbox->setSingleStep(1.0);
+    endTimeSpinbox->setToolTip("Set timeline end time (0 = no limit)");
+    connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
+            this, &TimelineDock::onEndTimeChanged);
+    
+    loopLayout->addWidget(loopCheckbox);
+    loopLayout->addWidget(endLabel);
+    loopLayout->addWidget(endTimeSpinbox);
+    loopLayout->addStretch();
+    
+    mainLayout->addLayout(loopLayout);
+    
+    // Connect scheduler signals
+    connect(scheduler, &TimelineScheduler::finished, this, &TimelineDock::onTimelineFinished);
+    connect(scheduler, &TimelineScheduler::looped, this, &TimelineDock::onTimelineLooped);
     
     // Timeline View
     view = new QGraphicsView(this);
@@ -121,7 +152,7 @@ void TimelineDock::setupUi() {
     view->viewport()->installEventFilter(this);
 
     // Playhead
-    playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(Qt::red, 1));
+    playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(Qt::red, 2));
     playheadItem->setZValue(100);
 
     // Initial layout
@@ -275,6 +306,49 @@ void TimelineDock::onPlayClicked() {
     } else {
         scheduler->start();
         playButton->setText("Pause");
+    }
+}
+
+void TimelineDock::onStopClicked() {
+    scheduler->stop();
+    playButton->setText("Play");
+}
+
+void TimelineDock::onLoopToggled(bool checked) {
+    scheduler->setLooping(checked);
+}
+
+void TimelineDock::onEndTimeChanged(double value) {
+    scheduler->setEndTime(value * 1000.0); // Convert seconds to ms
+    updateEndMarker();
+}
+
+void TimelineDock::onTimelineFinished() {
+    playButton->setText("Play");
+    blog(LOG_INFO, "Timeline playback finished");
+}
+
+void TimelineDock::onTimelineLooped() {
+    blog(LOG_INFO, "Timeline looped");
+}
+
+void TimelineDock::updateEndMarker() {
+    double endTimeMs = scheduler->getEndTime();
+    
+    // Remove existing marker if any
+    if (endMarkerItem) {
+        scene->removeItem(endMarkerItem);
+        delete endMarkerItem;
+        endMarkerItem = nullptr;
+    }
+    
+    // Only draw if end time is set
+    if (endTimeMs > 0 && view) {
+        double x = (endTimeMs / 1000.0) * pixelsPerSecond;
+        double h = view->viewport()->height();
+        endMarkerItem = scene->addLine(x, 0, x, h, QPen(QColor(255, 165, 0), 2, Qt::DashLine)); // Orange dashed line
+        endMarkerItem->setZValue(99);
+        endMarkerItem->setToolTip(QString("End time: %1 sec").arg(endTimeMs / 1000.0, 0, 'f', 1));
     }
 }
 

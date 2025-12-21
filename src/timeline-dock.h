@@ -7,12 +7,15 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QCheckBox>
+#include <QDoubleSpinBox>
 #include <map>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "obs-executor.h"
 
 class TimelineEventItem;
+class QGraphicsLineItem;
 
 class TimelineDock : public QWidget {
     Q_OBJECT
@@ -33,9 +36,14 @@ protected:
 
 private slots:
     void onPlayClicked();
+    void onStopClicked();
     void onTick(double currentTimeMs);
     void onAddEventClicked();
     void onEventDoubleClicked(TimelineEventItem *item, int eventIndex);
+    void onLoopToggled(bool checked);
+    void onEndTimeChanged(double value);
+    void onTimelineFinished();
+    void onTimelineLooped();
 
 private:
     void setupUi();
@@ -46,6 +54,7 @@ private:
     void rebuildEventItems();
     void clearEventItems();
     void updateZoomLabel();
+    void updateEndMarker();
 
     TimelineModel *model;
     TimelineScheduler *scheduler;
@@ -55,10 +64,14 @@ private:
     QGraphicsView *view;
     QGraphicsScene *scene;
     QPushButton *playButton;
+    QPushButton *stopButton;
     QPushButton *addEventButton;
+    QCheckBox *loopCheckbox;
+    QDoubleSpinBox *endTimeSpinbox;
     QLabel *timeLabel;
     
     QGraphicsLineItem *playheadItem;
+    QGraphicsLineItem *endMarkerItem = nullptr;
     QList<QGraphicsItem*> rulerItems;
     
     // Event tracking
@@ -66,3 +79,4 @@ private:
     
     double pixelsPerSecond = 100.0;
 };
+
