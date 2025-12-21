@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QVariant>
+#include <QColor>
 
 enum class TimelineEventType {
     SceneSwitch,
@@ -19,4 +20,6 @@ struct TimelineEvent {
     TimelineEventType type;
     QString targetId; // Scene name, Source name, etc.
     QVariant data;    // Additional data (e.g., volume level, seek position)
+    QColor color = QColor(0, 200, 255); // Default cyan color
 };
+

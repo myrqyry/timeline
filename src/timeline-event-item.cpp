@@ -6,12 +6,12 @@
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 
-TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, QGraphicsItem *parent)
-    : QObject(nullptr), QGraphicsRectItem(parent), pixelsPerSecond(pixelsPerSecond)
+TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, QColor color, QGraphicsItem *parent)
+    : QObject(nullptr), QGraphicsRectItem(parent), pixelsPerSecond(pixelsPerSecond), eventColor(color)
 {
     setRect(0, 0, 10, 30);
     setPos(timeMs / 1000.0 * pixelsPerSecond, 25);
-    setBrush(QBrush(QColor(0, 200, 255)));
+    setBrush(QBrush(eventColor));
     setPen(QPen(Qt::black));
     
     setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
@@ -28,6 +28,12 @@ void TimelineEventItem::setPixelsPerSecond(double pxPerSec) {
     setPos((currentTime / 1000.0) * pixelsPerSecond, y());
 }
 
+void TimelineEventItem::setEventColor(const QColor &color) {
+    eventColor = color;
+    setBrush(QBrush(eventColor));
+    update();
+}
+
 void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
     QGraphicsRectItem::mouseReleaseEvent(event);
     setCursor(Qt::OpenHandCursor);
@@ -41,24 +47,29 @@ void TimelineEventItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
 
 void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
     QMenu menu;
-    QAction *deleteAction = menu.addAction("Delete Event");
     QAction *editAction = menu.addAction("Edit Event");
+    QAction *colorAction = menu.addAction("Set Color...");
+    menu.addSeparator();
+    QAction *deleteAction = menu.addAction("Delete Event");
     
     QAction *selected = menu.exec(event->screenPos());
     if (selected == deleteAction) {
         emit deleteRequested();
     } else if (selected == editAction) {
         emit doubleClicked();
+    } else if (selected == colorAction) {
+        emit colorChangeRequested();
     }
 }
 
 void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) {
     Q_UNUSED(widget);
+    Q_UNUSED(option);
     
     // Custom selection appearance
     if (isSelected()) {
         painter->setPen(QPen(QColor(255, 200, 0), 3)); // Gold outline
-        painter->setBrush(QBrush(QColor(0, 220, 255))); // Bright cyan
+        painter->setBrush(QBrush(eventColor.lighter(120))); // Lighter version
         
         // Draw glow effect
         painter->setOpacity(0.3);
@@ -66,8 +77,8 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
         painter->drawRect(rect().adjusted(-2, -2, 2, 2));
         painter->setOpacity(1.0);
     } else {
-        painter->setPen(QPen(Qt::black, 2));
-        painter->setBrush(QBrush(QColor(0, 200, 255)));
+        painter->setPen(QPen(Qt::black, 1));
+        painter->setBrush(QBrush(eventColor));
     }
     
     painter->drawRect(rect());
@@ -84,3 +95,4 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
     }
     return QGraphicsRectItem::itemChange(change, value);
 }
+

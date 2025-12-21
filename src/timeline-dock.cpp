@@ -17,6 +17,7 @@
 #include <QDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QColorDialog>
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
     blog(LOG_INFO, "TimelineDock constructor started");
@@ -524,6 +525,28 @@ void TimelineDock::onAddEventClicked() {
         populateTargets(typeCombo->currentData().toInt());
     });
     
+    // Color picker
+    QColor selectedColor(0, 200, 255); // Default cyan
+    QHBoxLayout *colorLayout = new QHBoxLayout();
+    QLabel *colorLabel = new QLabel("Event Color:", &dialog);
+    QPushButton *colorButton = new QPushButton(&dialog);
+    colorButton->setFixedSize(60, 24);
+    colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+    colorButton->setToolTip("Click to change event color");
+    
+    connect(colorButton, &QPushButton::clicked, [&]() {
+        QColor newColor = QColorDialog::getColor(selectedColor, &dialog, "Select Event Color");
+        if (newColor.isValid()) {
+            selectedColor = newColor;
+            colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+        }
+    });
+    
+    colorLayout->addWidget(colorLabel);
+    colorLayout->addWidget(colorButton);
+    colorLayout->addStretch();
+    layout->addLayout(colorLayout);
+    
     // Time display (read-only info)
     int minutes = static_cast<int>(time / 1000.0) / 60;
     int seconds = static_cast<int>(time / 1000.0) % 60;
@@ -553,6 +576,7 @@ void TimelineDock::onAddEventClicked() {
         evt.timeMs = time;
         evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
         evt.targetId = targetCombo->currentText();
+        evt.color = selectedColor;
         
         model->addEvent(evt);
         rebuildEventItems();
@@ -565,7 +589,7 @@ void TimelineDock::rebuildEventItems() {
     const auto& events = model->getEvents();
     for (size_t i = 0; i < events.size(); i++) {
         const auto& evt = events[i];
-        TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond);
+        TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.color);
         scene->addItem(item);
         
         // Enhanced tooltip with event details
@@ -609,9 +633,25 @@ void TimelineDock::rebuildEventItems() {
         
         // Connect deletion
         connect(item, &TimelineEventItem::deleteRequested,
-                [this, item, eventIndex]() {
+                [this, eventIndex]() {
             model->removeEvent(eventIndex);
             rebuildEventItems(); // Rebuild to clean up and re-index
+        });
+        
+        // Connect color change
+        connect(item, &TimelineEventItem::colorChangeRequested,
+                [this, item, eventIndex]() {
+            QColor newColor = QColorDialog::getColor(item->getEventColor(), this, "Select Event Color");
+            if (newColor.isValid()) {
+                item->setEventColor(newColor);
+                // Update model
+                auto events = model->getEvents();
+                if (eventIndex < events.size()) {
+                    TimelineEvent updatedEvt = events[eventIndex];
+                    updatedEvt.color = newColor;
+                    model->replaceEvent(eventIndex, updatedEvt);
+                }
+            }
         });
     }
 }

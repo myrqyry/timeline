@@ -4,22 +4,28 @@
 #include <QObject>
 #include <QBrush>
 #include <QPen>
+#include <QColor>
 
 class TimelineEventItem : public QObject, public QGraphicsRectItem {
     Q_OBJECT
 
 public:
-    TimelineEventItem(double timeMs, double pixelsPerSecond, QGraphicsItem *parent = nullptr);
+    TimelineEventItem(double timeMs, double pixelsPerSecond, QColor color = QColor(0, 200, 255), QGraphicsItem *parent = nullptr);
     
     // Limits
     void setMaxTime(double maxTimeMs);
     void setPixelsPerSecond(double pxPerSec);
     double getTimeMs() const;
+    
+    // Color
+    void setEventColor(const QColor &color);
+    QColor getEventColor() const { return eventColor; }
 
 signals:
     void eventMoved(double newTimeMs);
     void doubleClicked();
     void deleteRequested();
+    void colorChangeRequested();
 
 protected:
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
@@ -30,4 +36,6 @@ protected:
 
 private:
     double pixelsPerSecond;
+    QColor eventColor;
 };
+
