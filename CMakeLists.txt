@@ -1,39 +1,74 @@
-cmake_minimum_required(VERSION 3.28...3.30)
+cmake_minimum_required(VERSION 3.16)
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCOPE)
+project(obs-timeline-plugin VERSION 1.0.0)
 
-project(${_name} VERSION ${_version})
+# C++ Standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" OFF)
-option(ENABLE_QT "Use Qt functionality" OFF)
+# Find packages
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
-include(compilerconfig)
-include(defaults)
-include(helpers)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(OBS REQUIRED libobs)
 
-add_library(${CMAKE_PROJECT_NAME} MODULE)
+# Auto-generate Qt MOC files
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
-find_package(libobs REQUIRED)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
+# Plugin source files
+set(PLUGIN_SOURCES
+    src/plugin-main.cpp
+    src/timeline-dock.cpp
+    src/timeline-model.cpp
+    src/timeline-scheduler.cpp
+    src/obs-executor.cpp
+    src/timeline-event-item.cpp
+)
 
-if(ENABLE_FRONTEND_API)
-  find_package(obs-frontend-api REQUIRED)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::obs-frontend-api)
+set(PLUGIN_HEADERS
+    src/timeline-dock.h
+    src/timeline-model.h
+    src/timeline-scheduler.h
+    src/obs-executor.h
+    src/event-types.h
+    src/timeline-event-item.h
+)
+
+# Create library
+add_library(${PROJECT_NAME} SHARED 
+    ${PLUGIN_SOURCES} 
+    ${PLUGIN_HEADERS}
+)
+
+# Link libraries
+target_link_libraries(${PROJECT_NAME} 
+    PRIVATE 
+    ${OBS_LIBRARIES} Qt6::Core Qt6::Gui Qt6::Widgets
+)
+
+# Include directories
+target_include_directories(${PROJECT_NAME} 
+    PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${OBS_INCLUDE_DIRS}
+    /usr/include/obs
+)
+
+# Installation
+if(LINUX)
+    install(TARGETS ${PROJECT_NAME} 
+            LIBRARY DESTINATION ~/.config/obs-studio/plugins/obs-timeline-plugin/bin/64bit/)
 endif()
 
-if(ENABLE_QT)
-  find_package(Qt6 COMPONENTS Widgets Core)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets)
-  target_compile_options(
-    ${CMAKE_PROJECT_NAME}
-    PRIVATE $<$<C_COMPILER_ID:Clang,AppleClang>:-Wno-quoted-include-in-framework-header -Wno-comma>
-  )
-  set_target_properties(
-    ${CMAKE_PROJECT_NAME}
-    PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON
-  )
+if(WIN32)
+    install(TARGETS ${PROJECT_NAME} 
+            RUNTIME DESTINATION "C:/Program Files/obs-studio/obs-plugins/64bit/")
 endif()
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c)
-
-set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
+# Install data (locale, themes, effects)
+if(NOT DEFINED OBS_DATA_DESTINATION)
+    install(DIRECTORY data/ DESTINATION $ENV{HOME}/.config/obs-studio/plugins/obs-timeline-plugin/data)
+else()
+    install(DIRECTORY data/ DESTINATION ${OBS_DATA_DESTINATION})
+endif()
