@@ -18,6 +18,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QColorDialog>
+#include <QKeyEvent>
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
     blog(LOG_INFO, "TimelineDock constructor started");
@@ -201,8 +202,9 @@ void TimelineDock::updateLayout() {
         }
     }
     
-    // 4. Redraw ruler
+    // 4. Redraw ruler and grid
     drawRuler();
+    drawGrid();
     
     // 5. Update playhead
     updatePlayhead(scheduler->getCurrentTime());
@@ -353,6 +355,120 @@ void TimelineDock::updateEndMarker() {
     }
 }
 
+void TimelineDock::keyPressEvent(QKeyEvent *event) {
+    switch (event->key()) {
+        case Qt::Key_Space:
+            onPlayClicked();
+            break;
+        case Qt::Key_Delete:
+        case Qt::Key_Backspace:
+            deleteSelectedEvents();
+            break;
+        case Qt::Key_Home:
+            scheduler->seek(0);
+            break;
+        case Qt::Key_Left:
+            if (event->modifiers() & Qt::ShiftModifier) {
+                nudgeSelectedEvents(-100); // -100ms with shift
+            } else {
+                nudgeSelectedEvents(-1000); // -1 second
+            }
+            break;
+        case Qt::Key_Right:
+            if (event->modifiers() & Qt::ShiftModifier) {
+                nudgeSelectedEvents(100); // +100ms with shift
+            } else {
+                nudgeSelectedEvents(1000); // +1 second
+            }
+            break;
+        default:
+            QWidget::keyPressEvent(event);
+            break;
+    }
+}
+
+void TimelineDock::deleteSelectedEvents() {
+    QList<TimelineEventItem*> toDelete;
+    
+    for (auto& pair : eventItemMap) {
+        if (pair.second && pair.second->isSelected()) {
+            toDelete.append(pair.second);
+        }
+    }
+    
+    if (toDelete.isEmpty()) return;
+    
+    // Find indices to delete (in reverse order to avoid index shifts)
+    std::vector<int> indices;
+    const auto& events = model->getEvents();
+    for (TimelineEventItem* item : toDelete) {
+        double itemTime = item->getTimeMs();
+        for (size_t i = 0; i < events.size(); i++) {
+            if (std::abs(events[i].timeMs - itemTime) < 1.0) {
+                indices.push_back(static_cast<int>(i));
+                break;
+            }
+        }
+    }
+    
+    // Sort descending and remove
+    std::sort(indices.rbegin(), indices.rend());
+    for (int idx : indices) {
+        model->removeEvent(idx);
+    }
+    
+    rebuildEventItems();
+}
+
+void TimelineDock::nudgeSelectedEvents(double deltaMs) {
+    for (auto& pair : eventItemMap) {
+        if (pair.second && pair.second->isSelected()) {
+            double currentTime = pair.second->getTimeMs();
+            double newTime = std::max(0.0, currentTime + deltaMs);
+            
+            // Find this event in the model and update it
+            const auto& events = model->getEvents();
+            for (size_t i = 0; i < events.size(); i++) {
+                if (std::abs(events[i].timeMs - currentTime) < 1.0) {
+                    model->updateEventTime(static_cast<int>(i), newTime);
+                    break;
+                }
+            }
+        }
+    }
+    rebuildEventItems();
+}
+
+void TimelineDock::drawGrid() {
+    // Clear existing grid
+    for (QGraphicsItem* item : gridItems) {
+        scene->removeItem(item);
+        delete item;
+    }
+    gridItems.clear();
+    
+    if (!scene || !view) return;
+    
+    double sceneWidth = scene->width();
+    double sceneHeight = view->viewport()->height();
+    
+    // Determine grid step based on zoom level
+    double stepSeconds = 1.0;
+    if (pixelsPerSecond < 20) stepSeconds = 10.0;
+    else if (pixelsPerSecond < 50) stepSeconds = 5.0;
+    else if (pixelsPerSecond > 200) stepSeconds = 0.5;
+    
+    double stepPx = stepSeconds * pixelsPerSecond;
+    
+    // Draw vertical grid lines
+    QPen gridPen(QColor(60, 60, 60), 1, Qt::DotLine);
+    for (double x = 0; x < sceneWidth; x += stepPx) {
+        QGraphicsLineItem* line = scene->addLine(x, 20, x, sceneHeight, gridPen);
+        line->setZValue(-10); // Behind everything
+        gridItems.append(line);
+    }
+}
+
 void TimelineDock::onTick(double currentTimeMs) {
     updatePlayhead(currentTimeMs);
     
@@ -404,6 +520,7 @@ void TimelineDock::onAddEventClicked() {
     typeCombo->addItem("Media Stop", static_cast<int>(TimelineEventType::MediaStop));
     typeCombo->addItem("Filter Enable", static_cast<int>(TimelineEventType::FilterEnable));
     typeCombo->addItem("Filter Disable", static_cast<int>(TimelineEventType::FilterDisable));
+    typeCombo->addItem("Trigger Hotkey", static_cast<int>(TimelineEventType::HotkeyTrigger));
     layout->addWidget(typeCombo);
     
     // Target label (updates based on type)
@@ -514,6 +631,29 @@ void TimelineDock::onAddEventClicked() {
                 targetCombo->setEnabled(false);
             }
         }
+        else if (evtType == TimelineEventType::HotkeyTrigger) {
+            targetLabel->setText("Target Hotkey:");
+            // Enumerate all registered hotkeys
+            obs_enum_hotkeys([](void *data, obs_hotkey_id id, obs_hotkey_t *hotkey) {
+                Q_UNUSED(id);
+                QComboBox *combo = static_cast<QComboBox*>(data);
+                const char *name = obs_hotkey_get_name(hotkey);
+                if (name && strlen(name) > 0) {
+                    // Get the description for a friendlier display
+                    const char *desc = obs_hotkey_get_description(hotkey);
+                    QString displayName = desc && strlen(desc) > 0 
+                        ? QString::fromUtf8(desc) 
+                        : QString::fromUtf8(name);
+                    combo->addItem(displayName, QString::fromUtf8(name));
+                }
+                return true;
+            }, targetCombo);
+            
+            if (targetCombo->count() == 0) {
+                targetCombo->addItem("(No hotkeys registered)");
+                targetCombo->setEnabled(false);
+            }
+        }
     };
     
     // Initial population
@@ -575,7 +715,13 @@ void TimelineDock::onAddEventClicked() {
         TimelineEvent evt;
         evt.timeMs = time;
         evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
-        evt.targetId = targetCombo->currentText();
+        
+        // For hotkeys, use the internal name stored in userData; otherwise use display text
+        if (evt.type == TimelineEventType::HotkeyTrigger) {
+            evt.targetId = targetCombo->currentData().toString();
+        } else {
+            evt.targetId = targetCombo->currentText();
+        }
         evt.color = selectedColor;
         
         model->addEvent(evt);
@@ -602,6 +748,7 @@ void TimelineDock::rebuildEventItems() {
             case TimelineEventType::MediaStop: typeStr = "Media Stop"; break;
             case TimelineEventType::FilterEnable: typeStr = "Filter Enable"; break;
             case TimelineEventType::FilterDisable: typeStr = "Filter Disable"; break;
+            case TimelineEventType::HotkeyTrigger: typeStr = "Hotkey Trigger"; break;
             default: typeStr = "Unknown"; break;
         }
         double timeSec = evt.timeMs / 1000.0;
@@ -615,6 +762,7 @@ void TimelineDock::rebuildEventItems() {
             .arg(seconds, 2, 10, QChar('0'))
             .arg(ms / 10, 2, 10, QChar('0'));
         item->setToolTip(tooltip);
+        item->setEventLabel(evt.targetId); // Display target name on item
         eventItemMap[evt.timeMs] = item;
         
         int eventIndex = static_cast<int>(i);

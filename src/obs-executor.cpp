@@ -29,6 +29,9 @@ void ObsExecutor::executeEvent(const TimelineEvent &evt) {
         case TimelineEventType::FilterDisable:
             handleFilterEnable(evt, false);
             break;
+        case TimelineEventType::HotkeyTrigger:
+            handleHotkey(evt);
+            break;
         default:
             blog(LOG_WARNING, "Timeline: Unknown event type");
             break;
@@ -132,4 +135,27 @@ void ObsExecutor::handleFilterEnable(const TimelineEvent &evt, bool enable) {
         blog(LOG_WARNING, "Timeline: Source '%s' not found for filter operation", 
              sourceName.toUtf8().constData());
     }
+}
+
+void ObsExecutor::handleHotkey(const TimelineEvent &evt) {
+    if (evt.targetId.isEmpty()) return;
+    
+    // targetId contains the hotkey name
+    QString hotkeyName = evt.targetId;
+    
+    // Use obs_hotkey_inject_event to trigger the hotkey
+    // First, we need to find the hotkey by name
+    obs_enum_hotkeys([](void *data, obs_hotkey_id id, obs_hotkey_t *hotkey) {
+        QString *targetName = static_cast<QString*>(data);
+        const char *name = obs_hotkey_get_name(hotkey);
+        
+        if (name && QString::fromUtf8(name) == *targetName) {
+            // Trigger key down then key up
+            obs_hotkey_trigger_routed_callback(id, true);  // Press
+            obs_hotkey_trigger_routed_callback(id, false); // Release
+            blog(LOG_INFO, "Timeline: Triggered hotkey '%s'", name);
+            return false; // Stop enumeration
+        }
+        return true; // Continue enumeration
+    }, &hotkeyName);
 }

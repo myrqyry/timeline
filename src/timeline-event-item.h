@@ -5,6 +5,7 @@
 #include <QBrush>
 #include <QPen>
 #include <QColor>
+#include <QString>
 
 class TimelineEventItem : public QObject, public QGraphicsRectItem {
     Q_OBJECT
@@ -20,6 +21,10 @@ public:
     // Color
     void setEventColor(const QColor &color);
     QColor getEventColor() const { return eventColor; }
+    
+    // Label
+    void setEventLabel(const QString &label);
+    QString getEventLabel() const { return eventLabel; }
 
 signals:
     void eventMoved(double newTimeMs);
@@ -37,5 +42,5 @@ protected:
 private:
     double pixelsPerSecond;
     QColor eventColor;
+    QString eventLabel;
 };
-

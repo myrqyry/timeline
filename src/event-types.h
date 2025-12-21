@@ -12,7 +12,8 @@ enum class TimelineEventType {
     SourceShow,
     SourceHide,
     FilterEnable,
-    FilterDisable
+    FilterDisable,
+    HotkeyTrigger
 };
 
 struct TimelineEvent {

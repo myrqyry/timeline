@@ -33,6 +33,7 @@ public:
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private slots:
     void onPlayClicked();
@@ -50,11 +51,14 @@ private:
     void updatePlayhead(double timeMs);
     void updateLayout();
     void drawRuler();
+    void drawGrid();
     void clearRuler();
     void rebuildEventItems();
     void clearEventItems();
     void updateZoomLabel();
     void updateEndMarker();
+    void deleteSelectedEvents();
+    void nudgeSelectedEvents(double deltaMs);
 
     TimelineModel *model;
     TimelineScheduler *scheduler;
@@ -73,10 +77,10 @@ private:
     QGraphicsLineItem *playheadItem;
     QGraphicsLineItem *endMarkerItem = nullptr;
     QList<QGraphicsItem*> rulerItems;
+    QList<QGraphicsItem*> gridItems;
     
     // Event tracking
     std::map<double, TimelineEventItem*> eventItemMap;
     
     double pixelsPerSecond = 100.0;
 };
-

@@ -20,4 +20,6 @@ private:
     void handleMediaStop(const TimelineEvent &evt);
     void handleSourceVisibility(const TimelineEvent &evt, bool visible);
     void handleFilterEnable(const TimelineEvent &evt, bool enable);
+    void handleHotkey(const TimelineEvent &evt);
 };
+
