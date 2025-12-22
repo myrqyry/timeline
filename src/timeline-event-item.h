@@ -1,17 +1,19 @@
 #pragma once
 
-#include <QGraphicsRectItem>
+#include <QGraphicsEllipseItem>
 #include <QObject>
 #include <QBrush>
 #include <QPen>
 #include <QColor>
 #include <QString>
+#include "event-types.h"
 
-class TimelineEventItem : public QObject, public QGraphicsRectItem {
+class TimelineEventItem : public QObject, public QGraphicsEllipseItem {
     Q_OBJECT
 
 public:
-    TimelineEventItem(double timeMs, double pixelsPerSecond, QColor color = QColor(0, 200, 255), QGraphicsItem *parent = nullptr);
+    TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
+                      QColor color = QColor(0, 200, 255), QGraphicsItem *parent = nullptr);
     
     // Limits
     void setMaxTime(double maxTimeMs);
@@ -25,6 +27,10 @@ public:
     // Label
     void setEventLabel(const QString &label);
     QString getEventLabel() const { return eventLabel; }
+    
+    // Stacking offset
+    void setStackOffset(int offset);
+    int getStackOffset() const { return stackOffset; }
 
 signals:
     void eventMoved(double newTimeMs);
@@ -40,7 +46,13 @@ protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
+    QString getTypeIcon() const;
+    
     double pixelsPerSecond;
     QColor eventColor;
     QString eventLabel;
+    TimelineEventType eventType;
+    int stackOffset = 0;
+    double baseY = 30.0;
+    static constexpr double ITEM_SIZE = 32.0;
 };

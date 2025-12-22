@@ -7,11 +7,13 @@
 #include <QStyleOptionGraphicsItem>
 #include <QFontMetrics>
 
-TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, QColor color, QGraphicsItem *parent)
-    : QObject(nullptr), QGraphicsRectItem(parent), pixelsPerSecond(pixelsPerSecond), eventColor(color)
+TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
+                                     QColor color, QGraphicsItem *parent)
+    : QObject(nullptr), QGraphicsEllipseItem(parent), pixelsPerSecond(pixelsPerSecond), 
+      eventColor(color), eventType(type)
 {
-    setRect(0, 0, 60, 40); // Wider and taller for better visibility
-    setPos(timeMs / 1000.0 * pixelsPerSecond, 25);
+    setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
+    setPos(timeMs / 1000.0 * pixelsPerSecond, baseY);
     setBrush(QBrush(eventColor));
     setPen(QPen(Qt::black));
     
@@ -40,14 +42,33 @@ void TimelineEventItem::setEventLabel(const QString &label) {
     update();
 }
 
+void TimelineEventItem::setStackOffset(int offset) {
+    stackOffset = offset;
+    setPos(x(), baseY + (stackOffset * (ITEM_SIZE + 4)));
+}
+
+QString TimelineEventItem::getTypeIcon() const {
+    switch (eventType) {
+        case TimelineEventType::SceneSwitch:   return "🎬";
+        case TimelineEventType::SourceShow:    return "👁";
+        case TimelineEventType::SourceHide:    return "🚫";
+        case TimelineEventType::MediaStart:    return "▶";
+        case TimelineEventType::MediaStop:     return "⏹";
+        case TimelineEventType::FilterEnable:  return "✓";
+        case TimelineEventType::FilterDisable: return "✗";
+        case TimelineEventType::HotkeyTrigger: return "⌨";
+        default: return "?";
+    }
+}
+
 void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
-    QGraphicsRectItem::mouseReleaseEvent(event);
+    QGraphicsEllipseItem::mouseReleaseEvent(event);
     setCursor(Qt::OpenHandCursor);
     emit eventMoved(getTimeMs());
 }
 
 void TimelineEventItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
-    QGraphicsRectItem::mouseDoubleClickEvent(event);
+    QGraphicsEllipseItem::mouseDoubleClickEvent(event);
     emit doubleClicked();
 }
 
@@ -74,53 +95,47 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     
     painter->setRenderHint(QPainter::Antialiasing);
     
-    // Draw rounded rect
     QRectF r = rect();
     
     if (isSelected()) {
         // Selection glow
-        painter->setOpacity(0.3);
-        painter->setPen(QPen(QColor(255, 200, 0), 6));
+        painter->setOpacity(0.4);
+        painter->setPen(QPen(QColor(255, 200, 0), 5));
         painter->setBrush(Qt::NoBrush);
-        painter->drawRoundedRect(r.adjusted(-2, -2, 2, 2), 4, 4);
+        painter->drawEllipse(r.adjusted(-3, -3, 3, 3));
         painter->setOpacity(1.0);
         
         painter->setPen(QPen(QColor(255, 200, 0), 2));
         painter->setBrush(QBrush(eventColor.lighter(120)));
     } else {
-        painter->setPen(QPen(Qt::black, 1));
+        painter->setPen(QPen(Qt::black, 1.5));
         painter->setBrush(QBrush(eventColor));
     }
     
-    painter->drawRoundedRect(r, 4, 4);
+    // Draw circle
+    painter->drawEllipse(r);
     
-    // Draw label text
-    if (!eventLabel.isEmpty()) {
-        // Determine text color based on background brightness
-        int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
-        QColor textColor = (brightness > 128) ? Qt::black : Qt::white;
-        
-        painter->setPen(textColor);
-        QFont font = painter->font();
-        font.setPointSize(7);
-        font.setBold(true);
-        painter->setFont(font);
-        
-        // Elide text if too long
-        QFontMetrics fm(font);
-        QString elidedText = fm.elidedText(eventLabel, Qt::ElideRight, r.width() - 4);
-        painter->drawText(r.adjusted(2, 2, -2, -2), Qt::AlignCenter | Qt::TextWordWrap, elidedText);
-    }
+    // Draw icon
+    int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
+    QColor textColor = (brightness > 128) ? Qt::black : Qt::white;
+    
+    painter->setPen(textColor);
+    QFont font = painter->font();
+    font.setPointSize(12);
+    painter->setFont(font);
+    
+    QString icon = getTypeIcon();
+    painter->drawText(r, Qt::AlignCenter, icon);
 }
 
 QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant &value) {
     if (change == ItemPositionChange && scene()) {
         QPointF newPos = value.toPointF();
-        // Constrain Y to track height
-        newPos.setY(25);
+        // Keep Y at stacked position
+        newPos.setY(baseY + (stackOffset * (ITEM_SIZE + 4)));
         // Constrain X to positive
         if (newPos.x() < 0) newPos.setX(0);
         return newPos;
     }
-    return QGraphicsRectItem::itemChange(change, value);
+    return QGraphicsEllipseItem::itemChange(change, value);
 }

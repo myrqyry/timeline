@@ -733,9 +733,18 @@ void TimelineDock::rebuildEventItems() {
     clearEventItems();
     
     const auto& events = model->getEvents();
+    
+    // Track stacking - count events at same time (within 50ms tolerance)
+    std::map<int, int> timeSlotCount; // time bucket -> count
+    const double STACK_TOLERANCE_MS = 50.0;
+    
     for (size_t i = 0; i < events.size(); i++) {
         const auto& evt = events[i];
-        TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.color);
+        int timeBucket = static_cast<int>(evt.timeMs / STACK_TOLERANCE_MS);
+        int stackIndex = timeSlotCount[timeBucket]++;
+        
+        TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color);
+        item->setStackOffset(stackIndex);
         scene->addItem(item);
         
         // Enhanced tooltip with event details
@@ -762,7 +771,7 @@ void TimelineDock::rebuildEventItems() {
             .arg(seconds, 2, 10, QChar('0'))
             .arg(ms / 10, 2, 10, QChar('0'));
         item->setToolTip(tooltip);
-        item->setEventLabel(evt.targetId); // Display target name on item
+        item->setEventLabel(evt.targetId);
         eventItemMap[evt.timeMs] = item;
         
         int eventIndex = static_cast<int>(i);
