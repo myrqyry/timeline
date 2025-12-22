@@ -34,6 +34,7 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
     
     connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
     connect(scheduler, &TimelineScheduler::eventTriggered, executor, &ObsExecutor::executeEvent);
+    connect(model, &TimelineModel::modelChanged, this, &TimelineDock::rebuildEventItems);
     
     // Register save callback
     obs_frontend_add_save_callback(saveCallback, this);
@@ -199,14 +200,6 @@ void TimelineDock::updateLayout() {
     
     // 2. Rebuild event items from model
     rebuildEventItems();
-    
-    // 3. Update all existing event items (setPixelsPerSecond recalculates position)
-    for (auto item : scene->items()) {
-        TimelineEventItem *evtItem = dynamic_cast<TimelineEventItem*>(item);
-        if (evtItem) {
-            evtItem->setPixelsPerSecond(pixelsPerSecond);
-        }
-    }
     
     // 4. Redraw ruler and grid
     drawRuler();
