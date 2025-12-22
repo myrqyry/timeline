@@ -43,6 +43,7 @@ private slots:
     void onEventDoubleClicked(TimelineEventItem *item, int eventIndex);
     void onLoopToggled(bool checked);
     void onEndTimeChanged(double value);
+    void onSnapToggled(bool checked);
     void onTimelineFinished();
     void onTimelineLooped();
 
@@ -71,6 +72,7 @@ private:
     QPushButton *stopButton;
     QPushButton *addEventButton;
     QCheckBox *loopCheckbox;
+    QCheckBox *snapCheckbox;
     QDoubleSpinBox *endTimeSpinbox;
     QLabel *timeLabel;
     
@@ -83,4 +85,5 @@ private:
     std::map<double, TimelineEventItem*> eventItemMap;
     
     double pixelsPerSecond = 100.0;
+    bool snapEnabled = false;
 };

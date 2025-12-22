@@ -16,6 +16,7 @@
 #include <cmath>
 #include <QDialog>
 #include <QComboBox>
+#include <QLineEdit>
 #include <QDialogButtonBox>
 #include <QColorDialog>
 #include <QKeyEvent>
@@ -128,9 +129,14 @@ void TimelineDock::setupUi() {
     connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
             this, &TimelineDock::onEndTimeChanged);
     
+    snapCheckbox = new QCheckBox("Snap to Grid", this);
+    snapCheckbox->setToolTip("Snap events to grid lines when dragging");
+    connect(snapCheckbox, &QCheckBox::toggled, this, &TimelineDock::onSnapToggled);
+    
     loopLayout->addWidget(loopCheckbox);
     loopLayout->addWidget(endLabel);
     loopLayout->addWidget(endTimeSpinbox);
+    loopLayout->addWidget(snapCheckbox);
     loopLayout->addStretch();
     
     mainLayout->addLayout(loopLayout);
@@ -270,32 +276,34 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event) {
              }
         }
     
-        if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseMove) {
+        // Only start scrubbing on press, not on move (to allow item dragging)
+        if (event->type() == QEvent::MouseButtonPress) {
             QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-            if (mouseEvent->buttons() & Qt::LeftButton) {
-                // Check if we are clicking on an item (like an event) - if so, don't scrub
+            if (mouseEvent->button() == Qt::LeftButton) {
                 QPoint pos = mouseEvent->pos();
                 QPointF scenePos = view->mapToScene(pos);
                 
-                // If there's an item under cursor that IS moveable, let it handle the event
-                QGraphicsItem *item = scene->itemAt(scenePos, QTransform());
-                if (item && (item->flags() & QGraphicsItem::ItemIsMovable)) {
-                    return false; // Propagate to item
+                // Check if clicking on a movable item - if so, let it handle the drag
+                QList<QGraphicsItem*> items = scene->items(scenePos);
+                for (QGraphicsItem* item : items) {
+                    if (item && (item->flags() & QGraphicsItem::ItemIsMovable)) {
+                        // Found a movable item - don't scrub, let item handle it
+                        return false;
+                    }
                 }
                 
-                // Otherwise, scrub
+                // Not on an item - perform scrub
                 double x = scenePos.x();
                 double timeMs = (x / pixelsPerSecond) * 1000.0;
                 if (timeMs < 0) timeMs = 0;
                 
-                // Pause if playing to scrub smoothly
                 if (scheduler->isPlaying()) {
                     scheduler->pause();
                     playButton->setText("Play");
                 }
                 
                 scheduler->seek(timeMs);
-                return true; // Consumed
+                return true;
             }
         }
     }
@@ -333,6 +341,19 @@ void TimelineDock::onTimelineFinished() {
 
 void TimelineDock::onTimelineLooped() {
     blog(LOG_INFO, "Timeline looped");
+}
+
+void TimelineDock::onSnapToggled(bool checked) {
+    snapEnabled = checked;
+    // Update all existing event items
+    for (auto& pair : eventItemMap) {
+        if (pair.second) {
+            pair.second->setSnapEnabled(snapEnabled);
+            // Determine snap interval based on zoom level
+            double stepMs = 100.0; // 100ms snap
+            pair.second->setSnapInterval(stepMs);
+        }
+    }
 }
 
 void TimelineDock::updateEndMarker() {
@@ -745,6 +766,12 @@ void TimelineDock::rebuildEventItems() {
         
         TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color);
         item->setStackOffset(stackIndex);
+        
+        // Apply snap settings
+        item->setSnapEnabled(snapEnabled);
+        double stepMs = 100.0; // 100ms snap
+        item->setSnapInterval(stepMs);
+        
         scene->addItem(item);
         
         // Enhanced tooltip with event details
@@ -830,7 +857,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     
     QDialog dialog(this);
     dialog.setWindowTitle("Edit Timeline Event");
-    dialog.setMinimumWidth(300);
+    dialog.setMinimumWidth(400);
     
     QVBoxLayout *layout = new QVBoxLayout(&dialog);
     
@@ -838,28 +865,56 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     layout->addWidget(new QLabel("Event Type:"));
     QComboBox *typeCombo = new QComboBox(&dialog);
     typeCombo->addItem("Scene Switch", static_cast<int>(TimelineEventType::SceneSwitch));
+    typeCombo->addItem("Source Show", static_cast<int>(TimelineEventType::SourceShow));
+    typeCombo->addItem("Source Hide", static_cast<int>(TimelineEventType::SourceHide));
     typeCombo->addItem("Media Start", static_cast<int>(TimelineEventType::MediaStart));
     typeCombo->addItem("Media Stop", static_cast<int>(TimelineEventType::MediaStop));
-    typeCombo->setCurrentIndex(static_cast<int>(evt.type));
-    layout->addWidget(typeCombo);
+    typeCombo->addItem("Filter Enable", static_cast<int>(TimelineEventType::FilterEnable));
+    typeCombo->addItem("Filter Disable", static_cast<int>(TimelineEventType::FilterDisable));
+    typeCombo->addItem("Trigger Hotkey", static_cast<int>(TimelineEventType::HotkeyTrigger));
     
-    // Target scene
-    layout->addWidget(new QLabel("Target Scene:"));
-    QComboBox *sceneCombo = new QComboBox(&dialog);
-    
-    // Populate with OBS scenes
-    struct obs_frontend_source_list scenes = {};
-    obs_frontend_get_scenes(&scenes);
-    for (size_t i = 0; i < scenes.sources.num; i++) {
-        obs_source_t *source = scenes.sources.array[i];
-        const char *name = obs_source_get_name(source);
-        sceneCombo->addItem(QString::fromUtf8(name));
-        if (evt.targetId == QString::fromUtf8(name)) {
-            sceneCombo->setCurrentIndex(sceneCombo->count() - 1);
+    // Find and select current type
+    for (int i = 0; i < typeCombo->count(); i++) {
+        if (typeCombo->itemData(i).toInt() == static_cast<int>(evt.type)) {
+            typeCombo->setCurrentIndex(i);
+            break;
         }
     }
-    obs_frontend_source_list_free(&scenes);
-    layout->addWidget(sceneCombo);
+    layout->addWidget(typeCombo);
+    
+    // Target
+    layout->addWidget(new QLabel("Target:"));
+    QLineEdit *targetEdit = new QLineEdit(&dialog);
+    targetEdit->setText(evt.targetId);
+    layout->addWidget(targetEdit);
+    
+    // Color picker
+    QColor selectedColor = evt.color;
+    QHBoxLayout *colorLayout = new QHBoxLayout();
+    QLabel *colorLabel = new QLabel("Event Color:", &dialog);
+    QPushButton *colorButton = new QPushButton(&dialog);
+    colorButton->setFixedSize(60, 24);
+    colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+    
+    connect(colorButton, &QPushButton::clicked, [&]() {
+        QColor newColor = QColorDialog::getColor(selectedColor, &dialog, "Select Event Color");
+        if (newColor.isValid()) {
+            selectedColor = newColor;
+            colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+        }
+    });
+    
+    colorLayout->addWidget(colorLabel);
+    colorLayout->addWidget(colorButton);
+    colorLayout->addStretch();
+    layout->addLayout(colorLayout);
+    
+    // Time info
+    double timeSec = evt.timeMs / 1000.0;
+    QString timeStr = QString("Current time: %1 sec").arg(timeSec, 0, 'f', 2);
+    QLabel *timeInfo = new QLabel(timeStr, &dialog);
+    timeInfo->setStyleSheet("color: gray; font-style: italic;");
+    layout->addWidget(timeInfo);
     
     QDialogButtonBox *buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
@@ -870,11 +925,11 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     if (dialog.exec() == QDialog::Accepted) {
         TimelineEvent updatedEvt = evt;
         updatedEvt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
-        updatedEvt.targetId = sceneCombo->currentText();
+        updatedEvt.targetId = targetEdit->text();
+        updatedEvt.color = selectedColor;
         
         model->replaceEvent(eventIndex, updatedEvt);
-        item->setToolTip(QString("Event: %1").arg(updatedEvt.targetId));
-        rebuildEventItems(); // Refresh view
+        rebuildEventItems();
     }
 }
 

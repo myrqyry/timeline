@@ -31,6 +31,10 @@ public:
     // Stacking offset
     void setStackOffset(int offset);
     int getStackOffset() const { return stackOffset; }
+    
+    // Snap to grid
+    void setSnapEnabled(bool enabled);
+    void setSnapInterval(double intervalMs);
 
 signals:
     void eventMoved(double newTimeMs);
@@ -55,4 +59,9 @@ private:
     int stackOffset = 0;
     double baseY = 30.0;
     static constexpr double ITEM_SIZE = 32.0;
+    
+    // Snap settings
+    bool snapEnabled = false;
+    double snapIntervalMs = 1000.0; // Default 1 second
 };
+

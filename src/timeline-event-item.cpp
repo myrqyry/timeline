@@ -128,6 +128,14 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     painter->drawText(r, Qt::AlignCenter, icon);
 }
 
+void TimelineEventItem::setSnapEnabled(bool enabled) {
+    snapEnabled = enabled;
+}
+
+void TimelineEventItem::setSnapInterval(double intervalMs) {
+    snapIntervalMs = intervalMs;
+}
+
 QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant &value) {
     if (change == ItemPositionChange && scene()) {
         QPointF newPos = value.toPointF();
@@ -135,6 +143,14 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
         newPos.setY(baseY + (stackOffset * (ITEM_SIZE + 4)));
         // Constrain X to positive
         if (newPos.x() < 0) newPos.setX(0);
+        
+        // Snap to grid if enabled
+        if (snapEnabled && snapIntervalMs > 0) {
+            double timeMs = newPos.x() / pixelsPerSecond * 1000.0;
+            double snappedTimeMs = std::round(timeMs / snapIntervalMs) * snapIntervalMs;
+            newPos.setX(snappedTimeMs / 1000.0 * pixelsPerSecond);
+        }
+        
         return newPos;
     }
     return QGraphicsEllipseItem::itemChange(change, value);
