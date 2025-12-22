@@ -1,17 +1,41 @@
 # OBS Timeline Sequencer
 
-A timeline-based sequencer plugin for OBS Studio. This plugin allows you to schedule and automate events, such as scene switching, using a visual timeline interface.
+A timeline-based sequencer plugin for OBS Studio. Schedule and automate your stream with precision using a visual timeline interface.
 
-## Features
+![Timeline Dock](https://github.com/user-attachments/assets/placeholder)
 
--   **Visual Timeline Dock**: A dedicated, resizable dock in OBS (View -> Docks -> Timeline) to visualize and manage automation.
--   **Event Scheduling**: Place events on the timeline to trigger actions at specific times.
-    -   *Current implementation supports Scene Switching.*
--   **Playback Control**: Play, Pause, and Scrub through the timeline.
-    -   Click the "Play" button to start automation.
-    -   Click on the timeline track to scrub/seek.
--   **Zooming**: Hold `Ctrl` and scroll the mouse wheel to zoom in and out of the timeline.
--   **Persistence**: The timeline state (events and positions) is automatically saved and loaded with your OBS profile.
+## Key Features
+
+### 🎨 Visual Timeline
+- **Precise Control**: Dedicated dock in OBS for frame-perfect scheduling.
+- **Visual Markers**: Events appear as **circular nodes** with intuitive emoji icons:
+  - 🎬 Scene Switch
+  - 👁 / 🚫 Source Show / Hide
+  - ▶ / ⏹ Media Start / Stop
+  - ✓ / ✗ Filter Enable / Disable
+  - ⌨ Hotkey Trigger
+- **Smart Layout**: Events placed at the same time automatically **stack vertically**.
+- **Zoomable**: Hold `Ctrl` + Scroll to zoom from 5 seconds to 10 minutes view.
+
+### ⚡ Powerful Automation
+- **8 Event Types**:
+  1. **Scene Switch**: Cut to a specific scene.
+  2. **Source Visibility**: Show/Hide specific sources in a scene.
+  3. **Media Control**: Start/Stop media sources.
+  4. **Filter Control**: Enable/Disable filters on sources.
+  5. **Hotkey Trigger**: Trigger any registered OBS hotkey.
+- **Looping**: Set a timeline end time and loop indefinitely for complex background animations.
+- **Snap to Grid**: Toggle grid snapping for precise 100ms alignment.
+
+### 🛠 Easy Editing
+- **Double-Click to Edit**: Open a dialog to change event type, target, and color.
+- **Color Coding**: customize event colors for easy categorization.
+- **Drag & Drop**: Freely move events on the timeline (with optional snap).
+- **Keyboard Shortcuts**:
+  - `Space`: Play/Pause
+  - `Delete`: Remove selected event
+  - `Home`: Jump to start
+  - `Arrows`: Nudge events (Shift+Arrows for fine control)
 
 ## Installation
 
@@ -39,16 +63,19 @@ A timeline-based sequencer plugin for OBS Studio. This plugin allows you to sche
 ## Usage
 
 1.  **Open the Dock**: Go to **View** > **Docks** and select **Timeline**.
-2.  **Add Event**: Click the "Add Event" button. A new event will appear at the current playhead position + 2 seconds.
-3.  **Move Event**: Drag the red event block to retime it.
-4.  **Edit Event**: *Coming Soon* (Currently defaults to switching to "Scene 2").
-5.  **Zoom**: Hover over the timeline, hold `Ctrl`, and scroll to zoom.
+2.  **Add Event**: Click **Add Event** to place a marker at the playhead.
+3.  **Configure**: Double-click the marker to set its type (e.g., Hotkey, Scene Switch) and target.
+4.  **Refine**: Drag to position, right-click to set color, or use the **Snap** checkbox for precision.
+5.  **Play**: Click Play or press Spacebar to watch it happen!
 
 ## Development
 
 -   **Source**: `src/` contains all C++ source code.
 -   **UI**: Built with Qt Widgets and QGraphicsView.
--   **Persistence**: Uses `obs_frontend_add_save_callback` to save `timeline_events.json` in the plugin config directory.
+-   **Architecture**:
+    -   `TimelineModel`: Manages event data.
+    -   `TimelineView` / `Dock`: Handles UI and rendering.
+    -   `ObsExecutor`: Interfaces with OBS API to trigger actions.
 
 ## License
 

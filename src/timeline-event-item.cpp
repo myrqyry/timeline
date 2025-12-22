@@ -13,7 +13,8 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
       eventColor(color), eventType(type)
 {
     setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
-    setPos(timeMs / 1000.0 * pixelsPerSecond, baseY);
+    // Center the item horizontally on the time
+    setPos((timeMs / 1000.0 * pixelsPerSecond) - (ITEM_SIZE / 2.0), baseY);
     setBrush(QBrush(eventColor));
     setPen(QPen(Qt::black));
     
@@ -22,13 +23,15 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
 }
 
 double TimelineEventItem::getTimeMs() const {
-    return x() / pixelsPerSecond * 1000.0;
+    // Add half item width to get center X, then convert to time
+    return (x() + ITEM_SIZE / 2.0) / pixelsPerSecond * 1000.0;
 }
 
 void TimelineEventItem::setPixelsPerSecond(double pxPerSec) {
     double currentTime = getTimeMs();
     pixelsPerSecond = pxPerSec;
-    setPos((currentTime / 1000.0) * pixelsPerSecond, y());
+    // Recalculate position (center aligned)
+    setPos(((currentTime / 1000.0) * pixelsPerSecond) - (ITEM_SIZE / 2.0), y());
 }
 
 void TimelineEventItem::setEventColor(const QColor &color) {
@@ -141,14 +144,21 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
         QPointF newPos = value.toPointF();
         // Keep Y at stacked position
         newPos.setY(baseY + (stackOffset * (ITEM_SIZE + 4)));
-        // Constrain X to positive
-        if (newPos.x() < 0) newPos.setX(0);
+        
+        double minX = -ITEM_SIZE / 2.0; // Allow moving slightly left so center can be at 0
+        if (newPos.x() < minX) newPos.setX(minX);
         
         // Snap to grid if enabled
         if (snapEnabled && snapIntervalMs > 0) {
-            double timeMs = newPos.x() / pixelsPerSecond * 1000.0;
+            // Calculate current time at center
+            double centerX = newPos.x() + ITEM_SIZE / 2.0;
+            double timeMs = centerX / pixelsPerSecond * 1000.0;
+            
             double snappedTimeMs = std::round(timeMs / snapIntervalMs) * snapIntervalMs;
-            newPos.setX(snappedTimeMs / 1000.0 * pixelsPerSecond);
+            
+            // Convert back to top-left position
+            double snappedCenterX = snappedTimeMs / 1000.0 * pixelsPerSecond;
+            newPos.setX(snappedCenterX - ITEM_SIZE / 2.0);
         }
         
         return newPos;
