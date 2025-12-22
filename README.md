@@ -2,18 +2,19 @@
 
 A timeline-based sequencer plugin for OBS Studio. Schedule and automate your stream with precision using a visual timeline interface.
 
-![Timeline Dock](https://github.com/user-attachments/assets/placeholder)
+![Timeline Dock](Screenshot.png)
 
 ## Key Features
 
 ### 🎨 Visual Timeline
 - **Precise Control**: Dedicated dock in OBS for frame-perfect scheduling.
-- **Visual Markers**: Events appear as **circular nodes** with intuitive emoji icons:
+- **Visual Markers**: Events appear as **circular nodes** with high-clarity **SVG icons**:
   - 🎬 Scene Switch
   - 👁 / 🚫 Source Show / Hide
   - ▶ / ⏹ Media Start / Stop
   - ✓ / ✗ Filter Enable / Disable
   - ⌨ Hotkey Trigger
+- **Smart Contrast**: Icons automatically switch between Black and White for perfect visibility on any background color.
 - **Smart Layout**: Events placed at the same time automatically **stack vertically**.
 - **Zoomable**: Hold `Ctrl` + Scroll to zoom from 5 seconds to 10 minutes view.
 
@@ -29,7 +30,8 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
 
 ### 🛠 Easy Editing
 - **Double-Click to Edit**: Open a dialog to change event type, target, and color.
-- **Color Coding**: customize event colors for easy categorization.
+- **Color Coding**: Each event type has a default category color, or customized freely.
+- **Persistence**: **Import/Export** your full timeline to JSON for backup or sharing.
 - **Drag & Drop**: Freely move events on the timeline (with optional snap).
 - **Keyboard Shortcuts**:
   - `Space`: Play/Pause

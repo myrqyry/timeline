@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find packages
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OBS REQUIRED libobs)
@@ -33,6 +33,7 @@ set(PLUGIN_HEADERS
     src/obs-executor.h
     src/event-types.h
     src/timeline-event-item.h
+    src/theme-helpers.h
 )
 
 # Create library
@@ -44,7 +45,7 @@ add_library(${PROJECT_NAME} SHARED
 # Link libraries
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
-    ${OBS_LIBRARIES} Qt6::Core Qt6::Gui Qt6::Widgets
+    ${OBS_LIBRARIES} Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg
 )
 
 # Include directories

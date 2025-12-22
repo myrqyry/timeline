@@ -59,11 +59,14 @@ QJsonArray TimelineModel::toJson() const {
         obj["time"] = evt.timeMs;
         obj["type"] = static_cast<int>(evt.type);
         obj["target"] = evt.targetId;
-        // Skipping data variant for now for simplicity, or convert to string
+        obj["color"] = evt.color.name();
+        // Skipping data variant for now
         array.append(obj);
     }
     return array;
 }
+
+#include "theme-helpers.h"
 
 void TimelineModel::fromJson(const QJsonArray &json) {
     clearEvents();
@@ -73,6 +76,14 @@ void TimelineModel::fromJson(const QJsonArray &json) {
         evt.timeMs = obj["time"].toDouble();
         evt.type = static_cast<TimelineEventType>(obj["type"].toInt());
         evt.targetId = obj["target"].toString();
+        
+        if (obj.contains("color")) {
+            evt.color = QColor(obj["color"].toString());
+        } else {
+            // Use default theme color for this type if missing (legacy files)
+            evt.color = ThemeIcons::getDefaultColor(evt.type);
+        }
+        
         events.push_back(evt);
     }
     sortEvents();

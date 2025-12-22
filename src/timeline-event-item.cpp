@@ -7,11 +7,20 @@
 #include <QStyleOptionGraphicsItem>
 #include <QFontMetrics>
 
+#include "theme-helpers.h"
+
 TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
                                      QColor color, QGraphicsItem *parent)
     : QObject(nullptr), QGraphicsEllipseItem(parent), pixelsPerSecond(pixelsPerSecond), 
       eventColor(color), eventType(type)
 {
+    // Determine contrast color
+    int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
+    QString iconColor = (brightness > 128) ? "black" : "white";
+
+    // Load SVG icon
+    renderer = new QSvgRenderer(ThemeIcons::getIconSvg(type, iconColor), this);
+
     setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
     // Center the item horizontally on the time
     setPos((timeMs / 1000.0 * pixelsPerSecond) - (ITEM_SIZE / 2.0), baseY);
@@ -36,6 +45,13 @@ void TimelineEventItem::setPixelsPerSecond(double pxPerSec) {
 
 void TimelineEventItem::setEventColor(const QColor &color) {
     eventColor = color;
+    
+    // Update SVG renderer with contrast color
+    if (renderer) delete renderer;
+    int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
+    QString iconColor = (brightness > 128) ? "black" : "white";
+    renderer = new QSvgRenderer(ThemeIcons::getIconSvg(eventType, iconColor), this);
+    
     setBrush(QBrush(eventColor));
     update();
 }
@@ -50,19 +66,7 @@ void TimelineEventItem::setStackOffset(int offset) {
     setPos(x(), baseY + (stackOffset * (ITEM_SIZE + 4)));
 }
 
-QString TimelineEventItem::getTypeIcon() const {
-    switch (eventType) {
-        case TimelineEventType::SceneSwitch:   return "🎬";
-        case TimelineEventType::SourceShow:    return "👁";
-        case TimelineEventType::SourceHide:    return "🚫";
-        case TimelineEventType::MediaStart:    return "▶";
-        case TimelineEventType::MediaStop:     return "⏹";
-        case TimelineEventType::FilterEnable:  return "✓";
-        case TimelineEventType::FilterDisable: return "✗";
-        case TimelineEventType::HotkeyTrigger: return "⌨";
-        default: return "?";
-    }
-}
+
 
 void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
     QGraphicsEllipseItem::mouseReleaseEvent(event);
@@ -119,16 +123,10 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     painter->drawEllipse(r);
     
     // Draw icon
-    int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
-    QColor textColor = (brightness > 128) ? Qt::black : Qt::white;
-    
-    painter->setPen(textColor);
-    QFont font = painter->font();
-    font.setPointSize(12);
-    painter->setFont(font);
-    
-    QString icon = getTypeIcon();
-    painter->drawText(r, Qt::AlignCenter, icon);
+    if (renderer && renderer->isValid()) {
+        QRectF iconRect = r.adjusted(6, 6, -6, -6); // Padding
+        renderer->render(painter, iconRect);
+    }
 }
 
 void TimelineEventItem::setSnapEnabled(bool enabled) {

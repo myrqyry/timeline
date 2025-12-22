@@ -6,6 +6,7 @@
 #include <QPen>
 #include <QColor>
 #include <QString>
+#include <QSvgRenderer>
 #include "event-types.h"
 
 class TimelineEventItem : public QObject, public QGraphicsEllipseItem {
@@ -63,5 +64,7 @@ private:
     // Snap settings
     bool snapEnabled = false;
     double snapIntervalMs = 1000.0; // Default 1 second
+    
+    QSvgRenderer *renderer = nullptr;
 };
 

@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 
 #include "timeline-event-item.h"
+#include "theme-helpers.h"
 #include <QMouseEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSimpleTextItem>
@@ -64,7 +65,16 @@ void TimelineDock::save() {
     
     QFile file(configPath);
     if (file.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(model->toJson());
+        QJsonObject root;
+        root["events"] = model->toJson();
+        
+        QJsonObject settings;
+        settings["loop"] = loopCheckbox->isChecked();
+        settings["endTime"] = endTimeSpinbox->value();
+        settings["snap"] = snapCheckbox->isChecked();
+        root["settings"] = settings;
+        
+        QJsonDocument doc(root);
         file.write(doc.toJson());
         file.close();
         blog(LOG_INFO, "Saved timeline to %s", configPath);
@@ -80,7 +90,31 @@ void TimelineDock::load() {
     if (file.exists() && file.open(QIODevice::ReadOnly)) {
         blog(LOG_INFO, "Loading config file: %s", configPath);
         QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        model->fromJson(doc.array());
+        
+        if (doc.isArray()) {
+            // Legacy format (just events)
+            model->fromJson(doc.array());
+        } else if (doc.isObject()) {
+            // New format
+            QJsonObject root = doc.object();
+            model->fromJson(root["events"].toArray());
+            
+            QJsonObject settings = root["settings"].toObject();
+            // Block signals to avoid triggering unnecessary logic during load
+            bool loop = settings["loop"].toBool();
+            double end = settings["endTime"].toDouble();
+            bool snap = settings["snap"].toBool();
+            
+            loopCheckbox->setChecked(loop);
+            endTimeSpinbox->setValue(end);
+            snapCheckbox->setChecked(snap);
+            
+            // Apply settings manually since signals might be blocked (or just to be safe)
+            onLoopToggled(loop);
+            onEndTimeChanged(end);
+            onSnapToggled(snap);
+        }
+        
         updateLayout(); // Refresh UI with new events
         blog(LOG_INFO, "Loaded timeline from %s", configPath);
     } else {
@@ -375,7 +409,16 @@ void TimelineDock::onSaveClicked() {
     
     QFile file(fileName);
     if (file.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(model->toJson());
+        QJsonObject root;
+        root["events"] = model->toJson();
+        
+        QJsonObject settings;
+        settings["loop"] = loopCheckbox->isChecked();
+        settings["endTime"] = endTimeSpinbox->value();
+        settings["snap"] = snapCheckbox->isChecked();
+        root["settings"] = settings;
+        
+        QJsonDocument doc(root);
         file.write(doc.toJson());
         file.close();
         blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
@@ -389,7 +432,24 @@ void TimelineDock::onLoadClicked() {
     QFile file(fileName);
     if (file.open(QIODevice::ReadOnly)) {
         QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        model->fromJson(doc.array());
+        
+        if (doc.isArray()) {
+            model->fromJson(doc.array());
+        } else if (doc.isObject()) {
+            QJsonObject root = doc.object();
+            model->fromJson(root["events"].toArray());
+            
+            QJsonObject settings = root["settings"].toObject();
+            loopCheckbox->setChecked(settings["loop"].toBool());
+            endTimeSpinbox->setValue(settings["endTime"].toDouble());
+            snapCheckbox->setChecked(settings["snap"].toBool());
+            
+            // Apply settings
+            onLoopToggled(loopCheckbox->isChecked());
+            onEndTimeChanged(endTimeSpinbox->value());
+            onSnapToggled(snapCheckbox->isChecked());
+        }
+        
         rebuildEventItems(); // Refresh view
         blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
     }
@@ -716,17 +776,10 @@ void TimelineDock::onAddEventClicked() {
         }
     };
     
-    // Initial population
-    populateTargets(static_cast<int>(TimelineEventType::SceneSwitch));
+    // Color picker setup (Move before type connection so lambda can capture)
+    TimelineEventType initialType = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+    QColor selectedColor = ThemeIcons::getDefaultColor(initialType); 
     
-    // Update targets when type changes
-    connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [&](int) {
-        populateTargets(typeCombo->currentData().toInt());
-    });
-    
-    // Color picker
-    QColor selectedColor(0, 200, 255); // Default cyan
     QHBoxLayout *colorLayout = new QHBoxLayout();
     QLabel *colorLabel = new QLabel("Event Color:", &dialog);
     QPushButton *colorButton = new QPushButton(&dialog);
@@ -745,7 +798,21 @@ void TimelineDock::onAddEventClicked() {
     colorLayout->addWidget(colorLabel);
     colorLayout->addWidget(colorButton);
     colorLayout->addStretch();
-    layout->addLayout(colorLayout);
+    layout->addLayout(colorLayout); // Add color layout before connecting type change? Or after? Doesn't matter for layout order, just logic.
+
+    // Initial population
+    populateTargets(static_cast<int>(initialType));
+    
+    // Update targets AND color when type changes
+    connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [&](int index) {
+        TimelineEventType newType = static_cast<TimelineEventType>(typeCombo->itemData(index).toInt());
+        populateTargets(static_cast<int>(newType));
+        
+        // Update color to default
+        selectedColor = ThemeIcons::getDefaultColor(newType);
+        colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+    });
     
     // Time display (read-only info)
     int minutes = static_cast<int>(time / 1000.0) / 60;
@@ -943,10 +1010,17 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
         }
     });
     
-    colorLayout->addWidget(colorLabel);
     colorLayout->addWidget(colorButton);
     colorLayout->addStretch();
     layout->addLayout(colorLayout);
+
+    // Update color when type changes (to default for that type)
+    connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [&](int index) {
+        TimelineEventType newType = static_cast<TimelineEventType>(typeCombo->itemData(index).toInt());
+        selectedColor = ThemeIcons::getDefaultColor(newType);
+        colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+    });
     
     // Time info
     double timeSec = evt.timeMs / 1000.0;
