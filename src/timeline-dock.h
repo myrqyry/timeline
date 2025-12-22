@@ -44,6 +44,8 @@ private slots:
     void onLoopToggled(bool checked);
     void onEndTimeChanged(double value);
     void onSnapToggled(bool checked);
+    void onSaveClicked();
+    void onLoadClicked();
     void onTimelineFinished();
     void onTimelineLooped();
 

@@ -15,6 +15,7 @@
 #include <QWheelEvent>
 #include <cmath>
 #include <QDialog>
+#include <QFileDialog>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QDialogButtonBox>
@@ -91,16 +92,16 @@ void TimelineDock::load() {
 void TimelineDock::setupUi() {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     
-    // Controls Row 1
+    // Unified Controls Row
     QHBoxLayout *controlsLayout = new QHBoxLayout();
+    
+    // Playback Controls
     playButton = new QPushButton("Play", this);
     playButton->setToolTip("Start/pause timeline playback");
     stopButton = new QPushButton("Stop", this);
     stopButton->setToolTip("Stop and reset to beginning");
     addEventButton = new QPushButton("Add Event", this);
     addEventButton->setToolTip("Add a new event at the current playhead position");
-    timeLabel = new QLabel("00:00:00", this);
-    timeLabel->setToolTip("Current timeline position | Zoom level");
     
     connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
     connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
@@ -109,18 +110,41 @@ void TimelineDock::setupUi() {
     controlsLayout->addWidget(playButton);
     controlsLayout->addWidget(stopButton);
     controlsLayout->addWidget(addEventButton);
+    
+    // Save/Load
+    QPushButton *saveButton = new QPushButton("Save", this);
+    saveButton->setToolTip("Export timeline to JSON file");
+    QPushButton *loadButton = new QPushButton("Load", this);
+    loadButton->setToolTip("Import timeline from JSON file");
+    
+    connect(saveButton, &QPushButton::clicked, this, &TimelineDock::onSaveClicked);
+    connect(loadButton, &QPushButton::clicked, this, &TimelineDock::onLoadClicked);
+    
+    controlsLayout->addWidget(saveButton);
+    controlsLayout->addWidget(loadButton);
+    
+    // Time Display
+    timeLabel = new QLabel("00:00:00", this);
+    timeLabel->setToolTip("Current timeline position | Zoom level");
     controlsLayout->addWidget(timeLabel);
+    
+    // Spacer to push options to the right
     controlsLayout->addStretch();
     
-    mainLayout->addLayout(controlsLayout);
+    // Options
+    snapCheckbox = new QCheckBox("Snap", this);
+    snapCheckbox->setToolTip("Snap events to grid lines when dragging");
+    connect(snapCheckbox, &QCheckBox::toggled, this, &TimelineDock::onSnapToggled);
+    controlsLayout->addWidget(snapCheckbox);
     
-    // Controls Row 2 - Loop and End Time
-    QHBoxLayout *loopLayout = new QHBoxLayout();
     loopCheckbox = new QCheckBox("Loop", this);
     loopCheckbox->setToolTip("Loop playback when end time is reached");
     connect(loopCheckbox, &QCheckBox::toggled, this, &TimelineDock::onLoopToggled);
+    controlsLayout->addWidget(loopCheckbox);
     
-    QLabel *endLabel = new QLabel("End Time (sec):", this);
+    QLabel *endLabel = new QLabel("End:", this);
+    controlsLayout->addWidget(endLabel);
+    
     endTimeSpinbox = new QDoubleSpinBox(this);
     endTimeSpinbox->setRange(0, 3600); // Up to 1 hour
     endTimeSpinbox->setValue(0);
@@ -129,18 +153,9 @@ void TimelineDock::setupUi() {
     endTimeSpinbox->setToolTip("Set timeline end time (0 = no limit)");
     connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
             this, &TimelineDock::onEndTimeChanged);
+    controlsLayout->addWidget(endTimeSpinbox);
     
-    snapCheckbox = new QCheckBox("Snap to Grid", this);
-    snapCheckbox->setToolTip("Snap events to grid lines when dragging");
-    connect(snapCheckbox, &QCheckBox::toggled, this, &TimelineDock::onSnapToggled);
-    
-    loopLayout->addWidget(loopCheckbox);
-    loopLayout->addWidget(endLabel);
-    loopLayout->addWidget(endTimeSpinbox);
-    loopLayout->addWidget(snapCheckbox);
-    loopLayout->addStretch();
-    
-    mainLayout->addLayout(loopLayout);
+    mainLayout->addLayout(controlsLayout);
     
     // Connect scheduler signals
     connect(scheduler, &TimelineScheduler::finished, this, &TimelineDock::onTimelineFinished);
@@ -204,6 +219,7 @@ void TimelineDock::updateLayout() {
     // 4. Redraw ruler and grid
     drawRuler();
     drawGrid();
+    updateEndMarker();
     
     // 5. Update playhead
     updatePlayhead(scheduler->getCurrentTime());
@@ -346,6 +362,36 @@ void TimelineDock::onSnapToggled(bool checked) {
             double stepMs = 100.0; // 100ms snap
             pair.second->setSnapInterval(stepMs);
         }
+    }
+}
+
+void TimelineDock::onSaveClicked() {
+    QString fileName = QFileDialog::getSaveFileName(this, "Save Timeline", "", "JSON Files (*.json)");
+    if (fileName.isEmpty()) return;
+    
+    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) {
+        fileName += ".json";
+    }
+    
+    QFile file(fileName);
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc(model->toJson());
+        file.write(doc.toJson());
+        file.close();
+        blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
+    }
+}
+
+void TimelineDock::onLoadClicked() {
+    QString fileName = QFileDialog::getOpenFileName(this, "Load Timeline", "", "JSON Files (*.json)");
+    if (fileName.isEmpty()) return;
+    
+    QFile file(fileName);
+    if (file.open(QIODevice::ReadOnly)) {
+        QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        model->fromJson(doc.array());
+        rebuildEventItems(); // Refresh view
+        blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
     }
 }
 
