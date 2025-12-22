@@ -19,7 +19,8 @@ enum class TimelineEventType {
 struct TimelineEvent {
     double timeMs;
     TimelineEventType type;
-    QString targetId; // Scene name, Source name, etc.
+    QString sourceName; // Source name, scene name, or hotkey name
+    QString filterName; // Optional: Filter name if targeting a filter
     QVariant data;    // Additional data (e.g., volume level, seek position)
     QColor color = QColor(0, 200, 255); // Default cyan color
 };

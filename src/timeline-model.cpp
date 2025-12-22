@@ -58,7 +58,10 @@ QJsonArray TimelineModel::toJson() const {
         QJsonObject obj;
         obj["time"] = evt.timeMs;
         obj["type"] = static_cast<int>(evt.type);
-        obj["target"] = evt.targetId;
+        obj["source"] = evt.sourceName;
+        if (!evt.filterName.isEmpty()) {
+            obj["filter"] = evt.filterName;
+        }
         obj["color"] = evt.color.name();
         // Skipping data variant for now
         array.append(obj);
@@ -75,7 +78,28 @@ void TimelineModel::fromJson(const QJsonArray &json) {
         TimelineEvent evt;
         evt.timeMs = obj["time"].toDouble();
         evt.type = static_cast<TimelineEventType>(obj["type"].toInt());
-        evt.targetId = obj["target"].toString();
+        if (obj.contains("source")) {
+            evt.sourceName = obj["source"].toString();
+            if (obj.contains("filter")) {
+                evt.filterName = obj["filter"].toString();
+            }
+        } else if (obj.contains("target")) {
+            // Legacy migration
+            QString target = obj["target"].toString();
+            // If it looks like Source::Filter and needs splitting based on type? 
+            // Better safe strategy: if it contains :: split it
+            if (target.contains("::") && (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable)) {
+                 QStringList parts = target.split("::");
+                 if (parts.size() >= 2) {
+                     evt.sourceName = parts[0];
+                     evt.filterName = parts[1];
+                 } else {
+                     evt.sourceName = target;
+                 }
+            } else {
+                evt.sourceName = target;
+            }
+        }
         
         if (obj.contains("color")) {
             evt.color = QColor(obj["color"].toString());

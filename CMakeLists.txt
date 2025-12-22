@@ -56,16 +56,18 @@ target_include_directories(${PROJECT_NAME}
     /usr/include/obs
 )
 
-# Installation
-if(LINUX)
-    install(TARGETS ${PROJECT_NAME} 
-            LIBRARY DESTINATION ~/.config/obs-studio/plugins/obs-timeline-plugin/bin/64bit/)
+# Standard OBS Install Logic
+include(GNUInstallDirs)
+
+# Allow overriding the install destinations
+if(NOT DEFINED OBS_PLUGIN_DESTINATION)
+    set(OBS_PLUGIN_DESTINATION "${CMAKE_INSTALL_LIBDIR}/obs-plugins")
 endif()
 
-if(WIN32)
-    install(TARGETS ${PROJECT_NAME} 
-            RUNTIME DESTINATION "C:/Program Files/obs-studio/obs-plugins/64bit/")
-endif()
+install(TARGETS ${PROJECT_NAME} 
+        LIBRARY DESTINATION ${OBS_PLUGIN_DESTINATION}
+        RUNTIME DESTINATION ${OBS_PLUGIN_DESTINATION}
+)
 
 # Install data (locale, themes, effects)
 if(NOT DEFINED OBS_DATA_DESTINATION)

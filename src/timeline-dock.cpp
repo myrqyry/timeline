@@ -604,11 +604,16 @@ void TimelineDock::onTick(double currentTimeMs) {
         
     // Append zoom info if available
     QString currentText = timeLabel->text();
+    QString zoomPart;
     if (currentText.contains("|")) {
-        QString zoomPart = currentText.split("|").last();
-        timeLabel->setText(baseText + " |" + zoomPart);
-    } else {
-        timeLabel->setText(baseText);
+        zoomPart = " |" + currentText.split("|").last();
+    }
+    
+    QString newText = baseText + zoomPart;
+    
+    // Optimization: Only update if text actually changed
+    if (timeLabel->text() != newText) {
+        timeLabel->setText(newText);
     }
 }
 
@@ -737,7 +742,12 @@ void TimelineDock::onAddEventClicked() {
                         obs_source_enum_filters(source, [](obs_source_t*, obs_source_t *filter, void *data) {
                             auto *info = static_cast<std::pair<QComboBox*, QString>*>(data);
                             QString filterName = QString::fromUtf8(obs_source_get_name(filter));
-                            info->first->addItem(QString("%1::%2").arg(info->second).arg(filterName));
+                            QString displayName = QString("%1::%2").arg(info->second).arg(filterName);
+                            
+                            // Store source and filter as a list in user data
+                            QVariantList eventData;
+                            eventData << info->second << filterName;
+                            info->first->addItem(displayName, eventData);
                         }, new std::pair<QComboBox*, QString>(combo, sourceName));
                         
                         return true;
@@ -843,12 +853,28 @@ void TimelineDock::onAddEventClicked() {
         evt.timeMs = time;
         evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
         
-        // For hotkeys, use the internal name stored in userData; otherwise use display text
+        // Populate fields based on type
         if (evt.type == TimelineEventType::HotkeyTrigger) {
-            evt.targetId = targetCombo->currentData().toString();
-        } else {
-            evt.targetId = targetCombo->currentText();
+            evt.sourceName = targetCombo->currentData().toString(); // Internal hotkey name
+        } 
+        else if (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable) {
+            QVariantList data = targetCombo->currentData().toList();
+            if (data.size() >= 2) {
+                evt.sourceName = data[0].toString();
+                evt.filterName = data[1].toString();
+            } else {
+                // Fallback (shouldn't happen with new populateTargets)
+                QStringList parts = targetCombo->currentText().split("::");
+                if (parts.size() >= 2) {
+                    evt.sourceName = parts[0];
+                    evt.filterName = parts[1];
+                }
+            }
         }
+        else {
+            evt.sourceName = targetCombo->currentText();
+        }
+        
         evt.color = selectedColor;
         
         model->addEvent(evt);
@@ -897,14 +923,19 @@ void TimelineDock::rebuildEventItems() {
         int minutes = static_cast<int>(timeSec) / 60;
         int seconds = static_cast<int>(timeSec) % 60;
         int ms = static_cast<int>(evt.timeMs) % 1000;
+        QString targetDisplay = evt.sourceName;
+        if (!evt.filterName.isEmpty()) {
+            targetDisplay += "::" + evt.filterName;
+        }
+        
         QString tooltip = QString("%1\nTarget: %2\nTime: %3:%4.%5\n\nDouble-click to edit | Right-click for options")
             .arg(typeStr)
-            .arg(evt.targetId)
+            .arg(targetDisplay)
             .arg(minutes, 2, 10, QChar('0'))
             .arg(seconds, 2, 10, QChar('0'))
             .arg(ms / 10, 2, 10, QChar('0'));
         item->setToolTip(tooltip);
-        item->setEventLabel(evt.targetId);
+        item->setEventLabel(evt.sourceName); // Just show source name on the bubble usually, or filter name? Source is probably better.
         eventItemMap[evt.timeMs] = item;
         
         int eventIndex = static_cast<int>(i);
@@ -988,11 +1019,27 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     }
     layout->addWidget(typeCombo);
     
-    // Target
-    layout->addWidget(new QLabel("Target:"));
-    QLineEdit *targetEdit = new QLineEdit(&dialog);
-    targetEdit->setText(evt.targetId);
-    layout->addWidget(targetEdit);
+    // Target Source
+    layout->addWidget(new QLabel("Target Source / Scene / Hotkey:"));
+    QLineEdit *sourceEdit = new QLineEdit(&dialog);
+    sourceEdit->setText(evt.sourceName);
+    layout->addWidget(sourceEdit);
+
+    // Target Filter (only visible for filter events, but created always for simplicity)
+    QLabel *filterLabel = new QLabel("Target Filter:", &dialog);
+    QLineEdit *filterEdit = new QLineEdit(&dialog);
+    filterEdit->setText(evt.filterName);
+    layout->addWidget(filterLabel);
+    layout->addWidget(filterEdit);
+    
+    // Helper to toggle filter input visibility
+    auto updateFilterVisibility = [&](TimelineEventType t) {
+        bool isFilter = (t == TimelineEventType::FilterEnable || t == TimelineEventType::FilterDisable);
+        filterLabel->setVisible(isFilter);
+        filterEdit->setVisible(isFilter);
+    };
+    
+    updateFilterVisibility(evt.type);
     
     // Color picker
     QColor selectedColor = evt.color;
@@ -1014,14 +1061,18 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     colorLayout->addStretch();
     layout->addLayout(colorLayout);
 
-    // Update color when type changes (to default for that type)
+    // Connect type change to visibility AND color update
+    // Must be defined AFTER colorButton is created so lambda can capture it
     connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             [&](int index) {
         TimelineEventType newType = static_cast<TimelineEventType>(typeCombo->itemData(index).toInt());
+        updateFilterVisibility(newType);
+        
+        // Update color default as before
         selectedColor = ThemeIcons::getDefaultColor(newType);
         colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
     });
-    
+
     // Time info
     double timeSec = evt.timeMs / 1000.0;
     QString timeStr = QString("Current time: %1 sec").arg(timeSec, 0, 'f', 2);
@@ -1038,7 +1089,8 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     if (dialog.exec() == QDialog::Accepted) {
         TimelineEvent updatedEvt = evt;
         updatedEvt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
-        updatedEvt.targetId = targetEdit->text();
+        updatedEvt.sourceName = sourceEdit->text();
+        updatedEvt.filterName = filterEdit->text();
         updatedEvt.color = selectedColor;
         
         model->replaceEvent(eventIndex, updatedEvt);
