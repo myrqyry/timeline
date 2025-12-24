@@ -23,5 +23,6 @@ struct TimelineEvent {
     QString filterName; // Optional: Filter name if targeting a filter
     QVariant data;    // Additional data (e.g., volume level, seek position)
     QColor color = QColor(0, 200, 255); // Default cyan color
+    QString customIconPath; // Path to custom SVG icon
 };
 

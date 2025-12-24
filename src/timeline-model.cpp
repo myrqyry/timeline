@@ -63,6 +63,9 @@ QJsonArray TimelineModel::toJson() const {
             obj["filter"] = evt.filterName;
         }
         obj["color"] = evt.color.name();
+        if (!evt.customIconPath.isEmpty()) {
+            obj["customIconPath"] = evt.customIconPath;
+        }
         // Skipping data variant for now
         array.append(obj);
     }
@@ -108,6 +111,10 @@ void TimelineModel::fromJson(const QJsonArray &json) {
             evt.color = ThemeIcons::getDefaultColor(evt.type);
         }
         
+        if (obj.contains("customIconPath")) {
+            evt.customIconPath = obj["customIconPath"].toString();
+        }
+
         events.push_back(evt);
     }
     sortEvents();

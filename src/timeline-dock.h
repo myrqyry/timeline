@@ -61,7 +61,11 @@ private:
     void updateZoomLabel();
     void updateEndMarker();
     void deleteSelectedEvents();
+    void copySelectedEvents();
+    void pasteEvents();
     void nudgeSelectedEvents(double deltaMs);
+
+    QList<TimelineEvent> clipboard;
 
     TimelineModel *model;
     TimelineScheduler *scheduler;
