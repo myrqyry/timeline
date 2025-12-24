@@ -10,16 +10,20 @@
 #include "theme-helpers.h"
 
 TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
-                                     QColor color, QGraphicsItem *parent)
+                                     QColor color, const QString &customIconPath, QGraphicsItem *parent)
     : QObject(nullptr), QGraphicsEllipseItem(parent), pixelsPerSecond(pixelsPerSecond), 
-      eventColor(color), eventType(type)
+      eventColor(color), customIconPath(customIconPath), eventType(type)
 {
     // Determine contrast color
     int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
     QString iconColor = (brightness > 128) ? "black" : "white";
 
     // Load SVG icon
-    renderer = new QSvgRenderer(ThemeIcons::getIconSvg(type, iconColor), this);
+    if (!customIconPath.isEmpty() && QFile::exists(customIconPath)) {
+        renderer = new QSvgRenderer(customIconPath, this);
+    } else {
+        renderer = new QSvgRenderer(ThemeIcons::getIconSvg(type, iconColor), this);
+    }
 
     setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
     // Center the item horizontally on the time
@@ -48,9 +52,14 @@ void TimelineEventItem::setEventColor(const QColor &color) {
     
     // Update SVG renderer with contrast color
     if (renderer) delete renderer;
-    int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
-    QString iconColor = (brightness > 128) ? "black" : "white";
-    renderer = new QSvgRenderer(ThemeIcons::getIconSvg(eventType, iconColor), this);
+
+    if (!customIconPath.isEmpty() && QFile::exists(customIconPath)) {
+        renderer = new QSvgRenderer(customIconPath, this);
+    } else {
+        int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
+        QString iconColor = (brightness > 128) ? "black" : "white";
+        renderer = new QSvgRenderer(ThemeIcons::getIconSvg(eventType, iconColor), this);
+    }
     
     setBrush(QBrush(eventColor));
     update();

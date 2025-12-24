@@ -14,7 +14,7 @@ class TimelineEventItem : public QObject, public QGraphicsEllipseItem {
 
 public:
     TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
-                      QColor color = QColor(0, 200, 255), QGraphicsItem *parent = nullptr);
+                      QColor color = QColor(0, 200, 255), const QString &customIconPath = QString(), QGraphicsItem *parent = nullptr);
     
     // Limits
     void setMaxTime(double maxTimeMs);
@@ -55,6 +55,7 @@ private:
     
     double pixelsPerSecond;
     QColor eventColor;
+    QString customIconPath;
     QString eventLabel;
     TimelineEventType eventType;
     int stackOffset = 0;

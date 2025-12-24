@@ -501,10 +501,78 @@ void TimelineDock::keyPressEvent(QKeyEvent *event) {
                 nudgeSelectedEvents(1000); // +1 second
             }
             break;
+        case Qt::Key_C:
+            if (event->modifiers() & Qt::ControlModifier) {
+                copySelectedEvents();
+            }
+            break;
+        case Qt::Key_V:
+            if (event->modifiers() & Qt::ControlModifier) {
+                pasteEvents();
+            }
+            break;
         default:
             QWidget::keyPressEvent(event);
             break;
     }
+}
+
+void TimelineDock::copySelectedEvents() {
+    clipboard.clear();
+
+    // Find selected items
+    QList<TimelineEventItem*> selectedItems;
+    for (auto& pair : eventItemMap) {
+        if (pair.second && pair.second->isSelected()) {
+            selectedItems.append(pair.second);
+        }
+    }
+
+    if (selectedItems.isEmpty()) return;
+
+    // Get corresponding events from model
+    const auto& events = model->getEvents();
+    for (TimelineEventItem* item : selectedItems) {
+        double itemTime = item->getTimeMs();
+        for (const auto& evt : events) {
+            if (std::abs(evt.timeMs - itemTime) < 1.0) {
+                clipboard.append(evt);
+                break;
+            }
+        }
+    }
+
+    // Sort clipboard by time to maintain relative order
+    std::sort(clipboard.begin(), clipboard.end(), [](const TimelineEvent &a, const TimelineEvent &b) {
+        return a.timeMs < b.timeMs;
+    });
+
+    blog(LOG_INFO, "Copied %d events to clipboard", clipboard.size());
+}
+
+void TimelineDock::pasteEvents() {
+    if (clipboard.isEmpty()) return;
+
+    double currentPlayhead = scheduler->getCurrentTime();
+    double firstEventTime = clipboard.first().timeMs;
+    double offset = currentPlayhead - firstEventTime;
+
+    // Deselect current selection
+    for (auto& pair : eventItemMap) {
+        if (pair.second) pair.second->setSelected(false);
+    }
+
+    for (const auto& originalEvt : clipboard) {
+        TimelineEvent newEvt = originalEvt;
+        newEvt.timeMs = originalEvt.timeMs + offset;
+
+        if (newEvt.timeMs < 0) newEvt.timeMs = 0;
+
+        model->addEvent(newEvt);
+    }
+
+    rebuildEventItems();
+    blog(LOG_INFO, "Pasted %d events at %f ms", clipboard.size(), currentPlayhead);
 }
 
 void TimelineDock::deleteSelectedEvents() {
@@ -807,6 +875,27 @@ void TimelineDock::onAddEventClicked() {
     
     colorLayout->addWidget(colorLabel);
     colorLayout->addWidget(colorButton);
+
+    // Custom Icon Path
+    QLabel *iconLabel = new QLabel("Custom Icon:", &dialog);
+    QLineEdit *iconPathEdit = new QLineEdit(&dialog);
+    QPushButton *browseIconButton = new QPushButton("Browse...", &dialog);
+
+    connect(browseIconButton, &QPushButton::clicked, [&]() {
+        QString path = QFileDialog::getOpenFileName(&dialog, "Select Custom Icon", "", "SVG Files (*.svg)");
+        if (!path.isEmpty()) {
+            iconPathEdit->setText(path);
+        }
+    });
+
+    QHBoxLayout *iconLayout = new QHBoxLayout();
+    iconLayout->addWidget(iconLabel);
+    iconLayout->addWidget(iconPathEdit);
+    iconLayout->addWidget(browseIconButton);
+
+    colorLayout->addSpacing(20);
+    layout->addLayout(iconLayout);
+
     colorLayout->addStretch();
     layout->addLayout(colorLayout); // Add color layout before connecting type change? Or after? Doesn't matter for layout order, just logic.
 
@@ -876,6 +965,7 @@ void TimelineDock::onAddEventClicked() {
         }
         
         evt.color = selectedColor;
+        evt.customIconPath = iconPathEdit->text();
         
         model->addEvent(evt);
         rebuildEventItems();
@@ -896,7 +986,7 @@ void TimelineDock::rebuildEventItems() {
         int timeBucket = static_cast<int>(evt.timeMs / STACK_TOLERANCE_MS);
         int stackIndex = timeSlotCount[timeBucket]++;
         
-        TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color);
+        TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color, evt.customIconPath);
         item->setStackOffset(stackIndex);
         
         // Apply snap settings
@@ -1058,6 +1148,28 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     });
     
     colorLayout->addWidget(colorButton);
+
+    // Custom Icon Path
+    QLabel *iconLabel = new QLabel("Custom Icon:", &dialog);
+    QLineEdit *iconPathEdit = new QLineEdit(&dialog);
+    iconPathEdit->setText(evt.customIconPath);
+    QPushButton *browseIconButton = new QPushButton("Browse...", &dialog);
+
+    connect(browseIconButton, &QPushButton::clicked, [&]() {
+        QString path = QFileDialog::getOpenFileName(&dialog, "Select Custom Icon", "", "SVG Files (*.svg)");
+        if (!path.isEmpty()) {
+            iconPathEdit->setText(path);
+        }
+    });
+
+    QHBoxLayout *iconLayout = new QHBoxLayout();
+    iconLayout->addWidget(iconLabel);
+    iconLayout->addWidget(iconPathEdit);
+    iconLayout->addWidget(browseIconButton);
+
+    colorLayout->addSpacing(20);
+    layout->addLayout(iconLayout);
+
     colorLayout->addStretch();
     layout->addLayout(colorLayout);
 
@@ -1092,6 +1204,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
         updatedEvt.sourceName = sourceEdit->text();
         updatedEvt.filterName = filterEdit->text();
         updatedEvt.color = selectedColor;
+        updatedEvt.customIconPath = iconPathEdit->text();
         
         model->replaceEvent(eventIndex, updatedEvt);
         rebuildEventItems();
