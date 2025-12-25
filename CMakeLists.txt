@@ -24,6 +24,7 @@ set(PLUGIN_SOURCES
     src/timeline-scheduler.cpp
     src/obs-executor.cpp
     src/timeline-event-item.cpp
+    src/headless-timeline.cpp
 )
 
 set(PLUGIN_HEADERS
@@ -34,6 +35,7 @@ set(PLUGIN_HEADERS
     src/event-types.h
     src/timeline-event-item.h
     src/theme-helpers.h
+    src/headless-timeline.h
 )
 
 # Create library

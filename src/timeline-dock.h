@@ -28,7 +28,14 @@ public:
     void save();
     void load();
     
+    void setObsWebSocketVendor(void* vendor);
+    
     static void saveCallback(obs_data_t *save_data, bool saving, void *private_data);
+
+    // Hotkey callbacks
+    static void hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
+    static void hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
+    static void hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -83,7 +90,9 @@ private:
     QLabel *timeLabel;
     
     QGraphicsLineItem *playheadItem;
+    
     QGraphicsLineItem *endMarkerItem = nullptr;
+
     QList<QGraphicsItem*> rulerItems;
     QList<QGraphicsItem*> gridItems;
     
@@ -92,4 +101,12 @@ private:
     
     double pixelsPerSecond = 100.0;
     bool snapEnabled = false;
+    
+    // Hotkeys
+    obs_hotkey_id hotkeyIdPlayPause = OBS_INVALID_HOTKEY_ID;
+    obs_hotkey_id hotkeyIdStop = OBS_INVALID_HOTKEY_ID;
+    obs_hotkey_id hotkeyIdRestart = OBS_INVALID_HOTKEY_ID;
+
+    void* obsWebSocketVendor = nullptr;
+    qint64 lastTickTime = 0;
 };

@@ -4,12 +4,17 @@
 #include <obs-frontend-api.h>
 #include <obs.h>
 #include "event-types.h"
+#include <vector>
+
+class HeadlessTimeline;
 
 class ObsExecutor : public QObject {
     Q_OBJECT
 
 public:
     ObsExecutor(QObject *parent = nullptr);
+    void setObsWebSocketVendor(void* vendor);
+
 
 public slots:
     void executeEvent(const TimelineEvent &evt);
@@ -21,5 +26,10 @@ private:
     void handleSourceVisibility(const TimelineEvent &evt, bool visible);
     void handleFilterEnable(const TimelineEvent &evt, bool enable);
     void handleHotkey(const TimelineEvent &evt);
+    void handleTriggerTimeline(const TimelineEvent &evt);
+
+    std::vector<HeadlessTimeline*> activeTimelines;
+    void* obsWebSocketVendor = nullptr;
+
 };
 

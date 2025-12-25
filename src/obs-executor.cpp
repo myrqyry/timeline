@@ -1,12 +1,20 @@
 #include "obs-executor.h"
+#include "headless-timeline.h"
+#include <obs-module.h>
 #include <obs-module.h>
 #include <obs-frontend-api.h>
+#include <obs-websocket-api.h>
 
 ObsExecutor::ObsExecutor(QObject *parent) : QObject(parent) {
     blog(LOG_INFO, "ObsExecutor created");
 }
 
+void ObsExecutor::setObsWebSocketVendor(void* vendor) {
+    this->obsWebSocketVendor = vendor;
+}
+
 void ObsExecutor::executeEvent(const TimelineEvent &evt) {
+
     switch (evt.type) {
         case TimelineEventType::SceneSwitch:
             handleSceneSwitch(evt);
@@ -32,10 +40,51 @@ void ObsExecutor::executeEvent(const TimelineEvent &evt) {
         case TimelineEventType::HotkeyTrigger:
             handleHotkey(evt);
             break;
-        default:
-            blog(LOG_WARNING, "Timeline: Unknown event type");
+        case TimelineEventType::TriggerTimeline:
+            handleTriggerTimeline(evt);
             break;
     }
+    
+    if (obsWebSocketVendor) {
+        obs_data_t *event_data = obs_data_create();
+        obs_data_set_string(event_data, "event", "triggered");
+        obs_data_set_int(event_data, "type", static_cast<int>(evt.type));
+        
+        // We can't easily put QVariant into obs_data_t without conversion logic
+        // For now just basic fields
+        obs_data_set_string(event_data, "sourceName", evt.sourceName.toUtf8().constData());
+        obs_data_set_double(event_data, "timeMs", evt.timeMs);
+        
+        obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
+        obs_data_release(event_data);
+    }
+}
+
+// Helper to find transition by name
+static obs_source_t* find_transition(const char* name) {
+    if (!name || !*name) return nullptr;
+    
+    struct obs_frontend_source_list transitions = {};
+    obs_frontend_get_transitions(&transitions);
+    obs_source_t* found = nullptr;
+    
+    for (size_t i = 0; i < transitions.sources.num; i++) {
+        obs_source_t *source = transitions.sources.array[i];
+        const char *t_name = obs_source_get_name(source);
+        if (t_name && strcmp(t_name, name) == 0) {
+            // Found it. We need to increment the ref because we return it
+            // and the list free will release it.
+            // Wait, source list array[i] are likely references.
+            // Calling free destroys the list struct but calls release on sources?
+            // obs_frontend_source_list_free releases the sources.
+            // So we need to addref if we want to keep it after list free.
+            found = source;
+            obs_source_get_ref(found);
+            break;
+        }
+    }
+    obs_frontend_source_list_free(&transitions);
+    return found;
 }
 
 void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt) {
@@ -43,10 +92,39 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt) {
     
     obs_source_t *scene = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
     if (scene) {
+        // Check for specific transition
+        QString transitionName = evt.data.toString();
+        obs_source_t *transition = nullptr;
+        obs_source_t *oldTransition = nullptr;
+        
+        if (!transitionName.isEmpty()) {
+            transition = find_transition(transitionName.toUtf8().constData());
+            if (transition) {
+                oldTransition = obs_frontend_get_current_transition();
+                obs_frontend_set_current_transition(transition);
+                // Note: We don't own transition reference from get_source_by_name in a way we need to care about too much here?
+                // obs_get_source_by_name increments ref. We should release later.
+            } else {
+                blog(LOG_WARNING, "Timeline: Transition '%s' not found", transitionName.toUtf8().constData());
+            }
+        }
+    
         obs_frontend_set_current_preview_scene(scene);
         obs_frontend_set_current_scene(scene);
+        
+        // Restore old transition? 
+        // Typically when you switch scene, the transition is used. If we change it back immediately, 
+        // it might race or apply to the *next* switch. 
+        // For now, let's leave it changed (user action). Or we could assume single-shot.
+        // But OBS Studio Mode transition button sets it and leaves it.
+        
+        if (transition) obs_source_release(transition);
+        if (oldTransition) obs_source_release(oldTransition);
+        
         obs_source_release(scene);
-        blog(LOG_INFO, "Timeline: Switched to scene '%s'", evt.sourceName.toUtf8().constData());
+        blog(LOG_INFO, "Timeline: Switched to scene '%s' using transition '%s'", 
+             evt.sourceName.toUtf8().constData(), 
+             transitionName.isEmpty() ? "(default)" : transitionName.toUtf8().constData());
     } else {
         blog(LOG_WARNING, "Timeline: Scene '%s' not found", evt.sourceName.toUtf8().constData());
     }
@@ -153,4 +231,40 @@ void ObsExecutor::handleHotkey(const TimelineEvent &evt) {
         }
         return true; // Continue enumeration
     }, &hotkeyName);
+}
+
+
+void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt) {
+    QString filePath = evt.data.toString();
+    if (filePath.isEmpty()) {
+        // Fallback: Check if sourceName was used for filename (legacy/alternative)
+        filePath = evt.sourceName;
+    }
+    
+    if (filePath.isEmpty()) {
+        blog(LOG_WARNING, "Timeline: TriggerTimeline event has no file path");
+        return;
+    }
+    
+    // Create headless timeline
+    HeadlessTimeline *timeline = new HeadlessTimeline(this);
+    if (timeline->loadFromFile(filePath)) {
+        activeTimelines.push_back(timeline);
+        
+        // Cleanup when done
+        connect(timeline, &HeadlessTimeline::finished, this, [this, timeline]() {
+            auto it = std::find(activeTimelines.begin(), activeTimelines.end(), timeline);
+            if (it != activeTimelines.end()) {
+                activeTimelines.erase(it);
+            }
+            timeline->deleteLater();
+            blog(LOG_INFO, "Timeline: Nested timeline finished");
+        });
+        
+        timeline->start();
+        blog(LOG_INFO, "Timeline: Started nested timeline '%s'", filePath.toUtf8().constData());
+    } else {
+        delete timeline;
+        blog(LOG_WARNING, "Timeline: Failed to load nested timeline '%s'", filePath.toUtf8().constData());
+    }
 }

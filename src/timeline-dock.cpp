@@ -1,12 +1,18 @@
 #include "timeline-dock.h"
 #include <obs-module.h>
+
+#include <obs-module.h>
 #include <QGraphicsLineItem>
 #include <QGraphicsRectItem>
 #include <QResizeEvent>
 #include <obs-frontend-api.h>
+#include <obs-websocket-api.h>
+#include <QDateTime>
 
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
+#include <QDateTime>
 
 #include "timeline-event-item.h"
 #include "theme-helpers.h"
@@ -41,14 +47,25 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
     // Register save callback
     obs_frontend_add_save_callback(saveCallback, this);
     
+    // Register Hotkeys
+    hotkeyIdPlayPause = obs_hotkey_register_frontend("Timeline.PlayPause", "Timeline: Play/Pause", TimelineDock::hotkeyPlayPause, this);
+    hotkeyIdStop = obs_hotkey_register_frontend("Timeline.Stop", "Timeline: Stop", TimelineDock::hotkeyStop, this);
+    hotkeyIdRestart = obs_hotkey_register_frontend("Timeline.Restart", "Timeline: Restart", TimelineDock::hotkeyRestart, this);
+
     // Initial Load
     blog(LOG_INFO, "TimelineDock loading initial data");
     load();
+    
     blog(LOG_INFO, "TimelineDock constructor finished");
 }
 
 TimelineDock::~TimelineDock() {
     obs_frontend_remove_save_callback(saveCallback, this);
+    
+    obs_hotkey_unregister(hotkeyIdPlayPause);
+    obs_hotkey_unregister(hotkeyIdStop);
+    obs_hotkey_unregister(hotkeyIdRestart);
+    
     clearRuler();
 }
 
@@ -57,6 +74,36 @@ void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *privat
     if (saving) {
         dock->save();
     }
+}
+
+void TimelineDock::setObsWebSocketVendor(void* vendor) {
+    this->obsWebSocketVendor = vendor;
+    if (executor) {
+        executor->setObsWebSocketVendor(vendor);
+    }
+}
+
+void TimelineDock::hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed) {
+    if (!pressed) return;
+    TimelineDock *dock = static_cast<TimelineDock*>(data);
+    QMetaObject::invokeMethod(dock, "onPlayClicked", Qt::QueuedConnection);
+}
+
+void TimelineDock::hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed) {
+    if (!pressed) return;
+    TimelineDock *dock = static_cast<TimelineDock*>(data);
+    QMetaObject::invokeMethod(dock, "onStopClicked", Qt::QueuedConnection);
+}
+
+void TimelineDock::hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed) {
+    if (!pressed) return;
+    TimelineDock *dock = static_cast<TimelineDock*>(data);
+    // Restart logic: Stop then Start
+    // Using invokeMethod to ensure thread safety if hotkey comes from a different thread
+    QMetaObject::invokeMethod(dock->scheduler, "stop", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(dock->scheduler, "start", Qt::QueuedConnection);
+    // Also update UI
+    QMetaObject::invokeMethod(dock->playButton, "setText", Qt::QueuedConnection, Q_ARG(QString, "Pause"));
 }
 
 void TimelineDock::save() {
@@ -356,16 +403,35 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event) {
 void TimelineDock::onPlayClicked() {
     if (scheduler->isPlaying()) {
         scheduler->pause();
-        playButton->setText("Play");
+        if (obsWebSocketVendor) {
+            obs_data_t *d = obs_data_create();
+            obs_data_set_string(d, "event", "paused");
+            obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
+            obs_data_release(d);
+        }
     } else {
         scheduler->start();
         playButton->setText("Pause");
+        
+        if (obsWebSocketVendor) {
+            obs_data_t *d = obs_data_create();
+            obs_data_set_string(d, "event", "started");
+            obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
+            obs_data_release(d);
+        }
     }
 }
 
 void TimelineDock::onStopClicked() {
     scheduler->stop();
     playButton->setText("Play");
+    
+    if (obsWebSocketVendor) {
+        obs_data_t *d = obs_data_create();
+        obs_data_set_string(d, "event", "stopped");
+        obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
+        obs_data_release(d);
+    }
 }
 
 void TimelineDock::onLoopToggled(bool checked) {
@@ -380,6 +446,13 @@ void TimelineDock::onEndTimeChanged(double value) {
 void TimelineDock::onTimelineFinished() {
     playButton->setText("Play");
     blog(LOG_INFO, "Timeline playback finished");
+    
+    if (obsWebSocketVendor) {
+        obs_data_t *d = obs_data_create();
+        obs_data_set_string(d, "event", "finished");
+        obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
+        obs_data_release(d);
+    }
 }
 
 void TimelineDock::onTimelineLooped() {
@@ -660,6 +733,18 @@ void TimelineDock::drawGrid() {
 void TimelineDock::onTick(double currentTimeMs) {
     updatePlayhead(currentTimeMs);
     
+    if (obsWebSocketVendor) {
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - lastTickTime > 50) {
+            lastTickTime = now;
+            obs_data_t *d = obs_data_create();
+            obs_data_set_string(d, "event", "tick");
+            obs_data_set_double(d, "timeMs", currentTimeMs);
+            obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
+            obs_data_release(d);
+        }
+    }
+    
     int totalSeconds = static_cast<int>(currentTimeMs / 1000.0);
     int ms = static_cast<int>(currentTimeMs) % 1000;
     int minutes = totalSeconds / 60;
@@ -714,6 +799,7 @@ void TimelineDock::onAddEventClicked() {
     typeCombo->addItem("Filter Enable", static_cast<int>(TimelineEventType::FilterEnable));
     typeCombo->addItem("Filter Disable", static_cast<int>(TimelineEventType::FilterDisable));
     typeCombo->addItem("Trigger Hotkey", static_cast<int>(TimelineEventType::HotkeyTrigger));
+    typeCombo->addItem("Trigger Timeline", static_cast<int>(TimelineEventType::TriggerTimeline));
     layout->addWidget(typeCombo);
     
     // Target label (updates based on type)
@@ -721,8 +807,38 @@ void TimelineDock::onAddEventClicked() {
     layout->addWidget(targetLabel);
     
     // Target combo (scenes, sources, or filters)
+    // Target combo (scenes, sources, or filters)
     QComboBox *targetCombo = new QComboBox(&dialog);
     layout->addWidget(targetCombo);
+
+    // Timeline File Selector (Hidden by default)
+    QWidget *fileWidget = new QWidget(&dialog);
+    QHBoxLayout *fileLayout = new QHBoxLayout(fileWidget);
+    fileLayout->setContentsMargins(0,0,0,0);
+    QLineEdit *fileEdit = new QLineEdit(&dialog);
+    QPushButton *browseButton = new QPushButton("Browse...", &dialog);
+    fileLayout->addWidget(fileEdit);
+    fileLayout->addWidget(browseButton);
+    layout->addWidget(fileWidget);
+    fileWidget->hide();
+
+    connect(browseButton, &QPushButton::clicked, [&]() {
+        QString path = QFileDialog::getOpenFileName(&dialog, "Select Timeline", "", "JSON Files (*.json)");
+        if (!path.isEmpty()) fileEdit->setText(path);
+    });
+
+    // Transition Selector (Hidden by default, used for Scene Switch)
+    QWidget *transitionWidget = new QWidget(&dialog);
+    QHBoxLayout *transitionLayout = new QHBoxLayout(transitionWidget);
+    transitionLayout->setContentsMargins(0,0,0,0);
+    QLabel *transitionLabel = new QLabel("Transition:", &dialog);
+    QComboBox *transitionCombo = new QComboBox(&dialog);
+    transitionLayout->addWidget(transitionLabel);
+    transitionLayout->addWidget(transitionCombo);
+    layout->addWidget(transitionWidget);
+    transitionWidget->hide(); 
+    
+    // Helper lambda to populate targets based on event type
     
     // Helper lambda to populate targets based on event type
     auto populateTargets = [&](int eventType) {
@@ -730,7 +846,35 @@ void TimelineDock::onAddEventClicked() {
         targetCombo->setEnabled(true);
         
         TimelineEventType evtType = static_cast<TimelineEventType>(eventType);
+
+        if (evtType == TimelineEventType::TriggerTimeline) {
+            targetLabel->setText("Timeline File:");
+            targetCombo->hide();
+            fileWidget->show();
+            return;
+        } else {
+            targetCombo->show();
+            fileWidget->hide();
+        }
         
+        // Handle Transition Widget Visibility
+        if (evtType == TimelineEventType::SceneSwitch) {
+            transitionWidget->show();
+            transitionCombo->clear();
+            transitionCombo->addItem("Current Transition (Default)", "");
+            
+            struct obs_frontend_source_list transitions = {};
+            obs_frontend_get_transitions(&transitions);
+            for (size_t i = 0; i < transitions.sources.num; i++) {
+                obs_source_t *source = transitions.sources.array[i];
+                const char *name = obs_source_get_name(source);
+                transitionCombo->addItem(QString::fromUtf8(name));
+            }
+            obs_frontend_source_list_free(&transitions);
+        } else {
+            transitionWidget->hide();
+        }
+
         if (evtType == TimelineEventType::SceneSwitch) {
             targetLabel->setText("Target Scene:");
             struct obs_frontend_source_list scenes = {};
@@ -932,18 +1076,41 @@ void TimelineDock::onAddEventClicked() {
     layout->addWidget(buttons);
     
     if (dialog.exec() == QDialog::Accepted) {
-        // Validate: ensure we have a valid target
-        if (!targetCombo->isEnabled() || targetCombo->currentText().startsWith("(")) {
-            blog(LOG_WARNING, "Cannot create event: No valid target selected");
-            return;
+        TimelineEventType type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+        
+        // Validate
+        if (type == TimelineEventType::TriggerTimeline) {
+            if (fileEdit->text().isEmpty()) {
+                blog(LOG_WARNING, "Cannot create event: No timeline file selected");
+                return;
+            }
+        } else {
+            if (!targetCombo->isEnabled() || targetCombo->currentText().startsWith("(")) {
+                blog(LOG_WARNING, "Cannot create event: No valid target selected");
+                return;
+            }
         }
         
         TimelineEvent evt;
         evt.timeMs = time;
-        evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+        evt.type = type;
         
         // Populate fields based on type
-        if (evt.type == TimelineEventType::HotkeyTrigger) {
+        if (evt.type == TimelineEventType::TriggerTimeline) {
+            evt.data = fileEdit->text();
+            evt.sourceName = QFileInfo(fileEdit->text()).fileName();
+        }
+        else if (evt.type == TimelineEventType::SceneSwitch) {
+            evt.sourceName = targetCombo->currentText();
+            // Store transition name in data if selected
+            if (!transitionCombo->currentData().toString().isEmpty() || !transitionCombo->currentText().isEmpty()) {
+                 // Skip if "Current Transition" (empty data/text check)
+                 if (transitionCombo->currentIndex() > 0) {
+                     evt.data = transitionCombo->currentText();
+                 }
+            }
+        }
+        else if (evt.type == TimelineEventType::HotkeyTrigger) {
             evt.sourceName = targetCombo->currentData().toString(); // Internal hotkey name
         } 
         else if (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable) {

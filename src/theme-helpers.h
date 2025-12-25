@@ -21,6 +21,7 @@ inline const char* PATH_MEDIA_STOP = "<path d=\"M6 6h12v12H6z\"/>";
 inline const char* PATH_FILTER_ENABLE = "<path d=\"M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z\"/>";
 inline const char* PATH_FILTER_DISABLE = "<path d=\"M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z\"/>";
 inline const char* PATH_HOTKEY = "<path d=\"M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2z\"/>";
+inline const char* PATH_TRIGGER_TIMELINE = "<path d=\"M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z\"/>";
 
 inline QByteArray getIconSvg(TimelineEventType type, const QString& color = "white") {
     switch (type) {
@@ -32,6 +33,7 @@ inline QByteArray getIconSvg(TimelineEventType type, const QString& color = "whi
         case TimelineEventType::FilterEnable:  return wrapSvg(PATH_FILTER_ENABLE, color);
         case TimelineEventType::FilterDisable: return wrapSvg(PATH_FILTER_DISABLE, color);
         case TimelineEventType::HotkeyTrigger: return wrapSvg(PATH_HOTKEY, color);
+        case TimelineEventType::TriggerTimeline: return wrapSvg(PATH_TRIGGER_TIMELINE, color);
         default: return wrapSvg("?", color);
     }
 }
@@ -46,6 +48,7 @@ inline QColor getDefaultColor(TimelineEventType type) {
         case TimelineEventType::FilterEnable:  return QColor("#50E3C2"); // Teal
         case TimelineEventType::FilterDisable: return QColor("#9B9B9B"); // Grey
         case TimelineEventType::HotkeyTrigger: return QColor("#F8E71C"); // Yellow
+        case TimelineEventType::TriggerTimeline: return QColor("#E91E63"); // Pink
         default: return Qt::gray;
     }
 }
