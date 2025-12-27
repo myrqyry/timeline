@@ -1039,6 +1039,21 @@ void TimelineDock::onAddEventClicked() {
 
     colorLayout->addSpacing(20);
     layout->addLayout(iconLayout);
+    
+    // Duration Controls
+    QHBoxLayout *durationLayout = new QHBoxLayout();
+    QCheckBox *durationCheck = new QCheckBox("Has Duration", &dialog);
+    QDoubleSpinBox *durationSpin = new QDoubleSpinBox(&dialog);
+    durationSpin->setRange(0.0, 3600.0); // Up to 1 hour
+    durationSpin->setSuffix(" sec");
+    durationSpin->setValue(5.0);
+    durationSpin->setEnabled(false);
+    
+    connect(durationCheck, &QCheckBox::toggled, durationSpin, &QDoubleSpinBox::setEnabled);
+    
+    durationLayout->addWidget(durationCheck);
+    durationLayout->addWidget(durationSpin);
+    layout->addLayout(durationLayout);
 
     colorLayout->addStretch();
     layout->addLayout(colorLayout); // Add color layout before connecting type change? Or after? Doesn't matter for layout order, just logic.
@@ -1133,6 +1148,8 @@ void TimelineDock::onAddEventClicked() {
         
         evt.color = selectedColor;
         evt.customIconPath = iconPathEdit->text();
+        evt.hasDuration = durationCheck->isChecked();
+        evt.durationMs = durationSpin->value() * 1000.0;
         
         model->addEvent(evt);
         rebuildEventItems();
@@ -1155,6 +1172,8 @@ void TimelineDock::rebuildEventItems() {
         
         TimelineEventItem *item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color, evt.customIconPath);
         item->setStackOffset(stackIndex);
+        item->setHasDuration(evt.hasDuration);
+        item->setDuration(evt.durationMs);
         
         // Apply snap settings
         item->setSnapEnabled(snapEnabled);
@@ -1340,6 +1359,23 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
     colorLayout->addStretch();
     layout->addLayout(colorLayout);
 
+    // Duration Controls
+    QHBoxLayout *durationLayout = new QHBoxLayout();
+    QCheckBox *durationCheck = new QCheckBox("Has Duration", &dialog);
+    durationCheck->setChecked(evt.hasDuration);
+    
+    QDoubleSpinBox *durationSpin = new QDoubleSpinBox(&dialog);
+    durationSpin->setRange(0.0, 3600.0);
+    durationSpin->setSuffix(" sec");
+    durationSpin->setValue(evt.durationMs > 0 ? evt.durationMs / 1000.0 : 5.0);
+    durationSpin->setEnabled(evt.hasDuration);
+    
+    connect(durationCheck, &QCheckBox::toggled, durationSpin, &QDoubleSpinBox::setEnabled);
+    
+    durationLayout->addWidget(durationCheck);
+    durationLayout->addWidget(durationSpin);
+    layout->addLayout(durationLayout);
+
     // Connect type change to visibility AND color update
     // Must be defined AFTER colorButton is created so lambda can capture it
     connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -1372,6 +1408,8 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
         updatedEvt.filterName = filterEdit->text();
         updatedEvt.color = selectedColor;
         updatedEvt.customIconPath = iconPathEdit->text();
+        updatedEvt.hasDuration = durationCheck->isChecked();
+        updatedEvt.durationMs = durationSpin->value() * 1000.0;
         
         model->replaceEvent(eventIndex, updatedEvt);
         rebuildEventItems();

@@ -21,9 +21,12 @@ public:
     void setPixelsPerSecond(double pxPerSec);
     double getTimeMs() const;
     
-    // Color
     void setEventColor(const QColor &color);
     QColor getEventColor() const { return eventColor; }
+    
+    // Duration
+    void setDuration(double durationMs);
+    void setHasDuration(bool enabled);
     
     // Label
     void setEventLabel(const QString &label);
@@ -65,6 +68,10 @@ private:
     // Snap settings
     bool snapEnabled = false;
     double snapIntervalMs = 1000.0; // Default 1 second
+    
+    // Duration display
+    bool hasDuration = false;
+    double durationMs = 0.0;
     
     QSvgRenderer *renderer = nullptr;
 };

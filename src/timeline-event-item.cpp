@@ -114,6 +114,21 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     
     QRectF r = rect();
     
+    // Draw duration line (Background)
+    if (hasDuration && durationMs > 0) {
+        double lineLength = (durationMs / 1000.0) * pixelsPerSecond;
+        // Start from center
+        double startX = ITEM_SIZE / 2.0;
+        
+        QPen linePen(eventColor, 4, Qt::SolidLine, Qt::RoundCap);
+        painter->setPen(linePen);
+        painter->drawLine(QPointF(startX, ITEM_SIZE/2.0), QPointF(startX + lineLength, ITEM_SIZE/2.0));
+        
+        // Draw end cap marker
+        painter->drawLine(QPointF(startX + lineLength, ITEM_SIZE/2.0 - 5), 
+                          QPointF(startX + lineLength, ITEM_SIZE/2.0 + 5));
+    }
+    
     if (isSelected()) {
         // Selection glow
         painter->setOpacity(0.4);
@@ -132,11 +147,20 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     // Draw circle
     painter->drawEllipse(r);
     
-    // Draw icon
     if (renderer && renderer->isValid()) {
         QRectF iconRect = r.adjusted(6, 6, -6, -6); // Padding
         renderer->render(painter, iconRect);
     }
+}
+
+void TimelineEventItem::setDuration(double duration) {
+    durationMs = duration;
+    update();
+}
+
+void TimelineEventItem::setHasDuration(bool enabled) {
+    hasDuration = enabled;
+    update();
 }
 
 void TimelineEventItem::setSnapEnabled(bool enabled) {
