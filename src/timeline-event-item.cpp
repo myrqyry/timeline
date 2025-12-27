@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 #include <QFontMetrics>
+#include <QFile>
 
 #include "theme-helpers.h"
 
