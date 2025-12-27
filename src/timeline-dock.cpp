@@ -260,6 +260,11 @@ void TimelineDock::setupUi() {
     playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(Qt::red, 2));
     playheadItem->setZValue(100);
 
+    // Drag Guide (hidden by default)
+    dragGuideItem = scene->addLine(0, 0, 0, view->height(), QPen(QColor(0, 255, 0), 1, Qt::DashLine));
+    dragGuideItem->setZValue(110);
+    dragGuideItem->setVisible(false);
+
     // Initial layout
     blog(LOG_INFO, "setupUi: calling updateLayout");
     updateLayout();
@@ -278,7 +283,15 @@ void TimelineDock::resizeEvent(QResizeEvent *event) {
         if (playheadItem) {
             QLineF line = playheadItem->line();
             line.setP2(QPointF(line.x1(), view->viewport()->height()));
+            line.setP2(QPointF(line.x1(), view->viewport()->height()));
             playheadItem->setLine(line);
+        }
+
+        // Update drag guide height
+        if (dragGuideItem) {
+            QLineF line = dragGuideItem->line();
+            line.setP2(QPointF(line.x1(), view->viewport()->height()));
+            dragGuideItem->setLine(line);
         }
     }
 }
@@ -1233,6 +1246,30 @@ void TimelineDock::rebuildEventItems() {
                 [this, eventIndex]() {
             model->removeEvent(eventIndex);
             rebuildEventItems(); // Rebuild to clean up and re-index
+        });
+        
+        // Connect drag guide support
+        connect(item, &TimelineEventItem::dragStarted, [this, item]() {
+            if (dragGuideItem) {
+                dragGuideItem->setVisible(true);
+                // Initial positioning
+                double x = (item->getTimeMs() / 1000.0) * pixelsPerSecond;
+                dragGuideItem->setLine(x, 0, x, view->viewport()->height());
+            }
+        });
+        
+        connect(item, &TimelineEventItem::dragMoved, [this, item](double timeMs) {
+            if (dragGuideItem) {
+                double x = (timeMs / 1000.0) * pixelsPerSecond;
+                dragGuideItem->setLine(x, 0, x, view->viewport()->height());
+            }
+        });
+        
+        // Ensure guide is hidden when move ends (eventMoved is triggered on release)
+        connect(item, &TimelineEventItem::eventMoved, [this, item](double) {
+            if (dragGuideItem) {
+                dragGuideItem->setVisible(false);
+            }
         });
         
         // Connect color change

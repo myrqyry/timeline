@@ -42,11 +42,14 @@ public:
 
 signals:
     void eventMoved(double newTimeMs);
+    void dragStarted();
+    void dragMoved(double timeMs);
     void doubleClicked();
     void deleteRequested();
     void colorChangeRequested();
 
 protected:
+    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
     void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override;

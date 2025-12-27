@@ -92,6 +92,7 @@ private:
     QGraphicsLineItem *playheadItem;
     
     QGraphicsLineItem *endMarkerItem = nullptr;
+    QGraphicsLineItem *dragGuideItem = nullptr;
 
     QList<QGraphicsItem*> rulerItems;
     QList<QGraphicsItem*> gridItems;
