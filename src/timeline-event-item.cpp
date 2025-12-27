@@ -41,6 +41,26 @@ double TimelineEventItem::getTimeMs() const {
     return (x() + ITEM_SIZE / 2.0) / pixelsPerSecond * 1000.0;
 }
 
+QRectF TimelineEventItem::boundingRect() const {
+    double padding = 6.0; // Enough for selection ring
+    QRectF baseRect(0, 0, ITEM_SIZE, ITEM_SIZE);
+    QRectF totalRect = baseRect.adjusted(-padding, -padding, padding, padding);
+    
+    if (hasDuration && durationMs > 0) {
+        double lineLength = (durationMs / 1000.0) * pixelsPerSecond;
+        double startX = ITEM_SIZE / 2.0;
+        
+        // Rect coverage for the duration line + end cap
+        // Line goes from center to center + length
+        // We need coverage from center (part of baseRect already) to end
+        // Add vertical padding for the line thickness/cap
+        QRectF lineRect(startX, ITEM_SIZE/2.0 - 10, lineLength + 10, 20);
+        totalRect = totalRect.united(lineRect);
+    }
+    
+    return totalRect;
+}
+
 void TimelineEventItem::setPixelsPerSecond(double pxPerSec) {
     double currentTime = getTimeMs();
     pixelsPerSecond = pxPerSec;
@@ -135,15 +155,16 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     }
     
     if (isSelected()) {
-        // Selection glow
-        painter->setOpacity(0.4);
-        painter->setPen(QPen(QColor(255, 200, 0), 5));
+        // Cleaner selection ring
         painter->setBrush(Qt::NoBrush);
-        painter->drawEllipse(r.adjusted(-3, -3, 3, 3));
-        painter->setOpacity(1.0);
         
-        painter->setPen(QPen(QColor(255, 200, 0), 2));
-        painter->setBrush(QBrush(eventColor.lighter(120)));
+        // White outer ring for contrast
+        painter->setPen(QPen(Qt::white, 3));
+        painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
+        
+        // Color inner ring
+        painter->setPen(QPen(QColor(255, 200, 0), 2)); // Gold/Orange
+        painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
     } else {
         painter->setPen(QPen(Qt::black, 1.5));
         painter->setBrush(QBrush(eventColor));

@@ -40,6 +40,8 @@ public:
     void setSnapEnabled(bool enabled);
     void setSnapInterval(double intervalMs);
 
+    QRectF boundingRect() const override;
+
 signals:
     void eventMoved(double newTimeMs);
     void dragStarted();
@@ -47,7 +49,7 @@ signals:
     void doubleClicked();
     void deleteRequested();
     void colorChangeRequested();
-
+    
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
