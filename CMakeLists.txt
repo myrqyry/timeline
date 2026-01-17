@@ -16,6 +16,9 @@ pkg_check_modules(OBS REQUIRED libobs)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
+enable_testing()
+add_subdirectory(tests)
+
 # Plugin source files
 set(PLUGIN_SOURCES
     src/plugin-main.cpp
