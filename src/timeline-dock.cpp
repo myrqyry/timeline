@@ -28,6 +28,7 @@
 #include <QDialogButtonBox>
 #include <QColorDialog>
 #include <QKeyEvent>
+#include "event-editor.h"
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
     blog(LOG_INFO, "TimelineDock constructor started");
@@ -1441,155 +1442,25 @@ void TimelineDock::clearEventItems() {
 }
 
 void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex) {
-    if (eventIndex < 0 || eventIndex >= model->getEvents().size()) return;
-    
-    const TimelineEvent& evt = model->getEvents()[eventIndex];
-    
-    QDialog dialog(this);
-    dialog.setWindowTitle("Edit Timeline Event");
-    dialog.setMinimumWidth(400);
-    
-    QVBoxLayout *layout = new QVBoxLayout(&dialog);
-    
-    // Event type
-    layout->addWidget(new QLabel("Event Type:"));
-    QComboBox *typeCombo = new QComboBox(&dialog);
-    typeCombo->addItem("Scene Switch", static_cast<int>(TimelineEventType::SceneSwitch));
-    typeCombo->addItem("Source Show", static_cast<int>(TimelineEventType::SourceShow));
-    typeCombo->addItem("Source Hide", static_cast<int>(TimelineEventType::SourceHide));
-    typeCombo->addItem("Media Start", static_cast<int>(TimelineEventType::MediaStart));
-    typeCombo->addItem("Media Stop", static_cast<int>(TimelineEventType::MediaStop));
-    typeCombo->addItem("Filter Enable", static_cast<int>(TimelineEventType::FilterEnable));
-    typeCombo->addItem("Filter Disable", static_cast<int>(TimelineEventType::FilterDisable));
-    typeCombo->addItem("Trigger Hotkey", static_cast<int>(TimelineEventType::HotkeyTrigger));
-    
-    // Find and select current type
-    for (int i = 0; i < typeCombo->count(); i++) {
-        if (typeCombo->itemData(i).toInt() == static_cast<int>(evt.type)) {
-            typeCombo->setCurrentIndex(i);
-            break;
-        }
-    }
-    layout->addWidget(typeCombo);
-    
-    // Target Source
-    layout->addWidget(new QLabel("Target Source / Scene / Hotkey:"));
-    QLineEdit *sourceEdit = new QLineEdit(&dialog);
-    sourceEdit->setText(evt.sourceName);
-    layout->addWidget(sourceEdit);
+    auto events = model->getEvents();
+    if (eventIndex < 0 || eventIndex >= static_cast<int>(events.size())) return;
 
-    // Target Filter (only visible for filter events, but created always for simplicity)
-    QLabel *filterLabel = new QLabel("Target Filter:", &dialog);
-    QLineEdit *filterEdit = new QLineEdit(&dialog);
-    filterEdit->setText(evt.filterName);
-    layout->addWidget(filterLabel);
-    layout->addWidget(filterEdit);
-    
-    // Helper to toggle filter input visibility
-    auto updateFilterVisibility = [&](TimelineEventType t) {
-        bool isFilter = (t == TimelineEventType::FilterEnable || t == TimelineEventType::FilterDisable);
-        filterLabel->setVisible(isFilter);
-        filterEdit->setVisible(isFilter);
-    };
-    
-    updateFilterVisibility(evt.type);
-    
-    // Color picker
-    QColor selectedColor = evt.color;
-    QHBoxLayout *colorLayout = new QHBoxLayout();
-    QLabel *colorLabel = new QLabel("Event Color:", &dialog);
-    QPushButton *colorButton = new QPushButton(&dialog);
-    colorButton->setFixedSize(60, 24);
-    colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
-    
-    connect(colorButton, &QPushButton::clicked, [&]() {
-        QColor newColor = QColorDialog::getColor(selectedColor, &dialog, "Select Event Color");
-        if (newColor.isValid()) {
-            selectedColor = newColor;
-            colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
-        }
-    });
-    
-    colorLayout->addWidget(colorButton);
+    TimelineEvent evt = events[eventIndex];
+    EventEditor editor(evt, this);
 
-    // Custom Icon Path
-    QLabel *iconLabel = new QLabel("Custom Icon:", &dialog);
-    QLineEdit *iconPathEdit = new QLineEdit(&dialog);
-    iconPathEdit->setText(evt.customIconPath);
-    QPushButton *browseIconButton = new QPushButton("Browse...", &dialog);
-
-    connect(browseIconButton, &QPushButton::clicked, [&]() {
-        QString path = QFileDialog::getOpenFileName(&dialog, "Select Custom Icon", "", "SVG Files (*.svg)");
-        if (!path.isEmpty()) {
-            iconPathEdit->setText(path);
-        }
-    });
-
-    QHBoxLayout *iconLayout = new QHBoxLayout();
-    iconLayout->addWidget(iconLabel);
-    iconLayout->addWidget(iconPathEdit);
-    iconLayout->addWidget(browseIconButton);
-
-    colorLayout->addSpacing(20);
-    layout->addLayout(iconLayout);
-
-    colorLayout->addStretch();
-    layout->addLayout(colorLayout);
-
-    // Duration Controls
-    QHBoxLayout *durationLayout = new QHBoxLayout();
-    QCheckBox *durationCheck = new QCheckBox("Has Duration", &dialog);
-    durationCheck->setChecked(evt.hasDuration);
-    
-    QDoubleSpinBox *durationSpin = new QDoubleSpinBox(&dialog);
-    durationSpin->setRange(0.0, 3600.0);
-    durationSpin->setSuffix(" sec");
-    durationSpin->setValue(evt.durationMs > 0 ? evt.durationMs / 1000.0 : 5.0);
-    durationSpin->setEnabled(evt.hasDuration);
-    
-    connect(durationCheck, &QCheckBox::toggled, durationSpin, &QDoubleSpinBox::setEnabled);
-    
-    durationLayout->addWidget(durationCheck);
-    durationLayout->addWidget(durationSpin);
-    layout->addLayout(durationLayout);
-
-    // Connect type change to visibility AND color update
-    // Must be defined AFTER colorButton is created so lambda can capture it
-    connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [&](int index) {
-        TimelineEventType newType = static_cast<TimelineEventType>(typeCombo->itemData(index).toInt());
-        updateFilterVisibility(newType);
+    if (editor.exec() == QDialog::Accepted) {
+        editor.getUpdatedEvent(evt);
+        model->replaceEvent(eventIndex, evt);
         
-        // Update color default as before
-        selectedColor = ThemeIcons::getDefaultColor(newType);
-        colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
-    });
-
-    // Time info
-    double timeSec = evt.timeMs / 1000.0;
-    QString timeStr = QString("Current time: %1 sec").arg(timeSec, 0, 'f', 2);
-    QLabel *timeInfo = new QLabel(timeStr, &dialog);
-    timeInfo->setStyleSheet("color: gray; font-style: italic;");
-    layout->addWidget(timeInfo);
-    
-    QDialogButtonBox *buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    layout->addWidget(buttons);
-    
-    if (dialog.exec() == QDialog::Accepted) {
-        TimelineEvent updatedEvt = evt;
-        updatedEvt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
-        updatedEvt.sourceName = sourceEdit->text();
-        updatedEvt.filterName = filterEdit->text();
-        updatedEvt.color = selectedColor;
-        updatedEvt.customIconPath = iconPathEdit->text();
-        updatedEvt.hasDuration = durationCheck->isChecked();
-        updatedEvt.durationMs = durationSpin->value() * 1000.0;
+        // Update visual item for immediate feedback
+        if (item) {
+            item->setHasDuration(evt.hasDuration);
+            item->setDuration(evt.durationMs);
+        }
         
-        model->replaceEvent(eventIndex, updatedEvt);
+        // Rebuild is handled by modelChanged -> rebuildEventItems
         rebuildEventItems();
+        save();
     }
 }
 
