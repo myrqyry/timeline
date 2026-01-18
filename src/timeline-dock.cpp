@@ -46,6 +46,9 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
     
     // Register save callback
     obs_frontend_add_save_callback(saveCallback, this);
+
+    // Register event callback for recording status
+    obs_frontend_add_event_callback(frontendEvent, this);
     
     // Register Hotkeys
     hotkeyIdPlayPause = obs_hotkey_register_frontend("Timeline.PlayPause", "Timeline: Play/Pause", TimelineDock::hotkeyPlayPause, this);
@@ -61,6 +64,7 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent) {
 
 TimelineDock::~TimelineDock() {
     obs_frontend_remove_save_callback(saveCallback, this);
+    obs_frontend_remove_event_callback(frontendEvent, this);
     
     obs_hotkey_unregister(hotkeyIdPlayPause);
     obs_hotkey_unregister(hotkeyIdStop);
@@ -73,6 +77,17 @@ void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *privat
     TimelineDock *dock = static_cast<TimelineDock*>(private_data);
     if (saving) {
         dock->save();
+    }
+}
+
+void TimelineDock::frontendEvent(enum obs_frontend_event event, void *private_data) {
+    TimelineDock *dock = static_cast<TimelineDock*>(private_data);
+    if (event == OBS_FRONTEND_EVENT_RECORDING_STARTED) {
+        QMetaObject::invokeMethod(dock->recordButton, "setText", Qt::QueuedConnection, Q_ARG(QString, "Stop Rec"));
+        QMetaObject::invokeMethod(dock->recordButton, "setStyleSheet", Qt::QueuedConnection, Q_ARG(QString, "color: red; font-weight: bold;"));
+    } else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
+        QMetaObject::invokeMethod(dock->recordButton, "setText", Qt::QueuedConnection, Q_ARG(QString, "Record"));
+        QMetaObject::invokeMethod(dock->recordButton, "setStyleSheet", Qt::QueuedConnection, Q_ARG(QString, ""));
     }
 }
 
@@ -119,6 +134,9 @@ void TimelineDock::save() {
         settings["loop"] = loopCheckbox->isChecked();
         settings["endTime"] = endTimeSpinbox->value();
         settings["snap"] = snapCheckbox->isChecked();
+        settings["bpm"] = bpm;
+        settings["gridToBpm"] = gridToBpm;
+        settings["centerControls"] = centerControls;
         root["settings"] = settings;
         
         QJsonDocument doc(root);
@@ -151,15 +169,24 @@ void TimelineDock::load() {
             bool loop = settings["loop"].toBool();
             double end = settings["endTime"].toDouble();
             bool snap = settings["snap"].toBool();
+            double loadedBpm = settings["bpm"].toDouble(120.0);
+            bool loadedGridToBpm = settings["gridToBpm"].toBool(false);
+            bool loadedCenterControls = settings["centerControls"].toBool(false);
             
             loopCheckbox->setChecked(loop);
             endTimeSpinbox->setValue(end);
             snapCheckbox->setChecked(snap);
+            bpmSpinbox->setValue(loadedBpm);
+            bpmGridCheckbox->setChecked(loadedGridToBpm);
+            centerControlsCheckbox->setChecked(loadedCenterControls);
             
             // Apply settings manually since signals might be blocked (or just to be safe)
             onLoopToggled(loop);
             onEndTimeChanged(end);
             onSnapToggled(snap);
+            onBpmChanged(loadedBpm);
+            onBpmGridToggled(loadedGridToBpm);
+            onCenterControlsToggled(loadedCenterControls);
         }
         
         updateLayout(); // Refresh UI with new events
@@ -174,57 +201,51 @@ void TimelineDock::setupUi() {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     
     // Unified Controls Row
-    QHBoxLayout *controlsLayout = new QHBoxLayout();
+    controlsLayout = new QHBoxLayout();
     
     // Playback Controls
     playButton = new QPushButton("Play", this);
     playButton->setToolTip("Start/pause timeline playback");
     stopButton = new QPushButton("Stop", this);
     stopButton->setToolTip("Stop and reset to beginning");
+    recordButton = new QPushButton("Record", this);
+    recordButton->setToolTip("Start/Stop Recording");
     addEventButton = new QPushButton("Add Event", this);
     addEventButton->setToolTip("Add a new event at the current playhead position");
     
     connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
     connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
+    connect(recordButton, &QPushButton::clicked, this, &TimelineDock::onRecordClicked);
     connect(addEventButton, &QPushButton::clicked, this, &TimelineDock::onAddEventClicked);
     
-    controlsLayout->addWidget(playButton);
-    controlsLayout->addWidget(stopButton);
-    controlsLayout->addWidget(addEventButton);
-    
-    // Save/Load
-    QPushButton *saveButton = new QPushButton("Save", this);
-    saveButton->setToolTip("Export timeline to JSON file");
-    QPushButton *loadButton = new QPushButton("Load", this);
-    loadButton->setToolTip("Import timeline from JSON file");
-    
-    connect(saveButton, &QPushButton::clicked, this, &TimelineDock::onSaveClicked);
-    connect(loadButton, &QPushButton::clicked, this, &TimelineDock::onLoadClicked);
-    
-    controlsLayout->addWidget(saveButton);
-    controlsLayout->addWidget(loadButton);
+    // Save/Load (will be added in updateControlsLayout)
     
     // Time Display
     timeLabel = new QLabel("00:00:00", this);
     timeLabel->setToolTip("Current timeline position | Zoom level");
-    controlsLayout->addWidget(timeLabel);
-    
-    // Spacer to push options to the right
-    controlsLayout->addStretch();
-    
+
     // Options
     snapCheckbox = new QCheckBox("Snap", this);
     snapCheckbox->setToolTip("Snap events to grid lines when dragging");
     connect(snapCheckbox, &QCheckBox::toggled, this, &TimelineDock::onSnapToggled);
-    controlsLayout->addWidget(snapCheckbox);
     
     loopCheckbox = new QCheckBox("Loop", this);
     loopCheckbox->setToolTip("Loop playback when end time is reached");
     connect(loopCheckbox, &QCheckBox::toggled, this, &TimelineDock::onLoopToggled);
-    controlsLayout->addWidget(loopCheckbox);
-    
-    QLabel *endLabel = new QLabel("End:", this);
-    controlsLayout->addWidget(endLabel);
+
+    centerControlsCheckbox = new QCheckBox("Center", this);
+    centerControlsCheckbox->setToolTip("Center controls in the interface");
+    connect(centerControlsCheckbox, &QCheckBox::toggled, this, &TimelineDock::onCenterControlsToggled);
+
+    bpmGridCheckbox = new QCheckBox("BPM Grid", this);
+    bpmGridCheckbox->setToolTip("Align grid to BPM");
+    connect(bpmGridCheckbox, &QCheckBox::toggled, this, &TimelineDock::onBpmGridToggled);
+
+    bpmSpinbox = new QDoubleSpinBox(this);
+    bpmSpinbox->setRange(10, 300);
+    bpmSpinbox->setValue(120);
+    bpmSpinbox->setToolTip("Beats Per Minute");
+    connect(bpmSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TimelineDock::onBpmChanged);
     
     endTimeSpinbox = new QDoubleSpinBox(this);
     endTimeSpinbox->setRange(0, 3600); // Up to 1 hour
@@ -234,7 +255,24 @@ void TimelineDock::setupUi() {
     endTimeSpinbox->setToolTip("Set timeline end time (0 = no limit)");
     connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
             this, &TimelineDock::onEndTimeChanged);
-    controlsLayout->addWidget(endTimeSpinbox);
+
+    saveButton = new QPushButton("Save", this);
+    saveButton->setToolTip("Export timeline to JSON file");
+    connect(saveButton, &QPushButton::clicked, this, &TimelineDock::onSaveClicked);
+
+    loadButton = new QPushButton("Load", this);
+    loadButton->setToolTip("Import timeline from JSON file");
+    connect(loadButton, &QPushButton::clicked, this, &TimelineDock::onLoadClicked);
+
+    endLabel = new QLabel("End:", this);
+
+    // Initial update
+    if (obs_frontend_recording_active()) {
+        recordButton->setText("Stop Rec");
+        recordButton->setStyleSheet("color: red; font-weight: bold;");
+    }
+
+    updateControlsLayout();
     
     mainLayout->addLayout(controlsLayout);
     
@@ -270,6 +308,87 @@ void TimelineDock::setupUi() {
     updateLayout();
     
     mainLayout->addWidget(view);
+}
+
+void TimelineDock::updateControlsLayout() {
+    // Clear layout (but don't delete widgets!)
+    QLayoutItem *child;
+    while ((child = controlsLayout->takeAt(0)) != 0) {
+        if (child->widget()) {
+            child->widget()->hide(); // Hide widgets so they don't appear floating
+        }
+        delete child;
+    }
+
+    auto show = [](QWidget* w) {
+        w->show();
+        return w;
+    };
+
+    if (centerControls) {
+        controlsLayout->addStretch();
+        controlsLayout->addWidget(show(recordButton));
+        controlsLayout->addWidget(show(playButton));
+        controlsLayout->addWidget(show(stopButton));
+        controlsLayout->addWidget(show(addEventButton));
+        controlsLayout->addWidget(show(saveButton));
+        controlsLayout->addWidget(show(loadButton));
+        controlsLayout->addWidget(show(timeLabel));
+
+        controlsLayout->addStretch();
+
+        controlsLayout->addWidget(show(snapCheckbox));
+        controlsLayout->addWidget(show(loopCheckbox));
+        controlsLayout->addWidget(show(centerControlsCheckbox));
+        controlsLayout->addWidget(show(bpmGridCheckbox));
+        controlsLayout->addWidget(show(bpmSpinbox));
+        controlsLayout->addWidget(show(endLabel));
+        controlsLayout->addWidget(show(endTimeSpinbox));
+    } else {
+        controlsLayout->addWidget(show(playButton));
+        controlsLayout->addWidget(show(stopButton));
+        controlsLayout->addWidget(show(recordButton));
+        controlsLayout->addWidget(show(addEventButton));
+        controlsLayout->addWidget(show(saveButton));
+        controlsLayout->addWidget(show(loadButton));
+        controlsLayout->addWidget(show(timeLabel));
+
+        controlsLayout->addStretch();
+
+        controlsLayout->addWidget(show(snapCheckbox));
+        controlsLayout->addWidget(show(loopCheckbox));
+        controlsLayout->addWidget(show(centerControlsCheckbox));
+        controlsLayout->addWidget(show(bpmGridCheckbox));
+        controlsLayout->addWidget(show(bpmSpinbox));
+        controlsLayout->addWidget(show(endLabel));
+        controlsLayout->addWidget(show(endTimeSpinbox));
+    }
+}
+
+void TimelineDock::onRecordClicked() {
+    if (obs_frontend_recording_active()) {
+        obs_frontend_recording_stop();
+    } else {
+        obs_frontend_recording_start();
+    }
+}
+
+void TimelineDock::onBpmGridToggled(bool checked) {
+    gridToBpm = checked;
+    bpmSpinbox->setEnabled(checked);
+    drawGrid();
+}
+
+void TimelineDock::onBpmChanged(double value) {
+    bpm = value;
+    if (gridToBpm) {
+        drawGrid();
+    }
+}
+
+void TimelineDock::onCenterControlsToggled(bool checked) {
+    centerControls = checked;
+    updateControlsLayout();
 }
 
 void TimelineDock::resizeEvent(QResizeEvent *event) {
@@ -502,6 +621,9 @@ void TimelineDock::onSaveClicked() {
         settings["loop"] = loopCheckbox->isChecked();
         settings["endTime"] = endTimeSpinbox->value();
         settings["snap"] = snapCheckbox->isChecked();
+        settings["bpm"] = bpm;
+        settings["gridToBpm"] = gridToBpm;
+        settings["centerControls"] = centerControls;
         root["settings"] = settings;
         
         QJsonDocument doc(root);
@@ -530,10 +652,17 @@ void TimelineDock::onLoadClicked() {
             endTimeSpinbox->setValue(settings["endTime"].toDouble());
             snapCheckbox->setChecked(settings["snap"].toBool());
             
+            bpmSpinbox->setValue(settings["bpm"].toDouble(120.0));
+            bpmGridCheckbox->setChecked(settings["gridToBpm"].toBool(false));
+            centerControlsCheckbox->setChecked(settings["centerControls"].toBool(false));
+
             // Apply settings
             onLoopToggled(loopCheckbox->isChecked());
             onEndTimeChanged(endTimeSpinbox->value());
             onSnapToggled(snapCheckbox->isChecked());
+            onBpmChanged(bpmSpinbox->value());
+            onBpmGridToggled(bpmGridCheckbox->isChecked());
+            onCenterControlsToggled(centerControlsCheckbox->isChecked());
         }
         
         rebuildEventItems(); // Refresh view
@@ -726,17 +855,28 @@ void TimelineDock::drawGrid() {
     double sceneWidth = scene->width();
     double sceneHeight = view->viewport()->height();
     
-    // Determine grid step based on zoom level
-    double stepSeconds = 1.0;
-    if (pixelsPerSecond < 20) stepSeconds = 10.0;
-    else if (pixelsPerSecond < 50) stepSeconds = 5.0;
-    else if (pixelsPerSecond > 200) stepSeconds = 0.5;
-    
-    double stepPx = stepSeconds * pixelsPerSecond;
+    double stepPx;
+
+    if (gridToBpm && bpm > 0.0) {
+        // Calculate beat interval in seconds
+        double beatIntervalSec = 60.0 / bpm;
+        stepPx = beatIntervalSec * pixelsPerSecond;
+    } else {
+        // Determine grid step based on zoom level (existing logic)
+        double stepSeconds = 1.0;
+        if (pixelsPerSecond < 20) stepSeconds = 10.0;
+        else if (pixelsPerSecond < 50) stepSeconds = 5.0;
+        else if (pixelsPerSecond > 200) stepSeconds = 0.5;
+
+        stepPx = stepSeconds * pixelsPerSecond;
+    }
     
     // Draw vertical grid lines
     QPen gridPen(QColor(60, 60, 60), 1, Qt::DotLine);
     for (double x = 0; x < sceneWidth; x += stepPx) {
+        // Skip x=0 (optional, but usually 0 is implied)
+        if (x < 0.1) continue;
+
         QGraphicsLineItem* line = scene->addLine(x, 20, x, sceneHeight, gridPen);
         line->setZValue(-10); // Behind everything
         gridItems.append(line);

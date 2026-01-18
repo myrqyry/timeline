@@ -81,13 +81,32 @@ private:
     // UI Elements
     QGraphicsView *view;
     QGraphicsScene *scene;
+
+    // Layout
+    QHBoxLayout *controlsLayout;
+
+    // Buttons & Controls
     QPushButton *playButton;
     QPushButton *stopButton;
+    QPushButton *recordButton;
     QPushButton *addEventButton;
+    QPushButton *saveButton;
+    QPushButton *loadButton;
+
+    // Options
     QCheckBox *loopCheckbox;
     QCheckBox *snapCheckbox;
+    QCheckBox *centerControlsCheckbox;
+    QCheckBox *bpmGridCheckbox;
     QDoubleSpinBox *endTimeSpinbox;
+    QDoubleSpinBox *bpmSpinbox;
     QLabel *timeLabel;
+    QLabel *endLabel;
+
+    // Settings
+    bool centerControls = false;
+    double bpm = 120.0;
+    bool gridToBpm = false;
     
     QGraphicsLineItem *playheadItem;
     
