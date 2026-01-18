@@ -36,6 +36,7 @@ public:
     static void hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
     static void hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
     static void hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
+    static void frontendEvent(enum obs_frontend_event event, void *private_data);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -55,6 +56,10 @@ private slots:
     void onLoadClicked();
     void onTimelineFinished();
     void onTimelineLooped();
+    void onRecordClicked();
+    void onBpmGridToggled(bool checked);
+    void onBpmChanged(double value);
+    void onCenterControlsToggled(bool checked);
 
 private:
     void setupUi();
@@ -71,6 +76,7 @@ private:
     void copySelectedEvents();
     void pasteEvents();
     void nudgeSelectedEvents(double deltaMs);
+    void updateControlsLayout();
 
     QList<TimelineEvent> clipboard;
 

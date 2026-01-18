@@ -1,6 +1,7 @@
 #include "obs-executor.h"
 #include "headless-timeline.h"
 #include <obs-module.h>
+#include <QTimer>
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 #include <obs-websocket-api.h>
@@ -14,37 +15,22 @@ void ObsExecutor::setObsWebSocketVendor(void* vendor) {
 }
 
 void ObsExecutor::executeEvent(const TimelineEvent &evt) {
+    // 1. Perform the immediate "start" action
+    performAction(evt, true);
 
-    switch (evt.type) {
-        case TimelineEventType::SceneSwitch:
-            handleSceneSwitch(evt);
-            break;
-        case TimelineEventType::MediaStart:
-            handleMediaStart(evt);
-            break;
-        case TimelineEventType::MediaStop:
-            handleMediaStop(evt);
-            break;
-        case TimelineEventType::SourceShow:
-            handleSourceVisibility(evt, true);
-            break;
-        case TimelineEventType::SourceHide:
-            handleSourceVisibility(evt, false);
-            break;
-        case TimelineEventType::FilterEnable:
-            handleFilterEnable(evt, true);
-            break;
-        case TimelineEventType::FilterDisable:
-            handleFilterEnable(evt, false);
-            break;
-        case TimelineEventType::HotkeyTrigger:
-            handleHotkey(evt);
-            break;
-        case TimelineEventType::TriggerTimeline:
-            handleTriggerTimeline(evt);
-            break;
+    // 2. If it has a duration, schedule the "end" action
+    if (evt.hasDuration && evt.durationMs > 0) {
+        // Capture by value to ensure data exists when timer fires
+        TimelineEvent endEvt = evt;
+        int durationInt = static_cast<int>(evt.durationMs);
+        QTimer::singleShot(durationInt, this, [this, endEvt]() {
+            performAction(endEvt, false);
+            blog(LOG_INFO, "Timeline: Duration ended for event '%s'", 
+                 endEvt.sourceName.toUtf8().constData());
+        });
     }
     
+    // WebSocket notification
     if (obsWebSocketVendor) {
         obs_data_t *event_data = obs_data_create();
         obs_data_set_string(event_data, "event", "triggered");
@@ -57,6 +43,51 @@ void ObsExecutor::executeEvent(const TimelineEvent &evt) {
         
         obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
         obs_data_release(event_data);
+    }
+}
+
+void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction) {
+    switch (evt.type) {
+        case TimelineEventType::SourceShow:
+        case TimelineEventType::SourceHide: {
+            // If duration event: Start = visible, End = hidden
+            // If instant event: SourceShow = visible, SourceHide = hidden
+            bool visible = evt.hasDuration ? isStartAction : (evt.type == TimelineEventType::SourceShow);
+            handleSourceVisibility(evt, visible);
+            break;
+        }
+        case TimelineEventType::MediaStart:
+        case TimelineEventType::MediaStop:
+            if (evt.hasDuration) {
+                if (isStartAction) handleMediaStart(evt);
+                else handleMediaStop(evt);
+            } else {
+                if (evt.type == TimelineEventType::MediaStart) handleMediaStart(evt);
+                else handleMediaStop(evt);
+            }
+            break;
+        case TimelineEventType::FilterEnable:
+        case TimelineEventType::FilterDisable: {
+            // If duration event: Start = enable, End = disable
+            // If instant event: FilterEnable = enable, FilterDisable = disable
+            bool enable = evt.hasDuration ? isStartAction : (evt.type == TimelineEventType::FilterEnable);
+            handleFilterEnable(evt, enable);
+            break;
+        }
+        case TimelineEventType::SceneSwitch:
+            // Only switch on start action (no inverse for scene switch)
+            if (isStartAction) handleSceneSwitch(evt);
+            break;
+        case TimelineEventType::HotkeyTrigger:
+            // Only trigger on start action
+            if (isStartAction) handleHotkey(evt);
+            break;
+        case TimelineEventType::TriggerTimeline:
+            // Only trigger on start action
+            if (isStartAction) handleTriggerTimeline(evt);
+            break;
+        default:
+            break;
     }
 }
 

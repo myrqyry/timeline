@@ -27,6 +27,7 @@ private:
     void handleFilterEnable(const TimelineEvent &evt, bool enable);
     void handleHotkey(const TimelineEvent &evt);
     void handleTriggerTimeline(const TimelineEvent &evt);
+    void performAction(const TimelineEvent &evt, bool isStartAction);
 
     std::vector<HeadlessTimeline*> activeTimelines;
     void* obsWebSocketVendor = nullptr;
