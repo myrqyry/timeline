@@ -78,6 +78,27 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
     -   `TimelineModel`: Manages event data.
     -   `TimelineView` / `Dock`: Handles UI and rendering.
     -   `ObsExecutor`: Interfaces with OBS API to trigger actions.
+-   **API Skill**: Includes `obs-frontend-dev/` skill for OBS frontend plugin development patterns (dock lifecycle, WebSocket vendors, settings persistence).
+
+### Build Commands
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_INSTALL_PREFIX="$HOME/.config/obs-studio/plugins/obs-timeline-plugin" \
+  -DOBS_PLUGIN_DESTINATION="bin/64bit" \
+  -DOBS_DATA_DESTINATION="data"
+
+cmake --build build
+cmake --install build
+```
+
+### Running Tests
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+cd build && ctest --verbose
+```
 
 ## License
 
