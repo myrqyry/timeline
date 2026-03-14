@@ -100,6 +100,11 @@ cmake --build build
 cd build && ctest --verbose
 ```
 
+## Writing Skill Guidance
+
+- Drop a GitHub link and consult `writing-skills/SKILL.md` when you need to align this repository with a new or improved skill.
+- The guide walks through the decision tree, CSO triggers, anti-rationalization rules, and reference templates for Tier 1–3 architectures.
+
 ## License
 
 GPL-2.0-or-later

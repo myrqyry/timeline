@@ -9,6 +9,7 @@
 !/src
 !/tests
 !obs-frontend-dev
+!writing-skills
 !.clang-format
 !.gersemirc
 !.gitignore
