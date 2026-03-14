@@ -1200,6 +1200,7 @@ void TimelineDock::onAddEventClicked()
 									QVariantList eventData;
 									eventData << info->second << filterName;
 									info->first->addItem(displayName, eventData);
+									return true;
 								},
 								filterData);
 							delete filterData;
