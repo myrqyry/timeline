@@ -560,6 +560,9 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 
 				if (scheduler->isPlaying()) {
 					scheduler->pause();
+					if (executor) {
+						executor->cancelAll();
+					}
 					playButton->setText("Play");
 				}
 
@@ -575,6 +578,9 @@ void TimelineDock::onPlayClicked()
 {
 	if (scheduler->isPlaying()) {
 		scheduler->pause();
+		if (executor) {
+			executor->cancelAll();
+		}
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
 			obs_data_set_string(d, "event", "paused");
@@ -597,6 +603,9 @@ void TimelineDock::onPlayClicked()
 void TimelineDock::onStopClicked()
 {
 	scheduler->stop();
+	if (executor) {
+		executor->cancelAll();
+	}
 	playButton->setText("Play");
 
 	if (obsWebSocketVendor) {
@@ -1200,7 +1209,6 @@ void TimelineDock::onAddEventClicked()
 									QVariantList eventData;
 									eventData << info->second << filterName;
 									info->first->addItem(displayName, eventData);
-									return true;
 								},
 								filterData);
 							delete filterData;
