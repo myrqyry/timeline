@@ -1,7 +1,6 @@
 #include "timeline-dock.h"
 #include <obs-module.h>
 
-#include <obs-module.h>
 #include <QGraphicsLineItem>
 #include <QGraphicsRectItem>
 #include <QResizeEvent>
@@ -44,7 +43,12 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
 	connect(scheduler, &TimelineScheduler::eventTriggered, executor, &ObsExecutor::executeEvent);
-	connect(model, &TimelineModel::modelChanged, this, &TimelineDock::rebuildEventItems);
+	connect(model, &TimelineModel::modelChanged, this, [this]() {
+		if (!rebuildScheduled) {
+			rebuildScheduled = true;
+			QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
+		}
+	});
 
 	// Register save callback
 	obs_frontend_add_save_callback(saveCallback, this);
@@ -649,12 +653,12 @@ void TimelineDock::onSnapToggled(bool checked)
 {
 	snapEnabled = checked;
 	// Update all existing event items
-	for (auto &pair : eventItemMap) {
-		if (pair.second) {
-			pair.second->setSnapEnabled(snapEnabled);
+	for (TimelineEventItem *item : eventItems) {
+		if (item) {
+			item->setSnapEnabled(snapEnabled);
 			// Determine snap interval based on zoom level
 			double stepMs = 100.0; // 100ms snap
-			pair.second->setSnapInterval(stepMs);
+			item->setSnapInterval(stepMs);
 		}
 	}
 }
@@ -724,7 +728,6 @@ void TimelineDock::onLoadClicked()
 			onCenterControlsToggled(centerControlsCheckbox->isChecked());
 		}
 
-		rebuildEventItems(); // Refresh view
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 	}
 }
@@ -800,9 +803,9 @@ void TimelineDock::copySelectedEvents()
 
 	// Find selected items
 	QList<TimelineEventItem *> selectedItems;
-	for (auto &pair : eventItemMap) {
-		if (pair.second && pair.second->isSelected()) {
-			selectedItems.append(pair.second);
+	for (TimelineEventItem *item : eventItems) {
+		if (item && item->isSelected()) {
+			selectedItems.append(item);
 		}
 	}
 
@@ -825,7 +828,7 @@ void TimelineDock::copySelectedEvents()
 	std::sort(clipboard.begin(), clipboard.end(),
 		  [](const TimelineEvent &a, const TimelineEvent &b) { return a.timeMs < b.timeMs; });
 
-	blog(LOG_INFO, "Copied %d events to clipboard", clipboard.size());
+	blog(LOG_INFO, "Copied %d events to clipboard", static_cast<int>(clipboard.size()));
 }
 
 void TimelineDock::pasteEvents()
@@ -838,9 +841,9 @@ void TimelineDock::pasteEvents()
 	double offset = currentPlayhead - firstEventTime;
 
 	// Deselect current selection
-	for (auto &pair : eventItemMap) {
-		if (pair.second)
-			pair.second->setSelected(false);
+	for (TimelineEventItem *item : eventItems) {
+		if (item)
+			item->setSelected(false);
 	}
 
 	for (const auto &originalEvt : clipboard) {
@@ -853,17 +856,16 @@ void TimelineDock::pasteEvents()
 		model->addEvent(newEvt);
 	}
 
-	rebuildEventItems();
-	blog(LOG_INFO, "Pasted %d events at %f ms", clipboard.size(), currentPlayhead);
+	blog(LOG_INFO, "Pasted %d events at %f ms", static_cast<int>(clipboard.size()), currentPlayhead);
 }
 
 void TimelineDock::deleteSelectedEvents()
 {
 	QList<TimelineEventItem *> toDelete;
 
-	for (auto &pair : eventItemMap) {
-		if (pair.second && pair.second->isSelected()) {
-			toDelete.append(pair.second);
+	for (TimelineEventItem *item : eventItems) {
+		if (item && item->isSelected()) {
+			toDelete.append(item);
 		}
 	}
 
@@ -888,15 +890,13 @@ void TimelineDock::deleteSelectedEvents()
 	for (int idx : indices) {
 		model->removeEvent(idx);
 	}
-
-	rebuildEventItems();
 }
 
 void TimelineDock::nudgeSelectedEvents(double deltaMs)
 {
-	for (auto &pair : eventItemMap) {
-		if (pair.second && pair.second->isSelected()) {
-			double currentTime = pair.second->getTimeMs();
+	for (TimelineEventItem *item : eventItems) {
+		if (item && item->isSelected()) {
+			double currentTime = item->getTimeMs();
 			double newTime = std::max(0.0, currentTime + deltaMs);
 
 			// Find this event in the model and update it
@@ -909,7 +909,6 @@ void TimelineDock::nudgeSelectedEvents(double deltaMs)
 			}
 		}
 	}
-	rebuildEventItems();
 }
 
 void TimelineDock::drawGrid()
@@ -1404,12 +1403,12 @@ void TimelineDock::onAddEventClicked()
 		evt.durationMs = durationSpin->value() * 1000.0;
 
 		model->addEvent(evt);
-		rebuildEventItems();
 	}
 }
 
 void TimelineDock::rebuildEventItems()
 {
+	rebuildScheduled = false;
 	clearEventItems();
 
 	const auto &events = model->getEvents();
@@ -1486,7 +1485,7 @@ void TimelineDock::rebuildEventItems()
 		item->setToolTip(tooltip);
 		item->setEventLabel(
 			evt.sourceName); // Just show source name on the bubble usually, or filter name? Source is probably better.
-		eventItemMap[evt.timeMs] = item;
+		eventItems.append(item);
 
 		int eventIndex = static_cast<int>(i);
 
@@ -1501,7 +1500,7 @@ void TimelineDock::rebuildEventItems()
 		// Connect deletion
 		connect(item, &TimelineEventItem::deleteRequested, [this, eventIndex]() {
 			model->removeEvent(eventIndex);
-			rebuildEventItems(); // Rebuild to clean up and re-index
+			// Rebuild is handled by modelChanged -> queued rebuildEventItems
 		});
 
 		// Connect drag guide support
@@ -1547,13 +1546,13 @@ void TimelineDock::rebuildEventItems()
 
 void TimelineDock::clearEventItems()
 {
-	for (auto &pair : eventItemMap) {
-		if (pair.second) {
-			scene->removeItem(pair.second);
-			delete pair.second;
+	for (TimelineEventItem *item : eventItems) {
+		if (item) {
+			scene->removeItem(item);
+			item->deleteLater();
 		}
 	}
-	eventItemMap.clear();
+	eventItems.clear();
 }
 
 void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
@@ -1575,8 +1574,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
 			item->setDuration(evt.durationMs);
 		}
 
-		// Rebuild is handled by modelChanged -> rebuildEventItems
-		rebuildEventItems();
+		// Rebuild is handled by modelChanged -> queued rebuildEventItems
 		save();
 	}
 }

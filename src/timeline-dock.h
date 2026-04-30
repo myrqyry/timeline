@@ -123,7 +123,7 @@ private:
     QList<QGraphicsItem*> gridItems;
     
     // Event tracking
-    std::map<double, TimelineEventItem*> eventItemMap;
+    QList<TimelineEventItem *> eventItems;
     
     double pixelsPerSecond = 100.0;
     bool snapEnabled = false;
@@ -135,4 +135,5 @@ private:
 
     void* obsWebSocketVendor = nullptr;
     qint64 lastTickTime = 0;
+    bool rebuildScheduled = false;
 };

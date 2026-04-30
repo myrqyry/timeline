@@ -2,7 +2,7 @@
 #include "headless-timeline.h"
 #include <obs-module.h>
 #include <QTimer>
-#include <obs-module.h>
+#include <QFileInfo>
 #include <obs-frontend-api.h>
 #include <obs-websocket-api.h>
 
@@ -139,12 +139,8 @@ static obs_source_t *find_transition(const char *name)
 		obs_source_t *source = transitions.sources.array[i];
 		const char *t_name = obs_source_get_name(source);
 		if (t_name && strcmp(t_name, name) == 0) {
-			// Found it. We need to increment the ref because we return it
-			// and the list free will release it.
-			// Wait, source list array[i] are likely references.
-			// Calling free destroys the list struct but calls release on sources?
-			// obs_frontend_source_list_free releases the sources.
-			// So we need to addref if we want to keep it after list free.
+			// obs_frontend_source_list_free() releases all sources in the list,
+			// so we must addref the one we want to keep after returning.
 			found = source;
 			obs_source_get_ref(found);
 			break;
@@ -171,8 +167,8 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 			if (transition) {
 				oldTransition = obs_frontend_get_current_transition();
 				obs_frontend_set_current_transition(transition);
-				// Note: We don't own transition reference from get_source_by_name in a way we need to care about too much here?
-				// obs_get_source_by_name increments ref. We should release later.
+			// find_transition() returns a source with an incremented reference count,
+			// so we must release it when done. oldTransition also needs releasing.
 			} else {
 				blog(LOG_WARNING, "Timeline: Transition '%s' not found",
 				     transitionName.toUtf8().constData());
@@ -328,11 +324,12 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 		return;
 	}
 
-	// Prevent recursive execution
+	// Prevent recursive execution (normalize path to handle symlinks and case differences)
+	QString canonicalPath = QFileInfo(filePath).canonicalFilePath();
 	for (auto *t : activeTimelines) {
-		if (t->getFilePath() == filePath) {
+		if (QFileInfo(t->getFilePath()).canonicalFilePath() == canonicalPath) {
 			blog(LOG_WARNING, "Timeline: Prevented recursive timeline trigger for '%s'",
-			     filePath.toUtf8().constData());
+			     canonicalPath.toUtf8().constData());
 			return;
 		}
 	}
