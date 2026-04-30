@@ -435,7 +435,6 @@ void TimelineDock::resizeEvent(QResizeEvent *event)
 		if (playheadItem) {
 			QLineF line = playheadItem->line();
 			line.setP2(QPointF(line.x1(), view->viewport()->height()));
-			line.setP2(QPointF(line.x1(), view->viewport()->height()));
 			playheadItem->setLine(line);
 		}
 
@@ -585,6 +584,7 @@ void TimelineDock::onPlayClicked()
 		if (executor) {
 			executor->cancelAll();
 		}
+		playButton->setText("Play");
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
 			obs_data_set_string(d, "event", "paused");
@@ -593,7 +593,7 @@ void TimelineDock::onPlayClicked()
 		}
 	} else {
 		scheduler->start();
-		playButton->setText("Pause");
+	playButton->setText("Pause");
 
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();

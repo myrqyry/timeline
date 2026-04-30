@@ -28,6 +28,7 @@ set(PLUGIN_SOURCES
     src/obs-executor.cpp
     src/timeline-event-item.cpp
     src/headless-timeline.cpp
+    src/event-editor.cpp
 )
 
 set(PLUGIN_HEADERS

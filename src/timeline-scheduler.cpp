@@ -1,13 +1,24 @@
 #include "timeline-scheduler.h"
 #include <obs-module.h>
 
-TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) 
-    : QObject(parent), model(model) 
+TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent)
+    : QObject(parent), model(model)
 {
     blog(LOG_INFO, "TimelineScheduler created");
     timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &TimelineScheduler::onTimerTick);
     timer->setInterval(timerIntervalMs);
+
+    if (model) {
+        connect(model, &TimelineModel::modelChanged, this, [this]() {
+            double t = getCurrentTime();
+            const auto &evts = this->model->getEvents();
+            eventFired.resize(evts.size());
+            for (size_t i = 0; i < evts.size(); i++) {
+                eventFired[i] = (evts[i].timeMs < t);
+            }
+        });
+    }
 }
 
 TimelineScheduler::~TimelineScheduler() {

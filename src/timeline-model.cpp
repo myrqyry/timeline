@@ -71,7 +71,9 @@ QJsonArray TimelineModel::toJson() const {
             obj["hasDuration"] = true;
             obj["duration"] = evt.durationMs;
         }
-        // Skipping data variant for now
+        if (!evt.data.isNull()) {
+            obj["data"] = evt.data.toString();
+        }
         array.append(obj);
     }
     return array;
@@ -123,6 +125,9 @@ void TimelineModel::fromJson(const QJsonArray &json) {
         if (obj.contains("hasDuration")) {
             evt.hasDuration = obj["hasDuration"].toBool();
             evt.durationMs = obj["duration"].toDouble();
+        }
+        if (obj.contains("data")) {
+            evt.data = obj["data"].toString();
         }
 
         events.push_back(evt);

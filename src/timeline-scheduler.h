@@ -12,13 +12,15 @@ public:
     TimelineScheduler(TimelineModel *model, QObject *parent = nullptr);
     ~TimelineScheduler();
 
+    bool isPlaying() const { return playing; }
+    double getCurrentTime() const;
+
+public slots:
     void start();
     void stop();
     void pause();
     void resume();
     void seek(double timeMs);
-    bool isPlaying() const { return playing; }
-    double getCurrentTime() const;
     
     // End time and looping
     void setEndTime(double endTimeMs);

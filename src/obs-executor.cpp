@@ -28,7 +28,9 @@ void ObsExecutor::cancelAll()
 
 	for (HeadlessTimeline *t : activeTimelines) {
 		t->stop();
+		t->deleteLater();
 	}
+	activeTimelines.clear();
 }
 
 void ObsExecutor::executeEvent(const TimelineEvent &evt)
