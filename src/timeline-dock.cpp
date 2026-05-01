@@ -5,7 +5,9 @@
 #include <QGraphicsRectItem>
 #include <QResizeEvent>
 #include <obs-frontend-api.h>
+#if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
+#endif
 #include <QDateTime>
 
 #include <QFile>
@@ -585,22 +587,25 @@ void TimelineDock::onPlayClicked()
 			executor->cancelAll();
 		}
 		playButton->setText("Play");
+#if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
 			obs_data_set_string(d, "event", "paused");
 			obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 			obs_data_release(d);
 		}
+#endif
 	} else {
 		scheduler->start();
-	playButton->setText("Pause");
-
+		playButton->setText("Pause");
+#if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
 			obs_data_set_string(d, "event", "started");
 			obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 			obs_data_release(d);
 		}
+#endif
 	}
 }
 
@@ -612,12 +617,14 @@ void TimelineDock::onStopClicked()
 	}
 	playButton->setText("Play");
 
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *d = obs_data_create();
 		obs_data_set_string(d, "event", "stopped");
 		obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 		obs_data_release(d);
 	}
+#endif
 }
 
 void TimelineDock::onLoopToggled(bool checked)
@@ -636,12 +643,14 @@ void TimelineDock::onTimelineFinished()
 	playButton->setText("Play");
 	blog(LOG_INFO, "Timeline playback finished");
 
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *d = obs_data_create();
 		obs_data_set_string(d, "event", "finished");
 		obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 		obs_data_release(d);
 	}
+#endif
 }
 
 void TimelineDock::onTimelineLooped()
@@ -963,6 +972,7 @@ void TimelineDock::onTick(double currentTimeMs)
 {
 	updatePlayhead(currentTimeMs);
 
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		qint64 now = QDateTime::currentMSecsSinceEpoch();
 		if (now - lastTickTime > 50) {
@@ -974,6 +984,7 @@ void TimelineDock::onTick(double currentTimeMs)
 			obs_data_release(d);
 		}
 	}
+#endif
 
 	int totalSeconds = static_cast<int>(currentTimeMs / 1000.0);
 	int ms = static_cast<int>(currentTimeMs) % 1000;

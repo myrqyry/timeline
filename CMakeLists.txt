@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project(obs-timeline-plugin VERSION 1.0.0)
 
+option(ENABLE_OBS_WEBSOCKET_VENDOR "Enable obs-websocket vendor integration" ON)
+
 # C++ Standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,22 +64,48 @@ target_include_directories(${PROJECT_NAME}
     /usr/include/obs
 )
 
-# Standard OBS Install Logic
-include(GNUInstallDirs)
+# Optional obs-websocket vendor integration
+if(ENABLE_OBS_WEBSOCKET_VENDOR)
+    find_path(OBS_WEBSOCKET_INCLUDE_DIR
+        NAMES obs-websocket-api.h
+        PATHS
+            ${OBS_INCLUDE_DIRS}
+            /usr/include/obs
+            /usr/local/include/obs
+    )
 
-# Allow overriding the install destinations
-if(NOT DEFINED OBS_PLUGIN_DESTINATION)
-    set(OBS_PLUGIN_DESTINATION "${CMAKE_INSTALL_LIBDIR}/obs-plugins")
+    if(OBS_WEBSOCKET_INCLUDE_DIR)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE OBS_TIMELINE_HAS_WEBSOCKET=1)
+        target_include_directories(${PROJECT_NAME} PRIVATE ${OBS_WEBSOCKET_INCLUDE_DIR})
+        message(STATUS "obs-websocket vendor API enabled")
+    else()
+        target_compile_definitions(${PROJECT_NAME} PRIVATE OBS_TIMELINE_HAS_WEBSOCKET=0)
+        message(WARNING "obs-websocket-api.h not found; websocket vendor integration disabled")
+    endif()
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE OBS_TIMELINE_HAS_WEBSOCKET=0)
 endif()
 
-install(TARGETS ${PROJECT_NAME} 
-        LIBRARY DESTINATION ${OBS_PLUGIN_DESTINATION}
-        RUNTIME DESTINATION ${OBS_PLUGIN_DESTINATION}
+set(OBS_TIMELINE_PLUGIN_ROOT
+    "$ENV{HOME}/.config/obs-studio/plugins/obs-timeline-plugin"
+    CACHE PATH "OBS Timeline plugin install root"
 )
 
-# Install data (locale, themes, effects)
-if(NOT DEFINED OBS_DATA_DESTINATION)
-    install(DIRECTORY data/ DESTINATION $ENV{HOME}/.config/obs-studio/plugins/obs-timeline-plugin/data)
-else()
-    install(DIRECTORY data/ DESTINATION ${OBS_DATA_DESTINATION})
-endif()
+set(OBS_PLUGIN_DESTINATION
+    "${OBS_TIMELINE_PLUGIN_ROOT}/bin/64bit"
+    CACHE PATH "OBS plugin binary destination"
+)
+
+set(OBS_DATA_DESTINATION
+    "${OBS_TIMELINE_PLUGIN_ROOT}/data"
+    CACHE PATH "OBS plugin data destination"
+)
+
+install(TARGETS ${PROJECT_NAME}
+    LIBRARY DESTINATION "${OBS_PLUGIN_DESTINATION}"
+    RUNTIME DESTINATION "${OBS_PLUGIN_DESTINATION}"
+)
+
+install(DIRECTORY data/
+    DESTINATION "${OBS_DATA_DESTINATION}"
+)

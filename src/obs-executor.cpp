@@ -4,7 +4,9 @@
 #include <QTimer>
 #include <QFileInfo>
 #include <obs-frontend-api.h>
+#if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
+#endif
 
 ObsExecutor::ObsExecutor(QObject *parent) : QObject(parent)
 {
@@ -59,6 +61,7 @@ void ObsExecutor::executeEvent(const TimelineEvent &evt)
 	}
 
 	// WebSocket notification
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *event_data = obs_data_create();
 		obs_data_set_string(event_data, "event", "triggered");
@@ -72,6 +75,7 @@ void ObsExecutor::executeEvent(const TimelineEvent &evt)
 		obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
 		obs_data_release(event_data);
 	}
+#endif
 }
 
 void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
