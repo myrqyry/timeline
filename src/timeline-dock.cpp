@@ -30,6 +30,7 @@
 #include <QColorDialog>
 #include <QKeyEvent>
 #include <QUuid>
+#include <QApplication>
 #include "event-editor.h"
 #include "timeline-serialization.h"
 
@@ -738,6 +739,12 @@ void TimelineDock::updateEndMarker()
 
 void TimelineDock::keyPressEvent(QKeyEvent *event)
 {
+	QWidget *focusWidget = QApplication::focusWidget();
+	if (focusWidget && (qobject_cast<QLineEdit *>(focusWidget) || qobject_cast<QComboBox *>(focusWidget))) {
+		QWidget::keyPressEvent(event);
+		return;
+	}
+
 	switch (event->key()) {
 	case Qt::Key_Space:
 		onPlayClicked();
@@ -1501,6 +1508,22 @@ void TimelineDock::rebuildEventItems()
 				model->replaceEventById(eventId, updatedEvt);
 			}
 		});
+	}
+
+	if (events.empty()) {
+		if (!emptyHintItem) {
+			emptyHintItem = scene->addSimpleText(
+				"Double-click timeline or press Add Event to create your first event");
+			emptyHintItem->setBrush(QBrush(Qt::gray));
+			emptyHintItem->setFont(QFont("Arial", 10));
+			emptyHintItem->setZValue(-5);
+		}
+
+		const double x = std::max(20.0, scene->sceneRect().width() * 0.1);
+		emptyHintItem->setPos(x, 60);
+		emptyHintItem->setVisible(true);
+	} else if (emptyHintItem) {
+		emptyHintItem->setVisible(false);
 	}
 }
 

@@ -16,6 +16,7 @@
 
 class TimelineEventItem;
 class QGraphicsLineItem;
+class QGraphicsSimpleTextItem;
 
 class TimelineDock : public QWidget {
     Q_OBJECT
@@ -118,6 +119,7 @@ private:
     
     QGraphicsLineItem *endMarkerItem = nullptr;
     QGraphicsLineItem *dragGuideItem = nullptr;
+    QGraphicsSimpleTextItem *emptyHintItem = nullptr;
 
     QList<QGraphicsItem*> rulerItems;
     QList<QGraphicsItem*> gridItems;
