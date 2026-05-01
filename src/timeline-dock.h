@@ -48,7 +48,7 @@ private slots:
     void onStopClicked();
     void onTick(double currentTimeMs);
     void onAddEventClicked();
-    void onEventDoubleClicked(TimelineEventItem *item, int eventIndex);
+    void onEventDoubleClicked(TimelineEventItem *item, const QString &eventId);
     void onLoopToggled(bool checked);
     void onEndTimeChanged(double value);
     void onSnapToggled(bool checked);

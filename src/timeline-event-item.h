@@ -39,6 +39,8 @@ public:
     // Snap to grid
     void setSnapEnabled(bool enabled);
     void setSnapInterval(double intervalMs);
+    void setEventId(const QString &id);
+    QString getEventId() const;
 
     QRectF boundingRect() const override;
 
@@ -64,6 +66,7 @@ private:
     double pixelsPerSecond;
     QColor eventColor;
     QString customIconPath;
+    QString eventId;
     QString eventLabel;
     TimelineEventType eventType;
     int stackOffset = 0;
@@ -80,4 +83,3 @@ private:
     
     QSvgRenderer *renderer = nullptr;
 };
-

@@ -29,6 +29,7 @@
 #include <QDialogButtonBox>
 #include <QColorDialog>
 #include <QKeyEvent>
+#include <QUuid>
 #include "event-editor.h"
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
@@ -823,14 +824,10 @@ void TimelineDock::copySelectedEvents()
 		return;
 
 	// Get corresponding events from model
-	const auto &events = model->getEvents();
 	for (TimelineEventItem *item : selectedItems) {
-		double itemTime = item->getTimeMs();
-		for (const auto &evt : events) {
-			if (std::abs(evt.timeMs - itemTime) < 1.0) {
-				clipboard.append(evt);
-				break;
-			}
+		const TimelineEvent *evt = model->findEventById(item->getEventId());
+		if (evt) {
+			clipboard.append(*evt);
 		}
 	}
 
@@ -858,6 +855,7 @@ void TimelineDock::pasteEvents()
 
 	for (const auto &originalEvt : clipboard) {
 		TimelineEvent newEvt = originalEvt;
+		newEvt.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
 		newEvt.timeMs = originalEvt.timeMs + offset;
 
 		if (newEvt.timeMs < 0)
@@ -882,23 +880,8 @@ void TimelineDock::deleteSelectedEvents()
 	if (toDelete.isEmpty())
 		return;
 
-	// Find indices to delete (in reverse order to avoid index shifts)
-	std::vector<int> indices;
-	const auto &events = model->getEvents();
 	for (TimelineEventItem *item : toDelete) {
-		double itemTime = item->getTimeMs();
-		for (size_t i = 0; i < events.size(); i++) {
-			if (std::abs(events[i].timeMs - itemTime) < 1.0) {
-				indices.push_back(static_cast<int>(i));
-				break;
-			}
-		}
-	}
-
-	// Sort descending and remove
-	std::sort(indices.rbegin(), indices.rend());
-	for (int idx : indices) {
-		model->removeEvent(idx);
+		model->removeEventById(item->getEventId());
 	}
 }
 
@@ -909,14 +892,7 @@ void TimelineDock::nudgeSelectedEvents(double deltaMs)
 			double currentTime = item->getTimeMs();
 			double newTime = std::max(0.0, currentTime + deltaMs);
 
-			// Find this event in the model and update it
-			const auto &events = model->getEvents();
-			for (size_t i = 0; i < events.size(); i++) {
-				if (std::abs(events[i].timeMs - currentTime) < 1.0) {
-					model->updateEventTime(static_cast<int>(i), newTime);
-					break;
-				}
-			}
+			model->updateEventTimeById(item->getEventId(), newTime);
 		}
 	}
 }
@@ -1436,6 +1412,7 @@ void TimelineDock::rebuildEventItems()
 
 		TimelineEventItem *item =
 			new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color, evt.customIconPath);
+		item->setEventId(evt.id);
 		item->setStackOffset(stackIndex);
 		item->setHasDuration(evt.hasDuration);
 		item->setDuration(evt.durationMs);
@@ -1499,19 +1476,20 @@ void TimelineDock::rebuildEventItems()
 			evt.sourceName); // Just show source name on the bubble usually, or filter name? Source is probably better.
 		eventItems.append(item);
 
-		int eventIndex = static_cast<int>(i);
+		const QString eventId = evt.id;
 
 		// Connect movement
-		connect(item, &TimelineEventItem::eventMoved,
-			[this, eventIndex](double newTime) { model->updateEventTime(eventIndex, newTime); });
+		connect(item, &TimelineEventItem::eventMoved, [this, eventId](double newTime) {
+			model->updateEventTimeById(eventId, newTime);
+		});
 
 		// Connect double-click
 		connect(item, &TimelineEventItem::doubleClicked,
-			[this, item, eventIndex]() { onEventDoubleClicked(item, eventIndex); });
+			[this, item, eventId]() { onEventDoubleClicked(item, eventId); });
 
 		// Connect deletion
-		connect(item, &TimelineEventItem::deleteRequested, [this, eventIndex]() {
-			model->removeEvent(eventIndex);
+		connect(item, &TimelineEventItem::deleteRequested, [this, eventId]() {
+			model->removeEventById(eventId);
 			// Rebuild is handled by modelChanged -> queued rebuildEventItems
 		});
 
@@ -1540,17 +1518,16 @@ void TimelineDock::rebuildEventItems()
 		});
 
 		// Connect color change
-		connect(item, &TimelineEventItem::colorChangeRequested, [this, item, eventIndex]() {
+		connect(item, &TimelineEventItem::colorChangeRequested, [this, item, eventId]() {
 			QColor newColor = QColorDialog::getColor(item->getEventColor(), this, "Select Event Color");
 			if (newColor.isValid()) {
 				item->setEventColor(newColor);
-				// Update model
-				auto events = model->getEvents();
-				if (eventIndex < events.size()) {
-					TimelineEvent updatedEvt = events[eventIndex];
-					updatedEvt.color = newColor;
-					model->replaceEvent(eventIndex, updatedEvt);
-				}
+				const TimelineEvent *original = model->findEventById(eventId);
+				if (!original)
+					return;
+				TimelineEvent updatedEvt = *original;
+				updatedEvt.color = newColor;
+				model->replaceEventById(eventId, updatedEvt);
 			}
 		});
 	}
@@ -1567,18 +1544,18 @@ void TimelineDock::clearEventItems()
 	eventItems.clear();
 }
 
-void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
+void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &eventId)
 {
-	auto events = model->getEvents();
-	if (eventIndex < 0 || eventIndex >= static_cast<int>(events.size()))
+	const TimelineEvent *original = model->findEventById(eventId);
+	if (!original)
 		return;
 
-	TimelineEvent evt = events[eventIndex];
+	TimelineEvent evt = *original;
 	EventEditor editor(evt, this);
 
 	if (editor.exec() == QDialog::Accepted) {
 		editor.getUpdatedEvent(evt);
-		model->replaceEvent(eventIndex, evt);
+		model->replaceEventById(eventId, evt);
 
 		// Update visual item for immediate feedback
 		if (item) {

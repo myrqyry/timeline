@@ -197,6 +197,14 @@ void TimelineEventItem::setSnapInterval(double intervalMs) {
     snapIntervalMs = intervalMs;
 }
 
+void TimelineEventItem::setEventId(const QString &id) {
+    eventId = id;
+}
+
+QString TimelineEventItem::getEventId() const {
+    return eventId;
+}
+
 QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant &value) {
     if (change == ItemPositionChange && scene()) {
         QPointF newPos = value.toPointF();
