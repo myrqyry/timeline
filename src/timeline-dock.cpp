@@ -45,7 +45,8 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 	setupUi();
 
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
-	connect(scheduler, &TimelineScheduler::eventTriggered, executor, &ObsExecutor::executeEvent);
+	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
+	connect(scheduler, &TimelineScheduler::eventEnded, executor, &ObsExecutor::executeEventEnd);
 	connect(model, &TimelineModel::modelChanged, this, [this]() {
 		if (!rebuildScheduled) {
 			rebuildScheduled = true;

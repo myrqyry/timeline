@@ -123,7 +123,7 @@ private slots:
         evt.sourceName = "Scene 2";
         evt.data = "Cut";
 
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
 
         // Verify we switched to Scene 2
         QCOMPARE(g_current_scene, scene2);
@@ -139,7 +139,7 @@ private slots:
         evt.sourceName = "MySource";
 
         // Just verify it doesn't crash
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
     }
 
     void testSourceVisibility() {
@@ -157,7 +157,7 @@ private slots:
         evt.type = TimelineEventType::SourceShow;
         evt.sourceName = "MySource";
 
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
         // Assertions would require checking scene item state, which is hard with dummy scenes.
     }
 
@@ -174,14 +174,14 @@ private slots:
         evt.sourceName = "MySource";
         evt.filterName = "MyFilter";
 
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
 
         // Verify filter is enabled
         QVERIFY(obs_source_enabled(filter_item));
 
         // Test Disable
         evt.type = TimelineEventType::FilterDisable;
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
         QVERIFY(!obs_source_enabled(filter_item));
     }
 };

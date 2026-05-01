@@ -1,7 +1,6 @@
 #include "obs-executor.h"
 #include "headless-timeline.h"
 #include <obs-module.h>
-#include <QTimer>
 #include <QFileInfo>
 #include <obs-frontend-api.h>
 #if OBS_TIMELINE_HAS_WEBSOCKET
@@ -20,14 +19,6 @@ void ObsExecutor::setObsWebSocketVendor(void *vendor)
 
 void ObsExecutor::cancelAll()
 {
-	for (QTimer *t : activeTimers) {
-		if (t->isActive()) {
-			t->stop();
-		}
-		t->deleteLater();
-	}
-	activeTimers.clear();
-
 	for (HeadlessTimeline *t : activeTimelines) {
 		t->stop();
 		t->deleteLater();
@@ -35,36 +26,15 @@ void ObsExecutor::cancelAll()
 	activeTimelines.clear();
 }
 
-void ObsExecutor::executeEvent(const TimelineEvent &evt)
+void ObsExecutor::executeEventStart(const TimelineEvent &evt)
 {
-	// 1. Perform the immediate "start" action
 	performAction(evt, true);
-
-	// 2. If it has a duration, schedule the "end" action
-	if (evt.hasDuration && evt.durationMs > 0) {
-		// Capture by value to ensure data exists when timer fires
-		TimelineEvent endEvt = evt;
-		int durationInt = static_cast<int>(evt.durationMs);
-		QTimer *t = new QTimer(this);
-		t->setSingleShot(true);
-		connect(t, &QTimer::timeout, this, [this, endEvt, t]() {
-			performAction(endEvt, false);
-			blog(LOG_INFO, "Timeline: Duration ended for event '%s'",
-			     endEvt.sourceName.toUtf8().constData());
-			t->deleteLater();
-			auto it = std::find(activeTimers.begin(), activeTimers.end(), t);
-			if (it != activeTimers.end())
-				activeTimers.erase(it);
-		});
-		activeTimers.push_back(t);
-		t->start(durationInt);
-	}
 
 	// WebSocket notification
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *event_data = obs_data_create();
-		obs_data_set_string(event_data, "event", "triggered");
+		obs_data_set_string(event_data, "event", "started");
 		obs_data_set_int(event_data, "type", static_cast<int>(evt.type));
 
 		// We can't easily put QVariant into obs_data_t without conversion logic
@@ -72,6 +42,23 @@ void ObsExecutor::executeEvent(const TimelineEvent &evt)
 		obs_data_set_string(event_data, "sourceName", evt.sourceName.toUtf8().constData());
 		obs_data_set_double(event_data, "timeMs", evt.timeMs);
 
+		obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
+		obs_data_release(event_data);
+	}
+#endif
+}
+
+void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
+{
+	performAction(evt, false);
+
+#if OBS_TIMELINE_HAS_WEBSOCKET
+	if (obsWebSocketVendor) {
+		obs_data_t *event_data = obs_data_create();
+		obs_data_set_string(event_data, "event", "ended");
+		obs_data_set_int(event_data, "type", static_cast<int>(evt.type));
+		obs_data_set_string(event_data, "sourceName", evt.sourceName.toUtf8().constData());
+		obs_data_set_double(event_data, "timeMs", evt.timeMs);
 		obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
 		obs_data_release(event_data);
 	}

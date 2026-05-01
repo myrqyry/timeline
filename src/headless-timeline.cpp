@@ -12,7 +12,8 @@ HeadlessTimeline::HeadlessTimeline(QObject *parent) : QObject(parent)
 	executor = new ObsExecutor(this);
 
 	// Connect scheduler to executor
-	connect(scheduler, &TimelineScheduler::eventTriggered, executor, &ObsExecutor::executeEvent);
+	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
+	connect(scheduler, &TimelineScheduler::eventEnded, executor, &ObsExecutor::executeEventEnd);
 
 	// Connect scheduler finished to our finished signal
 	connect(scheduler, &TimelineScheduler::finished, this, &HeadlessTimeline::finished);

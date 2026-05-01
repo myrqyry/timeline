@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QObject>
-#include <QTimer>
 #include <obs-frontend-api.h>
 #include <obs.h>
 #include "event-types.h"
@@ -17,7 +16,8 @@ public:
 	void setObsWebSocketVendor(void *vendor);
 
 public slots:
-	void executeEvent(const TimelineEvent &evt);
+	void executeEventStart(const TimelineEvent &evt);
+	void executeEventEnd(const TimelineEvent &evt);
 	void cancelAll();
 
 private:
@@ -31,6 +31,5 @@ private:
 	void performAction(const TimelineEvent &evt, bool isStartAction);
 
 	std::vector<HeadlessTimeline *> activeTimelines;
-	std::vector<QTimer *> activeTimers;
 	void *obsWebSocketVendor = nullptr;
 };

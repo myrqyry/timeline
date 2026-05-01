@@ -30,7 +30,8 @@ public slots:
 
 signals:
     void tick(double currentTimeMs);
-    void eventTriggered(const TimelineEvent &evt);
+    void eventStarted(const TimelineEvent &evt);
+    void eventEnded(const TimelineEvent &evt);
     void finished();
     void looped();
 
@@ -48,7 +49,7 @@ private:
     
     bool playing = false;
     bool looping = false;
-    std::vector<bool> eventFired;
+    std::vector<bool> eventStartFired;
+    std::vector<bool> eventEndFired;
     int timerIntervalMs = 16; // ~60 FPS
 };
-
