@@ -21,6 +21,9 @@ HeadlessTimeline::HeadlessTimeline(QObject *parent) : QObject(parent)
 HeadlessTimeline::~HeadlessTimeline()
 {
 	// Children (model, scheduler, executor) are automatically deleted via QObject parent
+	if (executor) {
+		executor->cancelAll();
+	}
 	if (scheduler) {
 		scheduler->stop();
 	}

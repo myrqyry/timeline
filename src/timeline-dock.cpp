@@ -729,6 +729,7 @@ void TimelineDock::onLoadClicked()
 		}
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
+		updateLayout();
 	}
 }
 

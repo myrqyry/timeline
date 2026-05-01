@@ -6,6 +6,9 @@
 #include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QPushButton>
+#include <QHBoxLayout>
+#include <obs-module.h>
+#include <obs-frontend-api.h>
 #include "event-types.h"
 
 class EventEditor : public QDialog {
@@ -18,30 +21,28 @@ public:
 
         typeCombo = new QComboBox();
         typeCombo->addItem("Scene Switch", (int)TimelineEventType::SceneSwitch);
-        typeCombo->addItem("Source Visibility", (int)TimelineEventType::SourceShow);
-        typeCombo->addItem("Media Control", (int)TimelineEventType::MediaStart);
-        typeCombo->addItem("Filter Control", (int)TimelineEventType::FilterEnable);
+        typeCombo->addItem("Source Show", (int)TimelineEventType::SourceShow);
+        typeCombo->addItem("Source Hide", (int)TimelineEventType::SourceHide);
+        typeCombo->addItem("Media Start", (int)TimelineEventType::MediaStart);
+        typeCombo->addItem("Media Stop", (int)TimelineEventType::MediaStop);
+        typeCombo->addItem("Filter Enable", (int)TimelineEventType::FilterEnable);
+        typeCombo->addItem("Filter Disable", (int)TimelineEventType::FilterDisable);
         typeCombo->addItem("Hotkey Trigger", (int)TimelineEventType::HotkeyTrigger);
-        
-        // Find current type in combo (handle both Show/Hide and Enable/Disable variants)
-        int idx = typeCombo->findData((int)evt.type);
-        if (idx != -1) {
-            typeCombo->setCurrentIndex(idx);
-        } else if (evt.type == TimelineEventType::SourceHide) {
-            typeCombo->setCurrentIndex(1); // Source Visibility
-        } else if (evt.type == TimelineEventType::MediaStop) {
-            typeCombo->setCurrentIndex(2); // Media Control
-        } else if (evt.type == TimelineEventType::FilterDisable) {
-            typeCombo->setCurrentIndex(3); // Filter Control
-        }
+        typeCombo->addItem("Trigger Timeline", (int)TimelineEventType::TriggerTimeline);
 
-        sourceEdit = new QLineEdit(evt.sourceName);
+        int idx = typeCombo->findData((int)evt.type);
+        if (idx != -1)
+            typeCombo->setCurrentIndex(idx);
+
+        sourceCombo = new QComboBox();
+        sourceCombo->setEditable(true);
+
         filterEdit = new QLineEdit(evt.filterName);
-        
+
         durationCheck = new QCheckBox("Auto-Stop after duration");
         durationCheck->setChecked(evt.hasDuration);
         durationCheck->setToolTip("When enabled, the action will be automatically reversed after the specified duration.");
-        
+
         durationSpin = new QDoubleSpinBox();
         durationSpin->setRange(100, 600000); // 100ms to 10 minutes
         durationSpin->setSuffix(" ms");
@@ -51,7 +52,7 @@ public:
         connect(durationCheck, &QCheckBox::toggled, durationSpin, &QWidget::setEnabled);
 
         layout->addRow("Type:", typeCombo);
-        layout->addRow("Target Source/Scene:", sourceEdit);
+        layout->addRow("Target Source/Scene:", sourceCombo);
         layout->addRow("Filter Name:", filterEdit);
         layout->addRow(durationCheck);
         layout->addRow("Duration:", durationSpin);
@@ -66,19 +67,221 @@ public:
 
         connect(saveBtn, &QPushButton::clicked, this, &QDialog::accept);
         connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+
+        // Populate based on initial type and pre-select current values
+        populateSourceCombo(evt.type);
+        sourceCombo->setCurrentText(evt.sourceName);
+
+        if (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable) {
+            for (int i = 0; i < sourceCombo->count(); i++) {
+                QVariantList data = sourceCombo->itemData(i).toList();
+                if (data.size() >= 2 && data[0].toString() == evt.sourceName && data[1].toString() == evt.filterName) {
+                    sourceCombo->setCurrentIndex(i);
+                    break;
+                }
+            }
+        } else if (evt.type == TimelineEventType::HotkeyTrigger) {
+            for (int i = 0; i < sourceCombo->count(); i++) {
+                if (sourceCombo->itemData(i).toString() == evt.sourceName) {
+                    sourceCombo->setCurrentIndex(i);
+                    break;
+                }
+            }
+        }
+
+        connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [&](int index) {
+            Q_UNUSED(index);
+            TimelineEventType newType = (TimelineEventType)typeCombo->currentData().toInt();
+            QString oldText = sourceCombo->currentText();
+            populateSourceCombo(newType);
+            int foundIdx = sourceCombo->findText(oldText);
+            if (foundIdx != -1)
+                sourceCombo->setCurrentIndex(foundIdx);
+            else
+                sourceCombo->setCurrentText(oldText);
+        });
     }
 
     void getUpdatedEvent(TimelineEvent &evt) {
         evt.type = (TimelineEventType)typeCombo->currentData().toInt();
-        evt.sourceName = sourceEdit->text();
-        evt.filterName = filterEdit->text();
+
+        if (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable) {
+            QVariantList data = sourceCombo->currentData().toList();
+            if (data.size() >= 2) {
+                evt.sourceName = data[0].toString();
+                evt.filterName = data[1].toString();
+            } else {
+                QStringList parts = sourceCombo->currentText().split("::");
+                if (parts.size() >= 2) {
+                    evt.sourceName = parts[0];
+                    evt.filterName = parts[1];
+                } else {
+                    evt.sourceName = sourceCombo->currentText();
+                    evt.filterName = filterEdit->text();
+                }
+            }
+        } else if (evt.type == TimelineEventType::HotkeyTrigger) {
+            evt.sourceName = sourceCombo->currentData().toString();
+            if (evt.sourceName.isEmpty())
+                evt.sourceName = sourceCombo->currentText();
+            evt.filterName = filterEdit->text();
+        } else {
+            evt.sourceName = sourceCombo->currentText();
+            evt.filterName = filterEdit->text();
+        }
+
         evt.hasDuration = durationCheck->isChecked();
         evt.durationMs = durationSpin->value();
     }
 
 private:
+    void populateSourceCombo(TimelineEventType evtType) {
+        sourceCombo->clear();
+        sourceCombo->setEnabled(true);
+
+        switch (evtType) {
+        case TimelineEventType::SceneSwitch: {
+            struct obs_frontend_source_list scenes = {};
+            obs_frontend_get_scenes(&scenes);
+            for (size_t i = 0; i < scenes.sources.num; i++) {
+                obs_source_t *source = scenes.sources.array[i];
+                const char *name = obs_source_get_name(source);
+                sourceCombo->addItem(QString::fromUtf8(name));
+            }
+            obs_frontend_source_list_free(&scenes);
+            if (sourceCombo->count() == 0) {
+                sourceCombo->addItem("(No scenes available)");
+                sourceCombo->setEnabled(false);
+            }
+            break;
+        }
+        case TimelineEventType::SourceShow:
+        case TimelineEventType::SourceHide: {
+            obs_source_t *currentScene = obs_frontend_get_current_scene();
+            if (currentScene) {
+                obs_scene_t *scene = obs_scene_from_source(currentScene);
+                if (scene) {
+                    obs_scene_enum_items(
+                        scene,
+                        [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+                            QComboBox *combo = static_cast<QComboBox *>(param);
+                            obs_source_t *source = obs_sceneitem_get_source(item);
+                            const char *name = obs_source_get_name(source);
+                            combo->addItem(QString::fromUtf8(name));
+                            return true;
+                        },
+                        sourceCombo);
+                }
+                obs_source_release(currentScene);
+            }
+            if (sourceCombo->count() == 0) {
+                sourceCombo->addItem("(No sources in current scene)");
+                sourceCombo->setEnabled(false);
+            }
+            break;
+        }
+        case TimelineEventType::MediaStart:
+        case TimelineEventType::MediaStop: {
+            obs_source_t *currentScene = obs_frontend_get_current_scene();
+            if (currentScene) {
+                obs_scene_t *scene = obs_scene_from_source(currentScene);
+                if (scene) {
+                    obs_scene_enum_items(
+                        scene,
+                        [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+                            QComboBox *combo = static_cast<QComboBox *>(param);
+                            obs_source_t *source = obs_sceneitem_get_source(item);
+                            const char *id = obs_source_get_id(source);
+                            if (id && (strcmp(id, "ffmpeg_source") == 0 ||
+                                       strcmp(id, "vlc_source") == 0)) {
+                                const char *name = obs_source_get_name(source);
+                                combo->addItem(QString::fromUtf8(name));
+                            }
+                            return true;
+                        },
+                        sourceCombo);
+                }
+                obs_source_release(currentScene);
+            }
+            if (sourceCombo->count() == 0) {
+                sourceCombo->addItem("(No media sources in current scene)");
+                sourceCombo->setEnabled(false);
+            }
+            break;
+        }
+        case TimelineEventType::FilterEnable:
+        case TimelineEventType::FilterDisable: {
+            obs_source_t *currentScene = obs_frontend_get_current_scene();
+            if (currentScene) {
+                obs_scene_t *scene = obs_scene_from_source(currentScene);
+                if (scene) {
+                    obs_scene_enum_items(
+                        scene,
+                        [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+                            QComboBox *combo = static_cast<QComboBox *>(param);
+                            obs_source_t *source = obs_sceneitem_get_source(item);
+                            QString sourceName = QString::fromUtf8(obs_source_get_name(source));
+
+                            auto *filterData = new std::pair<QComboBox *, QString>(combo, sourceName);
+                            obs_source_enum_filters(
+                                source,
+                                [](obs_source_t *, obs_source_t *filter, void *data) {
+                                    auto *info = static_cast<std::pair<QComboBox *, QString> *>(data);
+                                    QString filterName = QString::fromUtf8(obs_source_get_name(filter));
+                                    QString displayName = QString("%1::%2")
+                                                              .arg(info->second)
+                                                              .arg(filterName);
+
+                                    QVariantList eventData;
+                                    eventData << info->second << filterName;
+                                    info->first->addItem(displayName, eventData);
+                                },
+                                filterData);
+                            delete filterData;
+
+                            return true;
+                        },
+                        sourceCombo);
+                }
+                obs_source_release(currentScene);
+            }
+            if (sourceCombo->count() == 0) {
+                sourceCombo->addItem("(No filters found in current scene)");
+                sourceCombo->setEnabled(false);
+            }
+            break;
+        }
+        case TimelineEventType::HotkeyTrigger: {
+            obs_enum_hotkeys(
+                [](void *data, obs_hotkey_id id, obs_hotkey_t *hotkey) {
+                    Q_UNUSED(id);
+                    QComboBox *combo = static_cast<QComboBox *>(data);
+                    const char *name = obs_hotkey_get_name(hotkey);
+                    if (name && strlen(name) > 0) {
+                        const char *desc = obs_hotkey_get_description(hotkey);
+                        QString displayName = desc && strlen(desc) > 0
+                                                  ? QString::fromUtf8(desc)
+                                                  : QString::fromUtf8(name);
+                        combo->addItem(displayName, QString::fromUtf8(name));
+                    }
+                    return true;
+                },
+                sourceCombo);
+            if (sourceCombo->count() == 0) {
+                sourceCombo->addItem("(No hotkeys registered)");
+                sourceCombo->setEnabled(false);
+            }
+            break;
+        }
+        case TimelineEventType::TriggerTimeline:
+        default:
+            // Free text for timeline file path
+            break;
+        }
+    }
+
     QComboBox *typeCombo;
-    QLineEdit *sourceEdit;
+    QComboBox *sourceCombo;
     QLineEdit *filterEdit;
     QCheckBox *durationCheck;
     QDoubleSpinBox *durationSpin;
