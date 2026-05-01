@@ -31,6 +31,8 @@ private:
 
 private slots:
     void initTestCase() {
+        qRegisterMetaType<TimelineEvent>("TimelineEvent");
+
         if (!obs_startup("en-US", nullptr, nullptr))
             qWarning("Failed to startup OBS - Tests might crash or fail");
 
