@@ -31,6 +31,7 @@
 #include <QKeyEvent>
 #include <QUuid>
 #include <QApplication>
+#include <QShortcut>
 #include "event-editor.h"
 #include "timeline-serialization.h"
 
@@ -211,6 +212,47 @@ void TimelineDock::load()
 void TimelineDock::setupUi()
 {
 	QVBoxLayout *mainLayout = new QVBoxLayout(this);
+
+	auto shouldIgnoreShortcut = [this]() -> bool {
+		QWidget *focusWidget = QApplication::focusWidget();
+		return focusWidget &&
+		       (qobject_cast<QLineEdit *>(focusWidget) || qobject_cast<QComboBox *>(focusWidget));
+	};
+
+	auto *spaceShortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
+	spaceShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(spaceShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			onPlayClicked();
+	});
+
+	auto *deleteShortcut = new QShortcut(QKeySequence(Qt::Key_Delete), this);
+	deleteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(deleteShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			deleteSelectedEvents();
+	});
+
+	auto *homeShortcut = new QShortcut(QKeySequence(Qt::Key_Home), this);
+	homeShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(homeShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			scheduler->seek(0);
+	});
+
+	auto *copyShortcut = new QShortcut(QKeySequence::Copy, this);
+	copyShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(copyShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			copySelectedEvents();
+	});
+
+	auto *pasteShortcut = new QShortcut(QKeySequence::Paste, this);
+	pasteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(pasteShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			pasteEvents();
+	});
 
 	// Unified Controls Row
 	controlsLayout = new QHBoxLayout();
