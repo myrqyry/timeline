@@ -1,0 +1,45 @@
+# Release Checklist
+
+Use this checklist before tagging a release.
+
+## Build & Install
+
+- [ ] Clean configure: `cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo`
+- [ ] Clean build: `cmake --build build`
+- [ ] Clean install: `cmake --install build`
+
+## OBS Runtime Smoke
+
+- [ ] OBS launches without plugin crash
+- [ ] Dock appears in `View > Docks > Timeline`
+- [ ] Add event works
+- [ ] Drag event works
+- [ ] Save/load works
+
+## Event Execution
+
+- [ ] Scene switch works
+- [ ] Source visibility works
+- [ ] Filter enable/disable works
+- [ ] Media start/stop works
+- [ ] Hotkey trigger works
+- [ ] Trigger timeline works
+
+## Timeline Behavior
+
+- [ ] Loop works
+- [ ] Duration start/end behavior works
+- [ ] Pause/resume preserves duration behavior
+- [ ] Seek before/after duration boundaries behaves correctly
+
+## Compatibility
+
+- [ ] Legacy array-only JSON loads
+- [ ] Object JSON with settings loads
+- [ ] Invalid JSON fails gracefully (warning shown/logged)
+
+## Optional Websocket Vendor
+
+- [ ] Build with `ENABLE_OBS_WEBSOCKET_VENDOR=ON` (header available)
+- [ ] Build with `ENABLE_OBS_WEBSOCKET_VENDOR=OFF`
+- [ ] Runtime works when websocket vendor support is disabled
