@@ -59,9 +59,8 @@ protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
-    QString getTypeIcon() const;
-    
     double pixelsPerSecond;
+    double maxTimeMs = -1.0; // -1 = unlimited
     QColor eventColor;
     QString customIconPath;
     QString eventLabel;

@@ -77,6 +77,7 @@ private:
     void pasteEvents();
     void nudgeSelectedEvents(double deltaMs);
     void updateControlsLayout();
+    double getSnapInterval() const;
 
     QList<TimelineEvent> clipboard;
 

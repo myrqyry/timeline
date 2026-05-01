@@ -177,8 +177,11 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 			}
 		}
 
-		obs_frontend_set_current_preview_scene(scene);
-		obs_frontend_set_current_scene(scene);
+		if (obs_frontend_preview_program_mode_active()) {
+			obs_frontend_set_current_preview_scene(scene);
+		} else {
+			obs_frontend_set_current_scene(scene);
+		}
 
 		// Restore old transition?
 		// Typically when you switch scene, the transition is used. If we change it back immediately,

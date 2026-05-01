@@ -60,6 +60,11 @@ void obs_frontend_set_current_transition(obs_source_t *transition) {
     if (g_current_transition) obs_source_get_ref(g_current_transition);
 }
 
+bool obs_frontend_preview_program_mode_active(void) {
+    // Default to non-studio-mode for tests
+    return false;
+}
+
 bool obs_frontend_add_dock_by_id(const char *id, const char *title, void *dock) {
     // No-op for test
     return true;

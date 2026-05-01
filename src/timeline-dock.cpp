@@ -649,15 +649,25 @@ void TimelineDock::onTimelineLooped()
 	blog(LOG_INFO, "Timeline looped");
 }
 
+double TimelineDock::getSnapInterval() const
+{
+	if (pixelsPerSecond < 20.0)
+		return 5000.0; // 5s
+	if (pixelsPerSecond < 50.0)
+		return 1000.0; // 1s
+	if (pixelsPerSecond < 200.0)
+		return 500.0; // 0.5s
+	return 100.0; // 100ms
+}
+
 void TimelineDock::onSnapToggled(bool checked)
 {
 	snapEnabled = checked;
 	// Update all existing event items
+	double stepMs = getSnapInterval();
 	for (TimelineEventItem *item : eventItems) {
 		if (item) {
 			item->setSnapEnabled(snapEnabled);
-			// Determine snap interval based on zoom level
-			double stepMs = 100.0; // 100ms snap
 			item->setSnapInterval(stepMs);
 		}
 	}
@@ -730,6 +740,7 @@ void TimelineDock::onLoadClicked()
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
+		save();
 	}
 }
 
@@ -858,6 +869,7 @@ void TimelineDock::pasteEvents()
 	}
 
 	blog(LOG_INFO, "Pasted %d events at %f ms", static_cast<int>(clipboard.size()), currentPlayhead);
+	save();
 }
 
 void TimelineDock::deleteSelectedEvents()
@@ -1040,7 +1052,6 @@ void TimelineDock::onAddEventClicked()
 	layout->addWidget(targetLabel);
 
 	// Target combo (scenes, sources, or filters)
-	// Target combo (scenes, sources, or filters)
 	QComboBox *targetCombo = new QComboBox(&dialog);
 	layout->addWidget(targetCombo);
 
@@ -1071,8 +1082,6 @@ void TimelineDock::onAddEventClicked()
 	transitionLayout->addWidget(transitionCombo);
 	layout->addWidget(transitionWidget);
 	transitionWidget->hide();
-
-	// Helper lambda to populate targets based on event type
 
 	// Helper lambda to populate targets based on event type
 	auto populateTargets = [&](int eventType) {
@@ -1431,8 +1440,7 @@ void TimelineDock::rebuildEventItems()
 
 		// Apply snap settings
 		item->setSnapEnabled(snapEnabled);
-		double stepMs = 100.0; // 100ms snap
-		item->setSnapInterval(stepMs);
+		item->setSnapInterval(getSnapInterval());
 
 		scene->addItem(item);
 
@@ -1462,6 +1470,9 @@ void TimelineDock::rebuildEventItems()
 			break;
 		case TimelineEventType::HotkeyTrigger:
 			typeStr = "Hotkey Trigger";
+			break;
+		case TimelineEventType::TriggerTimeline:
+			typeStr = "Trigger Timeline";
 			break;
 		default:
 			typeStr = "Unknown";

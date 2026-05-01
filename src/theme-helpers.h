@@ -8,6 +8,9 @@
 namespace ThemeIcons {
 
 // SVG Wrapper template
+// Note: The color is applied via fill on the root <svg> element. Custom SVGs
+// with inline fill/style attributes on inner elements will not adapt to the
+// event background contrast. Use SVGs without inline fills for best results.
 inline QByteArray wrapSvg(const QString& path, const QString& color) {
     return QString("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"%2\">%1</svg>")
             .arg(path, color).toUtf8();

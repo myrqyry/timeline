@@ -61,6 +61,10 @@ QRectF TimelineEventItem::boundingRect() const {
     return totalRect;
 }
 
+void TimelineEventItem::setMaxTime(double maxTimeMs) {
+    this->maxTimeMs = maxTimeMs;
+}
+
 void TimelineEventItem::setPixelsPerSecond(double pxPerSec) {
     double currentTime = getTimeMs();
     pixelsPerSecond = pxPerSec;
@@ -205,7 +209,13 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
         
         double minX = -ITEM_SIZE / 2.0; // Allow moving slightly left so center can be at 0
         if (newPos.x() < minX) newPos.setX(minX);
-        
+
+        // Clamp to max time if set
+        if (maxTimeMs >= 0) {
+            double maxX = (maxTimeMs / 1000.0) * pixelsPerSecond - ITEM_SIZE / 2.0;
+            if (newPos.x() > maxX) newPos.setX(maxX);
+        }
+
         // Snap to grid if enabled
         if (snapEnabled && snapIntervalMs > 0) {
             // Calculate current time at center
