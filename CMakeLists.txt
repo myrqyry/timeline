@@ -31,6 +31,7 @@ set(PLUGIN_SOURCES
     src/timeline-event-item.cpp
     src/headless-timeline.cpp
     src/event-editor.cpp
+    src/timeline-serialization.cpp
 )
 
 set(PLUGIN_HEADERS
@@ -42,6 +43,7 @@ set(PLUGIN_HEADERS
     src/timeline-event-item.h
     src/theme-helpers.h
     src/headless-timeline.h
+    src/timeline-serialization.h
 )
 
 # Create library

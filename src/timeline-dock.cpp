@@ -31,6 +31,7 @@
 #include <QKeyEvent>
 #include <QUuid>
 #include "event-editor.h"
+#include "timeline-serialization.h"
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 {
@@ -153,24 +154,15 @@ void TimelineDock::save()
 	if (!configPath)
 		return;
 
-	QFile file(configPath);
-	if (file.open(QIODevice::WriteOnly)) {
-		QJsonObject root;
-		root["events"] = model->toJson();
-
-		QJsonObject settings;
-		settings["loop"] = loopCheckbox->isChecked();
-		settings["endTime"] = endTimeSpinbox->value();
-		settings["snap"] = snapCheckbox->isChecked();
-		settings["bpm"] = bpm;
-		settings["gridToBpm"] = gridToBpm;
-		settings["centerControls"] = centerControls;
-		root["settings"] = settings;
-
-		QJsonDocument doc(root);
-		file.write(doc.toJson());
-		file.close();
+	const QJsonObject root = TimelineSerialization::toJsonObject(
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(), bpm,
+		gridToBpm, centerControls);
+	QString errorMessage;
+	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 		blog(LOG_INFO, "Saved timeline to %s", configPath);
+	} else {
+		blog(LOG_WARNING, "Failed to save timeline to %s: %s", configPath,
+		     errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
@@ -181,48 +173,36 @@ void TimelineDock::load()
 	if (!configPath)
 		return;
 
-	QFile file(configPath);
-	if (file.exists() && file.open(QIODevice::ReadOnly)) {
+	QJsonDocument doc;
+	QString errorMessage;
+	if (TimelineSerialization::loadFromFile(configPath, doc, &errorMessage)) {
 		blog(LOG_INFO, "Loading config file: %s", configPath);
-		QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-
-		if (doc.isArray()) {
-			// Legacy format (just events)
-			model->fromJson(doc.array());
-		} else if (doc.isObject()) {
-			// New format
-			QJsonObject root = doc.object();
-			model->fromJson(root["events"].toArray());
-
-			QJsonObject settings = root["settings"].toObject();
-			// Block signals to avoid triggering unnecessary logic during load
-			bool loop = settings["loop"].toBool();
-			double end = settings["endTime"].toDouble();
-			bool snap = settings["snap"].toBool();
-			double loadedBpm = settings["bpm"].toDouble(120.0);
-			bool loadedGridToBpm = settings["gridToBpm"].toBool(false);
-			bool loadedCenterControls = settings["centerControls"].toBool(false);
-
-			loopCheckbox->setChecked(loop);
-			endTimeSpinbox->setValue(end);
-			snapCheckbox->setChecked(snap);
-			bpmSpinbox->setValue(loadedBpm);
-			bpmGridCheckbox->setChecked(loadedGridToBpm);
-			centerControlsCheckbox->setChecked(loadedCenterControls);
-
-			// Apply settings manually since signals might be blocked (or just to be safe)
-			onLoopToggled(loop);
-			onEndTimeChanged(end);
-			onSnapToggled(snap);
-			onBpmChanged(loadedBpm);
-			onBpmGridToggled(loadedGridToBpm);
-			onCenterControlsToggled(loadedCenterControls);
+		TimelineDocument timelineDoc;
+		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			blog(LOG_WARNING, "Failed to parse timeline config %s: %s", configPath,
+			     errorMessage.toUtf8().constData());
+			bfree(configPath);
+			return;
 		}
+
+		loopCheckbox->setChecked(timelineDoc.loop);
+		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
+		snapCheckbox->setChecked(timelineDoc.snap);
+		bpmSpinbox->setValue(timelineDoc.bpm);
+		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
+		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+
+		onLoopToggled(timelineDoc.loop);
+		onEndTimeChanged(timelineDoc.endTimeSeconds);
+		onSnapToggled(timelineDoc.snap);
+		onBpmChanged(timelineDoc.bpm);
+		onBpmGridToggled(timelineDoc.gridToBpm);
+		onCenterControlsToggled(timelineDoc.centerControls);
 
 		updateLayout(); // Refresh UI with new events
 		blog(LOG_INFO, "Loaded timeline from %s", configPath);
 	} else {
-		blog(LOG_INFO, "No config file found at: %s", configPath);
+		blog(LOG_INFO, "No config file found at: %s (%s)", configPath, errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
@@ -684,24 +664,15 @@ void TimelineDock::onSaveClicked()
 		fileName += ".json";
 	}
 
-	QFile file(fileName);
-	if (file.open(QIODevice::WriteOnly)) {
-		QJsonObject root;
-		root["events"] = model->toJson();
-
-		QJsonObject settings;
-		settings["loop"] = loopCheckbox->isChecked();
-		settings["endTime"] = endTimeSpinbox->value();
-		settings["snap"] = snapCheckbox->isChecked();
-		settings["bpm"] = bpm;
-		settings["gridToBpm"] = gridToBpm;
-		settings["centerControls"] = centerControls;
-		root["settings"] = settings;
-
-		QJsonDocument doc(root);
-		file.write(doc.toJson());
-		file.close();
+	const QJsonObject root = TimelineSerialization::toJsonObject(
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(), bpm,
+		gridToBpm, centerControls);
+	QString errorMessage;
+	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
+	} else {
+		blog(LOG_WARNING, "Failed to export timeline to %s: %s", fileName.toStdString().c_str(),
+		     errorMessage.toUtf8().constData());
 	}
 }
 
@@ -711,36 +682,35 @@ void TimelineDock::onLoadClicked()
 	if (fileName.isEmpty())
 		return;
 
-	QFile file(fileName);
-	if (file.open(QIODevice::ReadOnly)) {
-		QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-
-		if (doc.isArray()) {
-			model->fromJson(doc.array());
-		} else if (doc.isObject()) {
-			QJsonObject root = doc.object();
-			model->fromJson(root["events"].toArray());
-
-			QJsonObject settings = root["settings"].toObject();
-			loopCheckbox->setChecked(settings["loop"].toBool());
-			endTimeSpinbox->setValue(settings["endTime"].toDouble());
-			snapCheckbox->setChecked(settings["snap"].toBool());
-
-			bpmSpinbox->setValue(settings["bpm"].toDouble(120.0));
-			bpmGridCheckbox->setChecked(settings["gridToBpm"].toBool(false));
-			centerControlsCheckbox->setChecked(settings["centerControls"].toBool(false));
-
-			// Apply settings
-			onLoopToggled(loopCheckbox->isChecked());
-			onEndTimeChanged(endTimeSpinbox->value());
-			onSnapToggled(snapCheckbox->isChecked());
-			onBpmChanged(bpmSpinbox->value());
-			onBpmGridToggled(bpmGridCheckbox->isChecked());
-			onCenterControlsToggled(centerControlsCheckbox->isChecked());
+	QJsonDocument doc;
+	QString errorMessage;
+	if (TimelineSerialization::loadFromFile(fileName, doc, &errorMessage)) {
+		TimelineDocument timelineDoc;
+		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			blog(LOG_WARNING, "Failed to import timeline from %s: %s", fileName.toStdString().c_str(),
+			     errorMessage.toUtf8().constData());
+			return;
 		}
+
+		loopCheckbox->setChecked(timelineDoc.loop);
+		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
+		snapCheckbox->setChecked(timelineDoc.snap);
+		bpmSpinbox->setValue(timelineDoc.bpm);
+		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
+		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+
+		onLoopToggled(timelineDoc.loop);
+		onEndTimeChanged(timelineDoc.endTimeSeconds);
+		onSnapToggled(timelineDoc.snap);
+		onBpmChanged(timelineDoc.bpm);
+		onBpmGridToggled(timelineDoc.gridToBpm);
+		onCenterControlsToggled(timelineDoc.centerControls);
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
+	} else {
+		blog(LOG_WARNING, "Failed to load timeline from %s: %s", fileName.toStdString().c_str(),
+		     errorMessage.toUtf8().constData());
 	}
 }
 
