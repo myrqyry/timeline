@@ -315,13 +315,15 @@ private slots:
         QVERIFY(TimelineSerialization::fromJsonDocument(legacyDoc, model, docData));
         QCOMPARE(static_cast<int>(docData.events.size()), 1);
 
-        QJsonObject root = TimelineSerialization::toJsonObject(model, true, 12.5, true, 128.0, true, true);
+        QJsonObject root = TimelineSerialization::toJsonObject(model, true, 12.5, true, 750.0, 128.0,
+                                                                 true, true);
         QJsonDocument objectDoc(root);
         TimelineDocument loaded;
         QVERIFY(TimelineSerialization::fromJsonDocument(objectDoc, model, loaded));
         QVERIFY(loaded.loop);
         QCOMPARE(loaded.endTimeSeconds, 12.5);
         QVERIFY(loaded.snap);
+        QCOMPARE(loaded.snapIntervalMs, 750.0);
         QCOMPARE(loaded.bpm, 128.0);
         QVERIFY(loaded.gridToBpm);
         QVERIFY(loaded.centerControls);

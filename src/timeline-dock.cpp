@@ -60,9 +60,6 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 	// Register save callback
 	obs_frontend_add_save_callback(saveCallback, this);
 
-	// Register event callback for recording status
-	obs_frontend_add_event_callback(frontendEvent, this);
-
 	// Register Hotkeys
 	hotkeyIdPlayPause = obs_hotkey_register_frontend("Timeline.PlayPause", "Timeline: Play/Pause",
 							 TimelineDock::hotkeyPlayPause, this);
@@ -80,7 +77,6 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 TimelineDock::~TimelineDock()
 {
 	obs_frontend_remove_save_callback(saveCallback, this);
-	obs_frontend_remove_event_callback(frontendEvent, this);
 
 	obs_hotkey_unregister(hotkeyIdPlayPause);
 	obs_hotkey_unregister(hotkeyIdStop);
@@ -94,22 +90,6 @@ void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *privat
 	TimelineDock *dock = static_cast<TimelineDock *>(private_data);
 	if (saving) {
 		dock->save();
-	}
-}
-
-void TimelineDock::frontendEvent(enum obs_frontend_event event, void *private_data)
-{
-	TimelineDock *dock = static_cast<TimelineDock *>(private_data);
-	if (event == OBS_FRONTEND_EVENT_RECORDING_STARTED) {
-		QMetaObject::invokeMethod(dock->recordButton, "setText", Qt::QueuedConnection,
-					  Q_ARG(QString, "Stop Rec"));
-		QMetaObject::invokeMethod(dock->recordButton, "setStyleSheet", Qt::QueuedConnection,
-					  Q_ARG(QString, "color: red; font-weight: bold;"));
-	} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
-		QMetaObject::invokeMethod(dock->recordButton, "setText", Qt::QueuedConnection,
-					  Q_ARG(QString, "Record"));
-		QMetaObject::invokeMethod(dock->recordButton, "setStyleSheet", Qt::QueuedConnection,
-					  Q_ARG(QString, ""));
 	}
 }
 
@@ -157,8 +137,8 @@ void TimelineDock::save()
 		return;
 
 	const QJsonObject root = TimelineSerialization::toJsonObject(
-		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(), bpm,
-		gridToBpm, centerControls);
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
+		getSnapIntervalMs(), bpm, gridToBpm, centerControls);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 		blog(LOG_INFO, "Saved timeline to %s", configPath);
@@ -190,6 +170,7 @@ void TimelineDock::load()
 		loopCheckbox->setChecked(timelineDoc.loop);
 		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
 		snapCheckbox->setChecked(timelineDoc.snap);
+		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
 		bpmSpinbox->setValue(timelineDoc.bpm);
 		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
@@ -262,14 +243,17 @@ void TimelineDock::setupUi()
 	playButton->setToolTip("Start/pause timeline playback");
 	stopButton = new QPushButton("Stop", this);
 	stopButton->setToolTip("Stop and reset to beginning");
-	recordButton = new QPushButton("Record", this);
-	recordButton->setToolTip("Start/Stop Recording");
+	zoomOutButton = new QPushButton("-", this);
+	zoomOutButton->setToolTip("Zoom out (Ctrl+Scroll)");
+	zoomInButton = new QPushButton("+", this);
+	zoomInButton->setToolTip("Zoom in (Ctrl+Scroll)");
 	addEventButton = new QPushButton("Add Event", this);
 	addEventButton->setToolTip("Add a new event at the current playhead position");
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
 	connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
-	connect(recordButton, &QPushButton::clicked, this, &TimelineDock::onRecordClicked);
+	connect(zoomOutButton, &QPushButton::clicked, this, &TimelineDock::onZoomOutClicked);
+	connect(zoomInButton, &QPushButton::clicked, this, &TimelineDock::onZoomInClicked);
 	connect(addEventButton, &QPushButton::clicked, this, &TimelineDock::onAddEventClicked);
 
 	// Save/Load (will be added in updateControlsLayout)
@@ -280,8 +264,18 @@ void TimelineDock::setupUi()
 
 	// Options
 	snapCheckbox = new QCheckBox("Snap", this);
-	snapCheckbox->setToolTip("Snap events to grid lines when dragging");
+	snapCheckbox->setToolTip("Snap events to grid when dragging");
 	connect(snapCheckbox, &QCheckBox::toggled, this, &TimelineDock::onSnapToggled);
+
+	snapIntervalLabel = new QLabel("Interval:", this);
+	snapIntervalSpinbox = new QDoubleSpinBox(this);
+	snapIntervalSpinbox->setRange(0.05, 10.0);
+	snapIntervalSpinbox->setValue(0.5);
+	snapIntervalSpinbox->setDecimals(2);
+	snapIntervalSpinbox->setSingleStep(0.05);
+	snapIntervalSpinbox->setToolTip("Snap interval in seconds");
+	connect(snapIntervalSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+		&TimelineDock::onSnapIntervalChanged);
 
 	loopCheckbox = new QCheckBox("Loop", this);
 	loopCheckbox->setToolTip("Loop playback when end time is reached");
@@ -319,12 +313,6 @@ void TimelineDock::setupUi()
 	connect(loadButton, &QPushButton::clicked, this, &TimelineDock::onLoadClicked);
 
 	endLabel = new QLabel("End:", this);
-
-	// Initial update
-	if (obs_frontend_recording_active()) {
-		recordButton->setText("Stop Rec");
-		recordButton->setStyleSheet("color: red; font-weight: bold;");
-	}
 
 	updateControlsLayout();
 
@@ -382,9 +370,10 @@ void TimelineDock::updateControlsLayout()
 
 	if (centerControls) {
 		controlsLayout->addStretch();
-		controlsLayout->addWidget(show(recordButton));
 		controlsLayout->addWidget(show(playButton));
 		controlsLayout->addWidget(show(stopButton));
+		controlsLayout->addWidget(show(zoomOutButton));
+		controlsLayout->addWidget(show(zoomInButton));
 		controlsLayout->addWidget(show(addEventButton));
 		controlsLayout->addWidget(show(saveButton));
 		controlsLayout->addWidget(show(loadButton));
@@ -393,6 +382,8 @@ void TimelineDock::updateControlsLayout()
 		controlsLayout->addStretch();
 
 		controlsLayout->addWidget(show(snapCheckbox));
+		controlsLayout->addWidget(show(snapIntervalLabel));
+		controlsLayout->addWidget(show(snapIntervalSpinbox));
 		controlsLayout->addWidget(show(loopCheckbox));
 		controlsLayout->addWidget(show(centerControlsCheckbox));
 		controlsLayout->addWidget(show(bpmGridCheckbox));
@@ -402,7 +393,8 @@ void TimelineDock::updateControlsLayout()
 	} else {
 		controlsLayout->addWidget(show(playButton));
 		controlsLayout->addWidget(show(stopButton));
-		controlsLayout->addWidget(show(recordButton));
+		controlsLayout->addWidget(show(zoomOutButton));
+		controlsLayout->addWidget(show(zoomInButton));
 		controlsLayout->addWidget(show(addEventButton));
 		controlsLayout->addWidget(show(saveButton));
 		controlsLayout->addWidget(show(loadButton));
@@ -411,6 +403,8 @@ void TimelineDock::updateControlsLayout()
 		controlsLayout->addStretch();
 
 		controlsLayout->addWidget(show(snapCheckbox));
+		controlsLayout->addWidget(show(snapIntervalLabel));
+		controlsLayout->addWidget(show(snapIntervalSpinbox));
 		controlsLayout->addWidget(show(loopCheckbox));
 		controlsLayout->addWidget(show(centerControlsCheckbox));
 		controlsLayout->addWidget(show(bpmGridCheckbox));
@@ -420,12 +414,33 @@ void TimelineDock::updateControlsLayout()
 	}
 }
 
-void TimelineDock::onRecordClicked()
+void TimelineDock::onZoomInClicked()
 {
-	if (obs_frontend_recording_active()) {
-		obs_frontend_recording_stop();
-	} else {
-		obs_frontend_recording_start();
+	pixelsPerSecond *= 1.25;
+	if (pixelsPerSecond > 1000.0)
+		pixelsPerSecond = 1000.0;
+	updateLayout();
+	updateZoomLabel();
+}
+
+void TimelineDock::onZoomOutClicked()
+{
+	pixelsPerSecond /= 1.25;
+	if (pixelsPerSecond < 5.0)
+		pixelsPerSecond = 5.0;
+	updateLayout();
+	updateZoomLabel();
+}
+
+void TimelineDock::onSnapIntervalChanged(double value)
+{
+	manualSnapIntervalMs = value * 1000.0;
+	if (snapEnabled && !gridToBpm) {
+		for (TimelineEventItem *item : eventItems) {
+			if (item) {
+				item->setSnapInterval(manualSnapIntervalMs);
+			}
+		}
 	}
 }
 
@@ -433,6 +448,16 @@ void TimelineDock::onBpmGridToggled(bool checked)
 {
 	gridToBpm = checked;
 	bpmSpinbox->setEnabled(checked);
+	snapIntervalSpinbox->setEnabled(!checked);
+	if (checked) {
+		double beatIntervalSec = 60.0 / bpm;
+		snapIntervalSpinbox->setValue(beatIntervalSec);
+	} else {
+		snapIntervalSpinbox->setValue(manualSnapIntervalMs / 1000.0);
+	}
+	if (snapEnabled) {
+		applySnapIntervalToItems();
+	}
 	drawGrid();
 }
 
@@ -440,6 +465,11 @@ void TimelineDock::onBpmChanged(double value)
 {
 	bpm = value;
 	if (gridToBpm) {
+		double beatIntervalSec = 60.0 / bpm;
+		snapIntervalSpinbox->setValue(beatIntervalSec);
+		if (snapEnabled) {
+			applySnapIntervalToItems();
+		}
 		drawGrid();
 	}
 }
@@ -683,28 +713,29 @@ void TimelineDock::onTimelineLooped()
 	blog(LOG_INFO, "Timeline looped");
 }
 
-double TimelineDock::getSnapInterval() const
+double TimelineDock::getSnapIntervalMs() const
 {
-	if (pixelsPerSecond < 20.0)
-		return 5000.0; // 5s
-	if (pixelsPerSecond < 50.0)
-		return 1000.0; // 1s
-	if (pixelsPerSecond < 200.0)
-		return 500.0; // 0.5s
-	return 100.0; // 100ms
+	if (gridToBpm && bpm > 0.0) {
+		return (60.0 / bpm) * 1000.0;
+	}
+	return snapIntervalSpinbox->value() * 1000.0;
+}
+
+void TimelineDock::applySnapIntervalToItems()
+{
+	double intervalMs = getSnapIntervalMs();
+	for (TimelineEventItem *item : eventItems) {
+		if (item) {
+			item->setSnapEnabled(snapEnabled);
+			item->setSnapInterval(intervalMs);
+		}
+	}
 }
 
 void TimelineDock::onSnapToggled(bool checked)
 {
 	snapEnabled = checked;
-	// Update all existing event items
-	double stepMs = getSnapInterval();
-	for (TimelineEventItem *item : eventItems) {
-		if (item) {
-			item->setSnapEnabled(snapEnabled);
-			item->setSnapInterval(stepMs);
-		}
-	}
+	applySnapIntervalToItems();
 }
 
 void TimelineDock::onSaveClicked()
@@ -718,8 +749,8 @@ void TimelineDock::onSaveClicked()
 	}
 
 	const QJsonObject root = TimelineSerialization::toJsonObject(
-		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(), bpm,
-		gridToBpm, centerControls);
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
+		getSnapIntervalMs(), bpm, gridToBpm, centerControls);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
@@ -748,6 +779,7 @@ void TimelineDock::onLoadClicked()
 		loopCheckbox->setChecked(timelineDoc.loop);
 		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
 		snapCheckbox->setChecked(timelineDoc.snap);
+		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
 		bpmSpinbox->setValue(timelineDoc.bpm);
 		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
@@ -1448,7 +1480,7 @@ void TimelineDock::rebuildEventItems()
 
 		// Apply snap settings
 		item->setSnapEnabled(snapEnabled);
-		item->setSnapInterval(getSnapInterval());
+		item->setSnapInterval(getSnapIntervalMs());
 
 		scene->addItem(item);
 

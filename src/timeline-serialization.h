@@ -11,6 +11,7 @@ struct TimelineDocument {
 	bool loop = false;
 	double endTimeSeconds = 0.0;
 	bool snap = false;
+	double snapIntervalMs = 500.0;
 	double bpm = 120.0;
 	bool gridToBpm = false;
 	bool centerControls = false;
@@ -19,7 +20,8 @@ struct TimelineDocument {
 class TimelineSerialization {
 public:
 	static QJsonObject toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds, bool snap,
-					double bpm, bool gridToBpm, bool centerControls);
+					double snapIntervalMs, double bpm, bool gridToBpm,
+					bool centerControls);
 
 	static bool fromJsonDocument(const QJsonDocument &doc, TimelineModel &model, TimelineDocument &outDocument,
 				     QString *errorMessage = nullptr);

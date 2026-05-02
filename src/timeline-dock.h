@@ -37,8 +37,6 @@ public:
     static void hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
     static void hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
     static void hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
-    static void frontendEvent(enum obs_frontend_event event, void *private_data);
-
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
@@ -57,7 +55,9 @@ private slots:
     void onLoadClicked();
     void onTimelineFinished();
     void onTimelineLooped();
-    void onRecordClicked();
+    void onZoomInClicked();
+    void onZoomOutClicked();
+    void onSnapIntervalChanged(double value);
     void onBpmGridToggled(bool checked);
     void onBpmChanged(double value);
     void onCenterControlsToggled(bool checked);
@@ -78,7 +78,8 @@ private:
     void pasteEvents();
     void nudgeSelectedEvents(double deltaMs);
     void updateControlsLayout();
-    double getSnapInterval() const;
+    double getSnapIntervalMs() const;
+    void applySnapIntervalToItems();
 
     QList<TimelineEvent> clipboard;
 
@@ -96,7 +97,8 @@ private:
     // Buttons & Controls
     QPushButton *playButton;
     QPushButton *stopButton;
-    QPushButton *recordButton;
+    QPushButton *zoomInButton;
+    QPushButton *zoomOutButton;
     QPushButton *addEventButton;
     QPushButton *saveButton;
     QPushButton *loadButton;
@@ -108,8 +110,10 @@ private:
     QCheckBox *bpmGridCheckbox;
     QDoubleSpinBox *endTimeSpinbox;
     QDoubleSpinBox *bpmSpinbox;
+    QDoubleSpinBox *snapIntervalSpinbox;
     QLabel *timeLabel;
     QLabel *endLabel;
+    QLabel *snapIntervalLabel;
 
     // Settings
     bool centerControls = false;
@@ -130,6 +134,7 @@ private:
     
     double pixelsPerSecond = 100.0;
     bool snapEnabled = false;
+    double manualSnapIntervalMs = 500.0;
     
     // Hotkeys
     obs_hotkey_id hotkeyIdPlayPause = OBS_INVALID_HOTKEY_ID;
