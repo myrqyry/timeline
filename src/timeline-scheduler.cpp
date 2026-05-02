@@ -13,9 +13,16 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent)
         connect(model, &TimelineModel::modelChanged, this, [this]() {
             double t = getCurrentTime();
             const auto &evts = this->model->getEvents();
-            eventFired.resize(evts.size());
+            eventStartFired.resize(evts.size());
+            eventEndFired.resize(evts.size());
             for (size_t i = 0; i < evts.size(); i++) {
-                eventFired[i] = (evts[i].timeMs < t);
+                eventStartFired[i] = (evts[i].timeMs < t);
+                if (evts[i].hasDuration && evts[i].durationMs > 0) {
+                    const double endMs = evts[i].timeMs + evts[i].durationMs;
+                    eventEndFired[i] = (endMs < t);
+                } else {
+                    eventEndFired[i] = true;
+                }
             }
         });
     }
@@ -63,9 +70,16 @@ void TimelineScheduler::seek(double timeMs) {
     // Reset fired status for events
     if (model) {
         const auto& events = model->getEvents();
-        eventFired.resize(events.size());
+        eventStartFired.resize(events.size());
+        eventEndFired.resize(events.size());
         for (size_t i = 0; i < events.size(); i++) {
-            eventFired[i] = (events[i].timeMs < timeMs);
+            eventStartFired[i] = (events[i].timeMs < timeMs);
+            if (events[i].hasDuration && events[i].durationMs > 0) {
+                const double endMs = events[i].timeMs + events[i].durationMs;
+                eventEndFired[i] = (endMs < timeMs);
+            } else {
+                eventEndFired[i] = true;
+            }
         }
     }
     emit tick(currentOffsetMs);
@@ -99,7 +113,16 @@ void TimelineScheduler::onTimerTick() {
             seek(0);
             // Reset all event fired states
             if (model) {
-                eventFired.assign(model->getEvents().size(), false);
+                const auto &events = model->getEvents();
+                eventStartFired.assign(events.size(), false);
+                eventEndFired.resize(events.size());
+                for (size_t i = 0; i < events.size(); ++i) {
+                    if (events[i].hasDuration && events[i].durationMs > 0) {
+                        eventEndFired[i] = false;
+                    } else {
+                        eventEndFired[i] = true;
+                    }
+                }
             }
             emit looped();
             blog(LOG_INFO, "Timeline looped back to start");
@@ -118,16 +141,33 @@ void TimelineScheduler::onTimerTick() {
     if (!model) return;
 
     const auto& events = model->getEvents();
-    if (eventFired.size() != events.size()) {
-        eventFired.resize(events.size(), false);
+    if (eventStartFired.size() != events.size()) {
+        eventStartFired.resize(events.size(), false);
+    }
+    if (eventEndFired.size() != events.size()) {
+        eventEndFired.resize(events.size(), true);
+        for (size_t i = 0; i < events.size(); ++i) {
+            if (events[i].hasDuration && events[i].durationMs > 0) {
+                eventEndFired[i] = false;
+            }
+        }
     }
 
     // Fire events
     for (size_t i = 0; i < events.size(); i++) {
-        if (!eventFired[i] && events[i].timeMs <= currentTime) {
-            emit eventTriggered(events[i]);
-            eventFired[i] = true;
+        const TimelineEvent &evt = events[i];
+
+        if (!eventStartFired[i] && evt.timeMs <= currentTime) {
+            emit eventStarted(evt);
+            eventStartFired[i] = true;
+        }
+
+        if (evt.hasDuration && evt.durationMs > 0) {
+            const double endMs = evt.timeMs + evt.durationMs;
+            if (!eventEndFired[i] && endMs <= currentTime) {
+                emit eventEnded(evt);
+                eventEndFired[i] = true;
+            }
         }
     }
 }
-

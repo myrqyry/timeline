@@ -1,9 +1,14 @@
 #include <QCoreApplication>
 #include <QTest>
+#include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QTemporaryFile>
 #include <obs.h>
 #include <util/bmem.h>
 #include "obs-executor.h"
 #include "timeline-model.h"
+#include "timeline-scheduler.h"
+#include "timeline-serialization.h"
 
 // Mock helpers from mock_frontend.cpp
 extern obs_source_t* g_current_scene;
@@ -26,6 +31,8 @@ private:
 
 private slots:
     void initTestCase() {
+        qRegisterMetaType<TimelineEvent>("TimelineEvent");
+
         if (!obs_startup("en-US", nullptr, nullptr))
             qWarning("Failed to startup OBS - Tests might crash or fail");
 
@@ -123,7 +130,7 @@ private slots:
         evt.sourceName = "Scene 2";
         evt.data = "Cut";
 
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
 
         // Verify we switched to Scene 2
         QCOMPARE(g_current_scene, scene2);
@@ -139,7 +146,7 @@ private slots:
         evt.sourceName = "MySource";
 
         // Just verify it doesn't crash
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
     }
 
     void testSourceVisibility() {
@@ -157,7 +164,7 @@ private slots:
         evt.type = TimelineEventType::SourceShow;
         evt.sourceName = "MySource";
 
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
         // Assertions would require checking scene item state, which is hard with dummy scenes.
     }
 
@@ -174,15 +181,171 @@ private slots:
         evt.sourceName = "MySource";
         evt.filterName = "MyFilter";
 
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
 
         // Verify filter is enabled
         QVERIFY(obs_source_enabled(filter_item));
 
         // Test Disable
         evt.type = TimelineEventType::FilterDisable;
-        executor.executeEvent(evt);
+        executor.executeEventStart(evt);
         QVERIFY(!obs_source_enabled(filter_item));
+    }
+
+    void testModelGeneratesUniqueIds() {
+        TimelineModel model;
+        TimelineEvent a;
+        TimelineEvent b;
+        QVERIFY(!a.id.isEmpty());
+        QVERIFY(!b.id.isEmpty());
+        QVERIFY(a.id != b.id);
+
+        model.addEvent(a);
+        model.addEvent(b);
+        QCOMPARE(static_cast<int>(model.getEvents().size()), 2);
+    }
+
+    void testModelLegacyJsonWithoutId() {
+        TimelineModel model;
+        QJsonArray arr;
+        QJsonObject evt;
+        evt["time"] = 1000.0;
+        evt["type"] = static_cast<int>(TimelineEventType::SceneSwitch);
+        evt["source"] = "Scene A";
+        arr.append(evt);
+
+        model.fromJson(arr);
+        QCOMPARE(static_cast<int>(model.getEvents().size()), 1);
+        QVERIFY(!model.getEvents()[0].id.isEmpty());
+    }
+
+    void testModelIdOpsWithDuplicateTime() {
+        TimelineModel model;
+        TimelineEvent a;
+        a.timeMs = 1000.0;
+        a.sourceName = "A";
+        TimelineEvent b;
+        b.timeMs = 1000.0;
+        b.sourceName = "B";
+        model.addEvent(a);
+        model.addEvent(b);
+
+        const auto events = model.getEvents();
+        QCOMPARE(static_cast<int>(events.size()), 2);
+        const QString idA = events[0].sourceName == "A" ? events[0].id : events[1].id;
+        const QString idB = events[0].sourceName == "B" ? events[0].id : events[1].id;
+
+        QVERIFY(model.updateEventTimeById(idA, 2500.0));
+        const TimelineEvent *updatedA = model.findEventById(idA);
+        QVERIFY(updatedA != nullptr);
+        QCOMPARE(updatedA->timeMs, 2500.0);
+
+        TimelineEvent replacement = *model.findEventById(idB);
+        replacement.sourceName = "B2";
+        QVERIFY(model.replaceEventById(idB, replacement));
+        QCOMPARE(model.findEventById(idB)->sourceName, QString("B2"));
+
+        QVERIFY(model.removeEventById(idA));
+        QCOMPARE(static_cast<int>(model.getEvents().size()), 1);
+    }
+
+    void testSchedulerStartEndSignalsAndSeek() {
+        TimelineModel model;
+        TimelineEvent evt;
+        evt.timeMs = 20.0;
+        evt.hasDuration = true;
+        evt.durationMs = 40.0;
+        model.addEvent(evt);
+
+        TimelineScheduler scheduler(&model);
+        QSignalSpy startedSpy(&scheduler, SIGNAL(eventStarted(TimelineEvent)));
+        QSignalSpy endedSpy(&scheduler, SIGNAL(eventEnded(TimelineEvent)));
+
+        scheduler.start();
+        QTest::qWait(120);
+        scheduler.pause();
+        QCOMPARE(startedSpy.count(), 1);
+        QCOMPARE(endedSpy.count(), 1);
+
+        scheduler.seek(30.0); // after start, before end
+        scheduler.start();
+        QTest::qWait(80);
+        scheduler.pause();
+        QCOMPARE(startedSpy.count(), 1); // no retrigger
+        QCOMPARE(endedSpy.count(), 2);   // end can trigger again
+
+        scheduler.seek(0.0);
+        scheduler.start();
+        QTest::qWait(80);
+        scheduler.pause();
+        QCOMPARE(startedSpy.count(), 2);
+    }
+
+    void testSchedulerLoopResetsState() {
+        TimelineModel model;
+        TimelineEvent evt;
+        evt.timeMs = 10.0;
+        evt.hasDuration = true;
+        evt.durationMs = 10.0;
+        model.addEvent(evt);
+
+        TimelineScheduler scheduler(&model);
+        scheduler.setEndTime(40.0);
+        scheduler.setLooping(true);
+        QSignalSpy startedSpy(&scheduler, SIGNAL(eventStarted(TimelineEvent)));
+        QSignalSpy endedSpy(&scheduler, SIGNAL(eventEnded(TimelineEvent)));
+        QSignalSpy loopSpy(&scheduler, SIGNAL(looped()));
+
+        scheduler.start();
+        QTRY_VERIFY_WITH_TIMEOUT(loopSpy.count() >= 1, 500);
+        QTRY_VERIFY_WITH_TIMEOUT(startedSpy.count() >= 2, 700);
+        QTRY_VERIFY_WITH_TIMEOUT(endedSpy.count() >= 2, 700);
+        scheduler.stop();
+    }
+
+    void testSerializationLegacyAndObjectAndRoundTrip() {
+        TimelineModel model;
+        TimelineEvent evt;
+        evt.timeMs = 1234.0;
+        evt.sourceName = "Scene 1";
+        model.addEvent(evt);
+
+        TimelineDocument docData;
+        QJsonDocument legacyDoc(model.toJson());
+        QVERIFY(TimelineSerialization::fromJsonDocument(legacyDoc, model, docData));
+        QCOMPARE(static_cast<int>(docData.events.size()), 1);
+
+        QJsonObject root = TimelineSerialization::toJsonObject(model, true, 12.5, true, 128.0, true, true);
+        QJsonDocument objectDoc(root);
+        TimelineDocument loaded;
+        QVERIFY(TimelineSerialization::fromJsonDocument(objectDoc, model, loaded));
+        QVERIFY(loaded.loop);
+        QCOMPARE(loaded.endTimeSeconds, 12.5);
+        QVERIFY(loaded.snap);
+        QCOMPARE(loaded.bpm, 128.0);
+        QVERIFY(loaded.gridToBpm);
+        QVERIFY(loaded.centerControls);
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QString filePath = dir.path() + "/timeline.json";
+        QString errorMessage;
+        QVERIFY(TimelineSerialization::saveToFile(filePath, root, &errorMessage));
+        QJsonDocument loadedDoc;
+        QVERIFY(TimelineSerialization::loadFromFile(filePath, loadedDoc, &errorMessage));
+        QVERIFY(loadedDoc.isObject());
+    }
+
+    void testSerializationInvalidJson() {
+        QTemporaryFile file;
+        QVERIFY(file.open());
+        file.write("{ invalid json");
+        file.close();
+
+        QJsonDocument doc;
+        QString error;
+        QVERIFY(!TimelineSerialization::loadFromFile(file.fileName(), doc, &error));
+        QVERIFY(!error.isEmpty());
     }
 };
 

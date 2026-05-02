@@ -1,0 +1,30 @@
+{
+  "events": [
+    {
+      "id": "22222222-aaaa-bbbb-cccc-000000000001",
+      "time": 1000,
+      "type": 4,
+      "source": "Camera",
+      "color": "#00ff80",
+      "hasDuration": true,
+      "duration": 3000
+    },
+    {
+      "id": "22222222-aaaa-bbbb-cccc-000000000002",
+      "time": 5000,
+      "type": 4,
+      "source": "Camera",
+      "color": "#00ff80",
+      "hasDuration": true,
+      "duration": 3000
+    }
+  ],
+  "settings": {
+    "loop": true,
+    "endTime": 10.0,
+    "snap": true,
+    "bpm": 120.0,
+    "gridToBpm": false,
+    "centerControls": false
+  }
+}

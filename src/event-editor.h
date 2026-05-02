@@ -7,6 +7,7 @@
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QHBoxLayout>
+#include <QMessageBox>
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 #include "event-types.h"
@@ -65,7 +66,7 @@ public:
         buttonLayout->addWidget(cancelBtn);
         layout->addRow(buttonLayout);
 
-        connect(saveBtn, &QPushButton::clicked, this, &QDialog::accept);
+        connect(saveBtn, &QPushButton::clicked, this, &EventEditor::validateAndAccept);
         connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
 
         // Populate based on initial type and pre-select current values
@@ -135,6 +136,59 @@ public:
     }
 
 private:
+    void validateAndAccept() {
+        TimelineEventType type = (TimelineEventType)typeCombo->currentData().toInt();
+        const QString sourceText = sourceCombo->currentText().trimmed();
+        const QString filterText = filterEdit->text().trimmed();
+
+        auto warn = [this](const QString &message) {
+            QMessageBox::warning(this, "Invalid Event", message);
+        };
+
+        if (type == TimelineEventType::SceneSwitch ||
+            type == TimelineEventType::SourceShow ||
+            type == TimelineEventType::SourceHide ||
+            type == TimelineEventType::MediaStart ||
+            type == TimelineEventType::MediaStop) {
+            if (sourceText.isEmpty() || sourceText.startsWith("(")) {
+                warn("Please select a valid target source/scene.");
+                return;
+            }
+        }
+
+        if (type == TimelineEventType::FilterEnable || type == TimelineEventType::FilterDisable) {
+            if (sourceText.isEmpty() || sourceText.startsWith("(")) {
+                warn("Filter events require a valid source and filter.");
+                return;
+            }
+            QVariantList data = sourceCombo->currentData().toList();
+            if ((data.size() < 2 || data[0].toString().isEmpty() || data[1].toString().isEmpty()) &&
+                filterText.isEmpty()) {
+                warn("Filter events require both source and filter names.");
+                return;
+            }
+        }
+
+        if (type == TimelineEventType::HotkeyTrigger) {
+            if (sourceCombo->currentData().toString().isEmpty() && sourceText.isEmpty()) {
+                warn("Hotkey events require a hotkey name.");
+                return;
+            }
+        }
+
+        if (type == TimelineEventType::TriggerTimeline && sourceText.isEmpty()) {
+            warn("Trigger Timeline events require a timeline file path.");
+            return;
+        }
+
+        if (durationCheck->isChecked() && durationSpin->value() < 0.0) {
+            warn("Duration must be zero or greater.");
+            return;
+        }
+
+        accept();
+    }
+
     void populateSourceCombo(TimelineEventType evtType) {
         sourceCombo->clear();
         sourceCombo->setEnabled(true);

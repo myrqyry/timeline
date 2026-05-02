@@ -5,7 +5,9 @@
 #include <QGraphicsRectItem>
 #include <QResizeEvent>
 #include <obs-frontend-api.h>
+#if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
+#endif
 #include <QDateTime>
 
 #include <QFile>
@@ -27,7 +29,11 @@
 #include <QDialogButtonBox>
 #include <QColorDialog>
 #include <QKeyEvent>
+#include <QUuid>
+#include <QApplication>
+#include <QShortcut>
 #include "event-editor.h"
+#include "timeline-serialization.h"
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 {
@@ -42,7 +48,8 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 	setupUi();
 
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
-	connect(scheduler, &TimelineScheduler::eventTriggered, executor, &ObsExecutor::executeEvent);
+	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
+	connect(scheduler, &TimelineScheduler::eventEnded, executor, &ObsExecutor::executeEventEnd);
 	connect(model, &TimelineModel::modelChanged, this, [this]() {
 		if (!rebuildScheduled) {
 			rebuildScheduled = true;
@@ -149,24 +156,15 @@ void TimelineDock::save()
 	if (!configPath)
 		return;
 
-	QFile file(configPath);
-	if (file.open(QIODevice::WriteOnly)) {
-		QJsonObject root;
-		root["events"] = model->toJson();
-
-		QJsonObject settings;
-		settings["loop"] = loopCheckbox->isChecked();
-		settings["endTime"] = endTimeSpinbox->value();
-		settings["snap"] = snapCheckbox->isChecked();
-		settings["bpm"] = bpm;
-		settings["gridToBpm"] = gridToBpm;
-		settings["centerControls"] = centerControls;
-		root["settings"] = settings;
-
-		QJsonDocument doc(root);
-		file.write(doc.toJson());
-		file.close();
+	const QJsonObject root = TimelineSerialization::toJsonObject(
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(), bpm,
+		gridToBpm, centerControls);
+	QString errorMessage;
+	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 		blog(LOG_INFO, "Saved timeline to %s", configPath);
+	} else {
+		blog(LOG_WARNING, "Failed to save timeline to %s: %s", configPath,
+		     errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
@@ -177,48 +175,36 @@ void TimelineDock::load()
 	if (!configPath)
 		return;
 
-	QFile file(configPath);
-	if (file.exists() && file.open(QIODevice::ReadOnly)) {
+	QJsonDocument doc;
+	QString errorMessage;
+	if (TimelineSerialization::loadFromFile(configPath, doc, &errorMessage)) {
 		blog(LOG_INFO, "Loading config file: %s", configPath);
-		QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-
-		if (doc.isArray()) {
-			// Legacy format (just events)
-			model->fromJson(doc.array());
-		} else if (doc.isObject()) {
-			// New format
-			QJsonObject root = doc.object();
-			model->fromJson(root["events"].toArray());
-
-			QJsonObject settings = root["settings"].toObject();
-			// Block signals to avoid triggering unnecessary logic during load
-			bool loop = settings["loop"].toBool();
-			double end = settings["endTime"].toDouble();
-			bool snap = settings["snap"].toBool();
-			double loadedBpm = settings["bpm"].toDouble(120.0);
-			bool loadedGridToBpm = settings["gridToBpm"].toBool(false);
-			bool loadedCenterControls = settings["centerControls"].toBool(false);
-
-			loopCheckbox->setChecked(loop);
-			endTimeSpinbox->setValue(end);
-			snapCheckbox->setChecked(snap);
-			bpmSpinbox->setValue(loadedBpm);
-			bpmGridCheckbox->setChecked(loadedGridToBpm);
-			centerControlsCheckbox->setChecked(loadedCenterControls);
-
-			// Apply settings manually since signals might be blocked (or just to be safe)
-			onLoopToggled(loop);
-			onEndTimeChanged(end);
-			onSnapToggled(snap);
-			onBpmChanged(loadedBpm);
-			onBpmGridToggled(loadedGridToBpm);
-			onCenterControlsToggled(loadedCenterControls);
+		TimelineDocument timelineDoc;
+		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			blog(LOG_WARNING, "Failed to parse timeline config %s: %s", configPath,
+			     errorMessage.toUtf8().constData());
+			bfree(configPath);
+			return;
 		}
+
+		loopCheckbox->setChecked(timelineDoc.loop);
+		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
+		snapCheckbox->setChecked(timelineDoc.snap);
+		bpmSpinbox->setValue(timelineDoc.bpm);
+		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
+		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+
+		onLoopToggled(timelineDoc.loop);
+		onEndTimeChanged(timelineDoc.endTimeSeconds);
+		onSnapToggled(timelineDoc.snap);
+		onBpmChanged(timelineDoc.bpm);
+		onBpmGridToggled(timelineDoc.gridToBpm);
+		onCenterControlsToggled(timelineDoc.centerControls);
 
 		updateLayout(); // Refresh UI with new events
 		blog(LOG_INFO, "Loaded timeline from %s", configPath);
 	} else {
-		blog(LOG_INFO, "No config file found at: %s", configPath);
+		blog(LOG_INFO, "No config file found at: %s (%s)", configPath, errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
@@ -226,6 +212,47 @@ void TimelineDock::load()
 void TimelineDock::setupUi()
 {
 	QVBoxLayout *mainLayout = new QVBoxLayout(this);
+
+	auto shouldIgnoreShortcut = [this]() -> bool {
+		QWidget *focusWidget = QApplication::focusWidget();
+		return focusWidget &&
+		       (qobject_cast<QLineEdit *>(focusWidget) || qobject_cast<QComboBox *>(focusWidget));
+	};
+
+	auto *spaceShortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
+	spaceShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(spaceShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			onPlayClicked();
+	});
+
+	auto *deleteShortcut = new QShortcut(QKeySequence(Qt::Key_Delete), this);
+	deleteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(deleteShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			deleteSelectedEvents();
+	});
+
+	auto *homeShortcut = new QShortcut(QKeySequence(Qt::Key_Home), this);
+	homeShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(homeShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			scheduler->seek(0);
+	});
+
+	auto *copyShortcut = new QShortcut(QKeySequence::Copy, this);
+	copyShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(copyShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			copySelectedEvents();
+	});
+
+	auto *pasteShortcut = new QShortcut(QKeySequence::Paste, this);
+	pasteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(pasteShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
+		if (!shouldIgnoreShortcut())
+			pasteEvents();
+	});
 
 	// Unified Controls Row
 	controlsLayout = new QHBoxLayout();
@@ -585,22 +612,25 @@ void TimelineDock::onPlayClicked()
 			executor->cancelAll();
 		}
 		playButton->setText("Play");
+#if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
 			obs_data_set_string(d, "event", "paused");
 			obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 			obs_data_release(d);
 		}
+#endif
 	} else {
 		scheduler->start();
-	playButton->setText("Pause");
-
+		playButton->setText("Pause");
+#if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
 			obs_data_set_string(d, "event", "started");
 			obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 			obs_data_release(d);
 		}
+#endif
 	}
 }
 
@@ -612,12 +642,14 @@ void TimelineDock::onStopClicked()
 	}
 	playButton->setText("Play");
 
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *d = obs_data_create();
 		obs_data_set_string(d, "event", "stopped");
 		obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 		obs_data_release(d);
 	}
+#endif
 }
 
 void TimelineDock::onLoopToggled(bool checked)
@@ -636,12 +668,14 @@ void TimelineDock::onTimelineFinished()
 	playButton->setText("Play");
 	blog(LOG_INFO, "Timeline playback finished");
 
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *d = obs_data_create();
 		obs_data_set_string(d, "event", "finished");
 		obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
 		obs_data_release(d);
 	}
+#endif
 }
 
 void TimelineDock::onTimelineLooped()
@@ -673,24 +707,15 @@ void TimelineDock::onSaveClicked()
 		fileName += ".json";
 	}
 
-	QFile file(fileName);
-	if (file.open(QIODevice::WriteOnly)) {
-		QJsonObject root;
-		root["events"] = model->toJson();
-
-		QJsonObject settings;
-		settings["loop"] = loopCheckbox->isChecked();
-		settings["endTime"] = endTimeSpinbox->value();
-		settings["snap"] = snapCheckbox->isChecked();
-		settings["bpm"] = bpm;
-		settings["gridToBpm"] = gridToBpm;
-		settings["centerControls"] = centerControls;
-		root["settings"] = settings;
-
-		QJsonDocument doc(root);
-		file.write(doc.toJson());
-		file.close();
+	const QJsonObject root = TimelineSerialization::toJsonObject(
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(), bpm,
+		gridToBpm, centerControls);
+	QString errorMessage;
+	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
+	} else {
+		blog(LOG_WARNING, "Failed to export timeline to %s: %s", fileName.toStdString().c_str(),
+		     errorMessage.toUtf8().constData());
 	}
 }
 
@@ -700,36 +725,35 @@ void TimelineDock::onLoadClicked()
 	if (fileName.isEmpty())
 		return;
 
-	QFile file(fileName);
-	if (file.open(QIODevice::ReadOnly)) {
-		QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-
-		if (doc.isArray()) {
-			model->fromJson(doc.array());
-		} else if (doc.isObject()) {
-			QJsonObject root = doc.object();
-			model->fromJson(root["events"].toArray());
-
-			QJsonObject settings = root["settings"].toObject();
-			loopCheckbox->setChecked(settings["loop"].toBool());
-			endTimeSpinbox->setValue(settings["endTime"].toDouble());
-			snapCheckbox->setChecked(settings["snap"].toBool());
-
-			bpmSpinbox->setValue(settings["bpm"].toDouble(120.0));
-			bpmGridCheckbox->setChecked(settings["gridToBpm"].toBool(false));
-			centerControlsCheckbox->setChecked(settings["centerControls"].toBool(false));
-
-			// Apply settings
-			onLoopToggled(loopCheckbox->isChecked());
-			onEndTimeChanged(endTimeSpinbox->value());
-			onSnapToggled(snapCheckbox->isChecked());
-			onBpmChanged(bpmSpinbox->value());
-			onBpmGridToggled(bpmGridCheckbox->isChecked());
-			onCenterControlsToggled(centerControlsCheckbox->isChecked());
+	QJsonDocument doc;
+	QString errorMessage;
+	if (TimelineSerialization::loadFromFile(fileName, doc, &errorMessage)) {
+		TimelineDocument timelineDoc;
+		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			blog(LOG_WARNING, "Failed to import timeline from %s: %s", fileName.toStdString().c_str(),
+			     errorMessage.toUtf8().constData());
+			return;
 		}
+
+		loopCheckbox->setChecked(timelineDoc.loop);
+		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
+		snapCheckbox->setChecked(timelineDoc.snap);
+		bpmSpinbox->setValue(timelineDoc.bpm);
+		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
+		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+
+		onLoopToggled(timelineDoc.loop);
+		onEndTimeChanged(timelineDoc.endTimeSeconds);
+		onSnapToggled(timelineDoc.snap);
+		onBpmChanged(timelineDoc.bpm);
+		onBpmGridToggled(timelineDoc.gridToBpm);
+		onCenterControlsToggled(timelineDoc.centerControls);
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
+	} else {
+		blog(LOG_WARNING, "Failed to load timeline from %s: %s", fileName.toStdString().c_str(),
+		     errorMessage.toUtf8().constData());
 	}
 }
 
@@ -757,6 +781,12 @@ void TimelineDock::updateEndMarker()
 
 void TimelineDock::keyPressEvent(QKeyEvent *event)
 {
+	QWidget *focusWidget = QApplication::focusWidget();
+	if (focusWidget && (qobject_cast<QLineEdit *>(focusWidget) || qobject_cast<QComboBox *>(focusWidget))) {
+		QWidget::keyPressEvent(event);
+		return;
+	}
+
 	switch (event->key()) {
 	case Qt::Key_Space:
 		onPlayClicked();
@@ -814,14 +844,10 @@ void TimelineDock::copySelectedEvents()
 		return;
 
 	// Get corresponding events from model
-	const auto &events = model->getEvents();
 	for (TimelineEventItem *item : selectedItems) {
-		double itemTime = item->getTimeMs();
-		for (const auto &evt : events) {
-			if (std::abs(evt.timeMs - itemTime) < 1.0) {
-				clipboard.append(evt);
-				break;
-			}
+		const TimelineEvent *evt = model->findEventById(item->getEventId());
+		if (evt) {
+			clipboard.append(*evt);
 		}
 	}
 
@@ -849,6 +875,7 @@ void TimelineDock::pasteEvents()
 
 	for (const auto &originalEvt : clipboard) {
 		TimelineEvent newEvt = originalEvt;
+		newEvt.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
 		newEvt.timeMs = originalEvt.timeMs + offset;
 
 		if (newEvt.timeMs < 0)
@@ -873,23 +900,8 @@ void TimelineDock::deleteSelectedEvents()
 	if (toDelete.isEmpty())
 		return;
 
-	// Find indices to delete (in reverse order to avoid index shifts)
-	std::vector<int> indices;
-	const auto &events = model->getEvents();
 	for (TimelineEventItem *item : toDelete) {
-		double itemTime = item->getTimeMs();
-		for (size_t i = 0; i < events.size(); i++) {
-			if (std::abs(events[i].timeMs - itemTime) < 1.0) {
-				indices.push_back(static_cast<int>(i));
-				break;
-			}
-		}
-	}
-
-	// Sort descending and remove
-	std::sort(indices.rbegin(), indices.rend());
-	for (int idx : indices) {
-		model->removeEvent(idx);
+		model->removeEventById(item->getEventId());
 	}
 }
 
@@ -900,14 +912,7 @@ void TimelineDock::nudgeSelectedEvents(double deltaMs)
 			double currentTime = item->getTimeMs();
 			double newTime = std::max(0.0, currentTime + deltaMs);
 
-			// Find this event in the model and update it
-			const auto &events = model->getEvents();
-			for (size_t i = 0; i < events.size(); i++) {
-				if (std::abs(events[i].timeMs - currentTime) < 1.0) {
-					model->updateEventTime(static_cast<int>(i), newTime);
-					break;
-				}
-			}
+			model->updateEventTimeById(item->getEventId(), newTime);
 		}
 	}
 }
@@ -963,6 +968,7 @@ void TimelineDock::onTick(double currentTimeMs)
 {
 	updatePlayhead(currentTimeMs);
 
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		qint64 now = QDateTime::currentMSecsSinceEpoch();
 		if (now - lastTickTime > 50) {
@@ -974,6 +980,7 @@ void TimelineDock::onTick(double currentTimeMs)
 			obs_data_release(d);
 		}
 	}
+#endif
 
 	int totalSeconds = static_cast<int>(currentTimeMs / 1000.0);
 	int ms = static_cast<int>(currentTimeMs) % 1000;
@@ -1425,6 +1432,7 @@ void TimelineDock::rebuildEventItems()
 
 		TimelineEventItem *item =
 			new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color, evt.customIconPath);
+		item->setEventId(evt.id);
 		item->setStackOffset(stackIndex);
 		item->setHasDuration(evt.hasDuration);
 		item->setDuration(evt.durationMs);
@@ -1488,19 +1496,20 @@ void TimelineDock::rebuildEventItems()
 			evt.sourceName); // Just show source name on the bubble usually, or filter name? Source is probably better.
 		eventItems.append(item);
 
-		int eventIndex = static_cast<int>(i);
+		const QString eventId = evt.id;
 
 		// Connect movement
-		connect(item, &TimelineEventItem::eventMoved,
-			[this, eventIndex](double newTime) { model->updateEventTime(eventIndex, newTime); });
+		connect(item, &TimelineEventItem::eventMoved, [this, eventId](double newTime) {
+			model->updateEventTimeById(eventId, newTime);
+		});
 
 		// Connect double-click
 		connect(item, &TimelineEventItem::doubleClicked,
-			[this, item, eventIndex]() { onEventDoubleClicked(item, eventIndex); });
+			[this, item, eventId]() { onEventDoubleClicked(item, eventId); });
 
 		// Connect deletion
-		connect(item, &TimelineEventItem::deleteRequested, [this, eventIndex]() {
-			model->removeEvent(eventIndex);
+		connect(item, &TimelineEventItem::deleteRequested, [this, eventId]() {
+			model->removeEventById(eventId);
 			// Rebuild is handled by modelChanged -> queued rebuildEventItems
 		});
 
@@ -1529,19 +1538,34 @@ void TimelineDock::rebuildEventItems()
 		});
 
 		// Connect color change
-		connect(item, &TimelineEventItem::colorChangeRequested, [this, item, eventIndex]() {
+		connect(item, &TimelineEventItem::colorChangeRequested, [this, item, eventId]() {
 			QColor newColor = QColorDialog::getColor(item->getEventColor(), this, "Select Event Color");
 			if (newColor.isValid()) {
 				item->setEventColor(newColor);
-				// Update model
-				auto events = model->getEvents();
-				if (eventIndex < events.size()) {
-					TimelineEvent updatedEvt = events[eventIndex];
-					updatedEvt.color = newColor;
-					model->replaceEvent(eventIndex, updatedEvt);
-				}
+				const TimelineEvent *original = model->findEventById(eventId);
+				if (!original)
+					return;
+				TimelineEvent updatedEvt = *original;
+				updatedEvt.color = newColor;
+				model->replaceEventById(eventId, updatedEvt);
 			}
 		});
+	}
+
+	if (events.empty()) {
+		if (!emptyHintItem) {
+			emptyHintItem = scene->addSimpleText(
+				"Double-click timeline or press Add Event to create your first event");
+			emptyHintItem->setBrush(QBrush(Qt::gray));
+			emptyHintItem->setFont(QFont("Arial", 10));
+			emptyHintItem->setZValue(-5);
+		}
+
+		const double x = std::max(20.0, scene->sceneRect().width() * 0.1);
+		emptyHintItem->setPos(x, 60);
+		emptyHintItem->setVisible(true);
+	} else if (emptyHintItem) {
+		emptyHintItem->setVisible(false);
 	}
 }
 
@@ -1556,18 +1580,18 @@ void TimelineDock::clearEventItems()
 	eventItems.clear();
 }
 
-void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, int eventIndex)
+void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &eventId)
 {
-	auto events = model->getEvents();
-	if (eventIndex < 0 || eventIndex >= static_cast<int>(events.size()))
+	const TimelineEvent *original = model->findEventById(eventId);
+	if (!original)
 		return;
 
-	TimelineEvent evt = events[eventIndex];
+	TimelineEvent evt = *original;
 	EventEditor editor(evt, this);
 
 	if (editor.exec() == QDialog::Accepted) {
 		editor.getUpdatedEvent(evt);
-		model->replaceEvent(eventIndex, evt);
+		model->replaceEventById(eventId, evt);
 
 		// Update visual item for immediate feedback
 		if (item) {

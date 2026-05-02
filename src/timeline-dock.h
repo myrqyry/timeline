@@ -16,6 +16,7 @@
 
 class TimelineEventItem;
 class QGraphicsLineItem;
+class QGraphicsSimpleTextItem;
 
 class TimelineDock : public QWidget {
     Q_OBJECT
@@ -48,7 +49,7 @@ private slots:
     void onStopClicked();
     void onTick(double currentTimeMs);
     void onAddEventClicked();
-    void onEventDoubleClicked(TimelineEventItem *item, int eventIndex);
+    void onEventDoubleClicked(TimelineEventItem *item, const QString &eventId);
     void onLoopToggled(bool checked);
     void onEndTimeChanged(double value);
     void onSnapToggled(bool checked);
@@ -118,6 +119,7 @@ private:
     
     QGraphicsLineItem *endMarkerItem = nullptr;
     QGraphicsLineItem *dragGuideItem = nullptr;
+    QGraphicsSimpleTextItem *emptyHintItem = nullptr;
 
     QList<QGraphicsItem*> rulerItems;
     QList<QGraphicsItem*> gridItems;

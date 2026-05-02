@@ -52,10 +52,62 @@ int TimelineModel::findEventIndex(double timeMs) const {
     return -1;
 }
 
+int TimelineModel::findEventIndexById(const QString &id) const {
+    for (size_t i = 0; i < events.size(); ++i) {
+        if (events[i].id == id) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+bool TimelineModel::removeEventById(const QString &id) {
+    const int index = findEventIndexById(id);
+    if (index < 0) {
+        return false;
+    }
+    events.erase(events.begin() + index);
+    emit modelChanged();
+    return true;
+}
+
+bool TimelineModel::updateEventTimeById(const QString &id, double newTimeMs) {
+    const int index = findEventIndexById(id);
+    if (index < 0) {
+        return false;
+    }
+    events[index].timeMs = newTimeMs;
+    sortEvents();
+    emit modelChanged();
+    return true;
+}
+
+bool TimelineModel::replaceEventById(const QString &id, const TimelineEvent &event) {
+    const int index = findEventIndexById(id);
+    if (index < 0) {
+        return false;
+    }
+    TimelineEvent updated = event;
+    updated.id = id;
+    events[index] = updated;
+    sortEvents();
+    emit modelChanged();
+    return true;
+}
+
+const TimelineEvent *TimelineModel::findEventById(const QString &id) const {
+    const int index = findEventIndexById(id);
+    if (index < 0) {
+        return nullptr;
+    }
+    return &events[static_cast<size_t>(index)];
+}
+
 QJsonArray TimelineModel::toJson() const {
     QJsonArray array;
     for (const auto& evt : events) {
         QJsonObject obj;
+        obj["id"] = evt.id;
         obj["time"] = evt.timeMs;
         obj["type"] = static_cast<int>(evt.type);
         obj["source"] = evt.sourceName;
@@ -86,6 +138,10 @@ void TimelineModel::fromJson(const QJsonArray &json) {
     for (const auto& val : json) {
         QJsonObject obj = val.toObject();
         TimelineEvent evt;
+        evt.id = obj["id"].toString();
+        if (evt.id.isEmpty()) {
+            evt.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        }
         evt.timeMs = obj["time"].toDouble();
         evt.type = static_cast<TimelineEventType>(obj["type"].toInt());
         if (obj.contains("source")) {

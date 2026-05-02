@@ -3,6 +3,7 @@
 #include <QString>
 #include <QVariant>
 #include <QColor>
+#include <QUuid>
 
 enum class TimelineEventType {
     SceneSwitch,
@@ -18,8 +19,9 @@ enum class TimelineEventType {
 };
 
 struct TimelineEvent {
-    double timeMs;
-    TimelineEventType type;
+    QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    double timeMs = 0.0;
+    TimelineEventType type = TimelineEventType::SceneSwitch;
     QString sourceName; // Source name, scene name, or hotkey name
     QString filterName; // Optional: Filter name if targeting a filter
     QVariant data;    // Additional data (e.g., volume level, seek position)
@@ -30,4 +32,3 @@ struct TimelineEvent {
     bool hasDuration = false;
     double durationMs = 0.0;
 };
-

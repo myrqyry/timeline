@@ -1,0 +1,26 @@
+{
+  "events": [
+    {
+      "id": "11111111-aaaa-bbbb-cccc-000000000001",
+      "time": 0,
+      "type": 0,
+      "source": "Scene 1",
+      "color": "#00c8ff"
+    },
+    {
+      "id": "11111111-aaaa-bbbb-cccc-000000000002",
+      "time": 5000,
+      "type": 0,
+      "source": "Scene 2",
+      "color": "#00c8ff"
+    }
+  ],
+  "settings": {
+    "loop": false,
+    "endTime": 8.0,
+    "snap": true,
+    "bpm": 120.0,
+    "gridToBpm": false,
+    "centerControls": false
+  }
+}
