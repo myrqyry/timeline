@@ -4,7 +4,9 @@
 #include <QDockWidget>
 #include <QAction>
 #include "timeline-dock.h"
+#if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
+#endif
 
 static TimelineDock *g_timelineDock = nullptr;
 
@@ -31,15 +33,18 @@ void obs_module_unload(void)
 
 void obs_module_post_load(void)
 {
+#if OBS_TIMELINE_HAS_WEBSOCKET
 	if (!g_timelineDock)
 		return;
 
-	// Register as obs-websocket vendor
 	obs_websocket_vendor vendor = obs_websocket_register_vendor("obs-timeline-plugin");
 	if (vendor) {
 		blog(LOG_INFO, "Registered as obs-websocket vendor");
 		g_timelineDock->setObsWebSocketVendor(vendor);
 	} else {
-		blog(LOG_WARNING, "Failed to register as obs-websocket vendor (obs-websocket possibly not loaded)");
+		blog(LOG_WARNING, "Failed to register as obs-websocket vendor");
 	}
+#else
+	blog(LOG_INFO, "obs-websocket vendor support disabled at build time");
+#endif
 }

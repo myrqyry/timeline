@@ -24,6 +24,11 @@ public:
     void updateEventTime(int index, double newTimeMs);
     void replaceEvent(int index, const TimelineEvent &event);
     int findEventIndex(double timeMs) const;
+    int findEventIndexById(const QString &id) const;
+    bool removeEventById(const QString &id);
+    bool updateEventTimeById(const QString &id, double newTimeMs);
+    bool replaceEventById(const QString &id, const TimelineEvent &event);
+    const TimelineEvent *findEventById(const QString &id) const;
 
     // Serialization
     QJsonArray toJson() const;
