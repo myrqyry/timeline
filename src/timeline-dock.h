@@ -9,6 +9,8 @@
 #include <QLabel>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
+#include <QHash>
+#include <QSet>
 #include <map>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
@@ -61,6 +63,7 @@ private slots:
     void onBpmGridToggled(bool checked);
     void onBpmChanged(double value);
     void onCenterControlsToggled(bool checked);
+    void onRestartHotkey();
 
 private:
     void setupUi();
@@ -80,6 +83,7 @@ private:
     void updateControlsLayout();
     double getSnapIntervalMs() const;
     void applySnapIntervalToItems();
+    void connectItemSignals(TimelineEventItem *item, const QString &eventId);
 
     QList<TimelineEvent> clipboard;
 
@@ -130,7 +134,7 @@ private:
     QList<QGraphicsItem*> gridItems;
     
     // Event tracking
-    QList<TimelineEventItem *> eventItems;
+    QHash<QString, TimelineEventItem *> eventItemMap;
     
     double pixelsPerSecond = 100.0;
     bool snapEnabled = false;
@@ -144,4 +148,6 @@ private:
     void* obsWebSocketVendor = nullptr;
     qint64 lastTickTime = 0;
     bool rebuildScheduled = false;
+    bool isDragging = false;
+    QString zoomLabelCache;
 };

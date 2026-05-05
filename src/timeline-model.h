@@ -16,14 +16,10 @@ public:
     explicit TimelineModel(QObject *parent = nullptr);
 
     void addEvent(const TimelineEvent &event);
-    void removeEvent(int index);
     const std::vector<TimelineEvent>& getEvents() const;
     void clearEvents();
 
     // Updates
-    void updateEventTime(int index, double newTimeMs);
-    void replaceEvent(int index, const TimelineEvent &event);
-    int findEventIndex(double timeMs) const;
     int findEventIndexById(const QString &id) const;
     bool removeEventById(const QString &id);
     bool updateEventTimeById(const QString &id, double newTimeMs);

@@ -11,13 +11,6 @@ void TimelineModel::addEvent(const TimelineEvent &event) {
     emit modelChanged();
 }
 
-void TimelineModel::removeEvent(int index) {
-    if (index >= 0 && index < events.size()) {
-        events.erase(events.begin() + index);
-        emit modelChanged();
-    }
-}
-
 const std::vector<TimelineEvent>& TimelineModel::getEvents() const {
     return events;
 }
@@ -25,31 +18,6 @@ const std::vector<TimelineEvent>& TimelineModel::getEvents() const {
 void TimelineModel::clearEvents() {
     events.clear();
     emit modelChanged();
-}
-
-void TimelineModel::updateEventTime(int index, double newTimeMs) {
-    if (index >= 0 && index < events.size()) {
-        events[index].timeMs = newTimeMs;
-        sortEvents();
-        emit modelChanged();
-    }
-}
-
-void TimelineModel::replaceEvent(int index, const TimelineEvent &event) {
-    if (index >= 0 && index < events.size()) {
-        events[index] = event;
-        sortEvents();
-        emit modelChanged();
-    }
-}
-
-int TimelineModel::findEventIndex(double timeMs) const {
-    for (size_t i = 0; i < events.size(); i++) {
-        if (std::abs(events[i].timeMs - timeMs) < 10.0) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
 }
 
 int TimelineModel::findEventIndexById(const QString &id) const {
@@ -134,7 +102,7 @@ QJsonArray TimelineModel::toJson() const {
 #include "theme-helpers.h"
 
 void TimelineModel::fromJson(const QJsonArray &json) {
-    clearEvents();
+    events.clear();
     for (const auto& val : json) {
         QJsonObject obj = val.toObject();
         TimelineEvent evt;

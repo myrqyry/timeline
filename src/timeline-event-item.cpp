@@ -12,28 +12,19 @@
 
 TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
                                      QColor color, const QString &customIconPath, QGraphicsItem *parent)
-    : QObject(nullptr), QGraphicsEllipseItem(parent), pixelsPerSecond(pixelsPerSecond), 
+    : QObject(nullptr), QGraphicsEllipseItem(parent), pixelsPerSecond(pixelsPerSecond),
       eventColor(color), customIconPath(customIconPath), eventType(type)
 {
-    // Determine contrast color
-    int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
-    QString iconColor = (brightness > 128) ? "black" : "white";
-
-    // Load SVG icon
-    if (!customIconPath.isEmpty() && QFile::exists(customIconPath)) {
-        renderer = new QSvgRenderer(customIconPath, this);
-    } else {
-        renderer = new QSvgRenderer(ThemeIcons::getIconSvg(type, iconColor), this);
-    }
-
     setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
     // Center the item horizontally on the time
     setPos((timeMs / 1000.0 * pixelsPerSecond) - (ITEM_SIZE / 2.0), baseY);
     setBrush(QBrush(eventColor));
     setPen(QPen(Qt::black));
-    
+
     setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
     setCursor(Qt::OpenHandCursor);
+
+    refreshRenderer();
 }
 
 double TimelineEventItem::getTimeMs() const {
@@ -74,20 +65,43 @@ void TimelineEventItem::setPixelsPerSecond(double pxPerSec) {
 
 void TimelineEventItem::setEventColor(const QColor &color) {
     eventColor = color;
-    
-    // Update SVG renderer with contrast color
-    if (renderer) delete renderer;
+    refreshRenderer();
+    setBrush(QBrush(eventColor));
+    update();
+}
 
+void TimelineEventItem::setEventType(TimelineEventType type) {
+    if (eventType == type)
+        return;
+    eventType = type;
+    refreshRenderer();
+    update();
+}
+
+void TimelineEventItem::setCustomIconPath(const QString &path) {
+    if (customIconPath == path)
+        return;
+    customIconPath = path;
+    refreshRenderer();
+    update();
+}
+
+void TimelineEventItem::setTimeMs(double timeMs) {
+    setPos(((timeMs / 1000.0) * pixelsPerSecond) - (ITEM_SIZE / 2.0), y());
+}
+
+void TimelineEventItem::refreshRenderer() {
+    if (renderer) {
+        delete renderer;
+        renderer = nullptr;
+    }
+    int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
+    QString iconColor = (brightness > 128) ? "black" : "white";
     if (!customIconPath.isEmpty() && QFile::exists(customIconPath)) {
         renderer = new QSvgRenderer(customIconPath, this);
     } else {
-        int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;
-        QString iconColor = (brightness > 128) ? "black" : "white";
         renderer = new QSvgRenderer(ThemeIcons::getIconSvg(eventType, iconColor), this);
     }
-    
-    setBrush(QBrush(eventColor));
-    update();
 }
 
 void TimelineEventItem::setEventLabel(const QString &label) {

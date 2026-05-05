@@ -15,32 +15,40 @@ class TimelineEventItem : public QObject, public QGraphicsEllipseItem {
 public:
     TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
                       QColor color = QColor(0, 200, 255), const QString &customIconPath = QString(), QGraphicsItem *parent = nullptr);
-    
+
     // Limits
     void setMaxTime(double maxTimeMs);
     void setPixelsPerSecond(double pxPerSec);
     double getTimeMs() const;
-    
+
     void setEventColor(const QColor &color);
     QColor getEventColor() const { return eventColor; }
-    
+
     // Duration
     void setDuration(double durationMs);
     void setHasDuration(bool enabled);
-    
+
+    // Type and icon
+    void setEventType(TimelineEventType type);
+    void setCustomIconPath(const QString &path);
+    void setTimeMs(double timeMs);
+
     // Label
     void setEventLabel(const QString &label);
     QString getEventLabel() const { return eventLabel; }
-    
+
     // Stacking offset
     void setStackOffset(int offset);
     int getStackOffset() const { return stackOffset; }
-    
+
     // Snap to grid
     void setSnapEnabled(bool enabled);
     void setSnapInterval(double intervalMs);
     void setEventId(const QString &id);
     QString getEventId() const;
+
+private:
+    void refreshRenderer();
 
     QRectF boundingRect() const override;
 

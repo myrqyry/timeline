@@ -82,7 +82,9 @@ void TimelineScheduler::seek(double timeMs) {
             }
         }
     }
-    emit tick(currentOffsetMs);
+    if (!playing) {
+        emit tick(currentOffsetMs);
+    }
 }
 
 double TimelineScheduler::getCurrentTime() const {
