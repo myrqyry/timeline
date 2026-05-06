@@ -14,22 +14,25 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
   - ▶ / ⏹ Media Start / Stop
   - ✓ / ✗ Filter Enable / Disable
   - ⌨ Hotkey Trigger
+  - 📎 Nested Timeline Trigger
 - **Smart Contrast**: Icons automatically switch between Black and White for perfect visibility on any background color.
 - **Smart Layout**: Events placed at the same time automatically **stack vertically**.
 - **Zoomable**: Hold `Ctrl` + Scroll to zoom from 5 seconds to 10 minutes view.
 
 ### ⚡ Powerful Automation
-- **8 Event Types**:
-  1. **Scene Switch**: Cut to a specific scene.
-  2. **Source Visibility**: Show/Hide specific sources in a scene.
+- **10 Event Types**:
+  1. **Scene Switch**: Cut to a specific scene (with optional custom transition).
+  2. **Source Visibility**: Show/Hide specific sources in any scene.
   3. **Media Control**: Start/Stop media sources.
   4. **Filter Control**: Enable/Disable filters on sources.
   5. **Hotkey Trigger**: Trigger any registered OBS hotkey.
+  6. **Nested Timeline**: Trigger another timeline file for complex sequences.
+- **Duration Events**: Events can have a duration, automatically reversing their action at the end (e.g., show source for 5s, then hide).
 - **Looping**: Set a timeline end time and loop indefinitely for complex background animations.
-- **Snap to Grid**: Toggle grid snapping for precise 100ms alignment.
+- **Snap to Grid**: Toggle grid snapping with configurable intervals or BPM-based grid.
 
 ### 🛠 Easy Editing
-- **Double-Click to Edit**: Open a dialog to change event type, target, and color.
+- **Double-Click to Edit**: Open a dialog to change event type, target, color, and duration.
 - **Color Coding**: Each event type has a default category color, or customized freely.
 - **Persistence**: **Import/Export** your full timeline to JSON for backup or sharing.
 - **Drag & Drop**: Freely move events on the timeline (with optional snap).
@@ -38,6 +41,7 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
   - `Delete`: Remove selected event
   - `Home`: Jump to start
   - `Arrows`: Nudge events (Shift+Arrows for fine control)
+  - `Ctrl+C` / `Ctrl+V`: Copy/Paste events
 
 ## Installation
 
@@ -45,20 +49,22 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
 
 1.  **Prerequisites**:
     -   OBS Studio (installed via PPA or built from source)
-    -   CMake 3.20+
+    -   CMake 3.16+
     -   Qt6 Development packages
     -   Build Essentials (`build-essential`)
 
 2.  **Build**:
     ```bash
-    mkdir build && cd build
-    cmake ..
-    cmake --build .
+    cmake -S . -B build \
+      -DCMAKE_INSTALL_PREFIX="$HOME/.config/obs-studio/plugins/obs-timeline-plugin" \
+      -DOBS_PLUGIN_DESTINATION="bin/64bit" \
+      -DOBS_DATA_DESTINATION="data"
+    cmake --build build
     ```
 
 3.  **Install**:
     ```bash
-    cmake --install .
+    cmake --install build
     ```
     This will install the plugin to `~/.config/obs-studio/plugins/obs-timeline-plugin/`.
 
@@ -70,35 +76,78 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
 4.  **Refine**: Drag to position, right-click to set color, or use the **Snap** checkbox for precision.
 5.  **Play**: Click Play or press Spacebar to watch it happen!
 
-## Development
+## Architecture
+
+For a comprehensive technical reference covering the plugin's architecture, design decisions, data models, and integration points, see:
+
+📄 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+
+### Component Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    OBS Studio Process                        │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │             OBS Frontend Thread (Qt UI)               │  │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐  │  │
+│  │  │ TimelineDock│  │TimelineModel │  │  Scheduler  │  │  │
+│  │  │  (QWidget)  │  │  (Data)      │  │  (QTimer)   │  │  │
+│  │  └──────┬──────┘  └──────┬───────┘  └──────┬──────┘  │  │
+│  │         │                │                 │         │  │
+│  │  ┌──────▼────────────────▼─────────────────▼──────┐  │  │
+│  │  │              ObsExecutor                        │  │  │
+│  │  │         (OBS C API Bridge)                      │  │  │
+│  │  └──────────────────┬─────────────────────────────┘  │  │
+│  │                     │                                 │  │
+│  │  ┌──────────────────▼─────────────────────────────┐  │  │
+│  │  │           libobs / obs-frontend-api            │  │  │
+│  │  └────────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Component | File | Responsibility |
+|-----------|------|--------------|
+| `TimelineModel` | `src/timeline-model.cpp` | Event data store, sorting, JSON serialization |
+| `TimelineScheduler` | `src/timeline-scheduler.cpp` | Playback timing, event firing, loop logic |
+| `ObsExecutor` | `src/obs-executor.cpp` | OBS API bridge — scene switches, source visibility, media, filters, hotkeys |
+| `TimelineDock` | `src/timeline-dock.cpp` | Main UI widget — QGraphicsView scene, controls, persistence |
+| `TimelineEventItem` | `src/timeline-event-item.cpp` | Draggable graphics items on the timeline |
+| `HeadlessTimeline` | `src/headless-timeline.cpp` | Nested timeline runner (no UI) |
+
+### Development
 
 -   **Source**: `src/` contains all C++ source code.
--   **UI**: Built with Qt Widgets and QGraphicsView.
--   **Architecture**:
-    -   `TimelineModel`: Manages event data.
-    -   `TimelineView` / `Dock`: Handles UI and rendering.
-    -   `ObsExecutor`: Interfaces with OBS API to trigger actions.
--   **API Skill**: Includes `obs-frontend-dev/` skill for OBS frontend plugin development patterns (dock lifecycle, WebSocket vendors, settings persistence).
+-   **UI**: Built with Qt6 Widgets and QGraphicsView.
+-   **Tests**: `tests/` contains unit tests with mocked OBS API.
 
 ### Build Commands
 
 ```bash
+# Configure
 cmake -S . -B build \
   -DCMAKE_INSTALL_PREFIX="$HOME/.config/obs-studio/plugins/obs-timeline-plugin" \
   -DOBS_PLUGIN_DESTINATION="bin/64bit" \
   -DOBS_DATA_DESTINATION="data"
 
+# Build
 cmake --build build
+
+# Install
 cmake --install build
-```
 
-### Running Tests
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
+# Run tests
 cd build && ctest --verbose
 ```
+
+## Recent Fixes
+
+- **Scheduler robustness**: Fired-state tracking now uses stable event IDs instead of vector indices, preventing events from re-firing or being skipped after sorts/drags.
+- **Memory safety**: Replaced deferred `deleteLater()` with immediate `delete` for graphics items during rebuilds, eliminating use-after-free risks.
+- **Keyboard input**: Fixed double-handling of Space/Delete/Home keys that caused toggles to cancel out.
+- **Import safety**: Removed silent auto-save after file import — changes now persist only via OBS's save callback.
+- **Cross-scene source visibility**: Source visibility events now fall back to searching all scenes if the source is not in the current scene.
+- **Performance**: Playhead auto-scroll is now gated to trigger only near viewport edges, reducing spurious repaints.
 
 ## License
 
