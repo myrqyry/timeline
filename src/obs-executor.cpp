@@ -229,26 +229,42 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 	if (evt.sourceName.isEmpty())
 		return;
 
-	// Get current scene
+	// Helper lambda to try setting visibility in a given scene source
+	auto trySetVisibility = [&](obs_source_t *sceneSrc) -> bool {
+		obs_scene_t *sc = obs_scene_from_source(sceneSrc);
+		if (!sc)
+			return false;
+		obs_sceneitem_t *item = obs_scene_find_source(sc, evt.sourceName.toUtf8().constData());
+		if (!item)
+			return false;
+		obs_sceneitem_set_visible(item, visible);
+		blog(LOG_INFO, "Timeline: Set source '%s' visibility to %s",
+		     evt.sourceName.toUtf8().constData(), visible ? "visible" : "hidden");
+		return true;
+	};
+
+	// Try current scene first
 	obs_source_t *currentSceneSrc = obs_frontend_get_current_scene();
-	if (!currentSceneSrc) {
-		blog(LOG_WARNING, "Timeline: No current scene");
-		return;
+	if (currentSceneSrc) {
+		bool found = trySetVisibility(currentSceneSrc);
+		obs_source_release(currentSceneSrc);
+		if (found)
+			return;
 	}
 
-	obs_scene_t *scene = obs_scene_from_source(currentSceneSrc);
-	if (scene) {
-		obs_sceneitem_t *item = obs_scene_find_source(scene, evt.sourceName.toUtf8().constData());
-		if (item) {
-			obs_sceneitem_set_visible(item, visible);
-			blog(LOG_INFO, "Timeline: Set source '%s' visibility to %s",
-			     evt.sourceName.toUtf8().constData(), visible ? "visible" : "hidden");
-		} else {
-			blog(LOG_WARNING, "Timeline: Source '%s' not found in current scene",
-			     evt.sourceName.toUtf8().constData());
-		}
+	// Fallback: search all scenes
+	struct obs_frontend_source_list list = {};
+	obs_frontend_get_scenes(&list);
+	bool foundAny = false;
+	for (size_t i = 0; i < list.sources.num && !foundAny; i++) {
+		foundAny = trySetVisibility(list.sources.array[i]);
 	}
-	obs_source_release(currentSceneSrc);
+	obs_frontend_source_list_free(&list);
+
+	if (!foundAny) {
+		blog(LOG_WARNING, "Timeline: Source '%s' not found in any scene",
+		     evt.sourceName.toUtf8().constData());
+	}
 }
 
 void ObsExecutor::handleFilterEnable(const TimelineEvent &evt, bool enable)

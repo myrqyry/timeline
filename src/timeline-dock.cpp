@@ -491,15 +491,14 @@ void TimelineDock::updateLayout()
 	// 1. Update scene rect
 	scene->setSceneRect(0, 0, std::max(5000.0, 300.0 * pixelsPerSecond), view->viewport()->height());
 
-	// 2. Rebuild event items from model
-	rebuildEventItems();
+	// 2. Rebuild event items from model is driven by modelChanged signal
 
-	// 4. Redraw ruler and grid
+	// 3. Redraw ruler and grid
 	drawRuler();
 	drawGrid();
 	updateEndMarker();
 
-	// 5. Update playhead
+	// 4. Update playhead
 	updatePlayhead(scheduler->getCurrentTime());
 }
 
@@ -768,7 +767,6 @@ void TimelineDock::onLoadClicked()
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
-		save();
 	} else {
 		blog(LOG_WARNING, "Failed to load timeline from %s: %s", fileName.toStdString().c_str(),
 		     errorMessage.toUtf8().constData());
@@ -806,16 +804,7 @@ void TimelineDock::keyPressEvent(QKeyEvent *event)
 	}
 
 	switch (event->key()) {
-	case Qt::Key_Space:
-		onPlayClicked();
-		break;
-	case Qt::Key_Delete:
-	case Qt::Key_Backspace:
-		deleteSelectedEvents();
-		break;
-	case Qt::Key_Home:
-		scheduler->seek(0);
-		break;
+	// Space, Delete, Home handled by QShortcut in setupUi()
 	case Qt::Key_Left:
 		if (event->modifiers() & Qt::ShiftModifier) {
 			nudgeSelectedEvents(-100); // -100ms with shift
@@ -1026,7 +1015,12 @@ void TimelineDock::updatePlayhead(double timeMs)
 	double x = (timeMs / 1000.0) * pixelsPerSecond;
 	double h = view->viewport()->height();
 	playheadItem->setLine(x, 0, x, h);
-	view->ensureVisible(QRectF(x, 0, 10, h), 50, 0);
+
+	// Only auto-scroll when playhead is near an edge
+	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
+	if (x < visible.left() + 20.0 || x > visible.right() - 20.0) {
+		view->ensureVisible(QRectF(x, 0, 10, h), 50, 0);
+	}
 }
 
 void TimelineDock::onAddEventClicked()
@@ -1127,8 +1121,8 @@ void TimelineDock::rebuildEventItems()
 			item->setEventType(evt.type);
 			item->setEventColor(evt.color);
 			item->setCustomIconPath(evt.customIconPath);
-			item->setStackOffset(stackIndex);
 		}
+		item->setStackOffset(stackIndex);
 
 		item->setHasDuration(evt.hasDuration);
 		item->setDuration(evt.durationMs);
@@ -1195,7 +1189,7 @@ void TimelineDock::rebuildEventItems()
 		if (!currentIds.contains(it.key())) {
 			if (it.value()) {
 				scene->removeItem(it.value());
-				it.value()->deleteLater();
+				delete it.value();
 			}
 			it = eventItemMap.erase(it);
 		} else {
@@ -1227,7 +1221,7 @@ void TimelineDock::clearEventItems()
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item) {
 			scene->removeItem(item);
-			item->deleteLater();
+			delete item;
 		}
 	}
 	eventItemMap.clear();

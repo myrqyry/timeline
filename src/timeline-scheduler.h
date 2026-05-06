@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QSet>
 #include <chrono>
 #include "timeline-model.h"
 
@@ -49,7 +50,7 @@ private:
     
     bool playing = false;
     bool looping = false;
-    std::vector<bool> eventStartFired;
-    std::vector<bool> eventEndFired;
+    QSet<QString> eventStartFired;
+    QSet<QString> eventEndFired;
     int timerIntervalMs = 16; // ~60 FPS
 };

@@ -13,15 +13,19 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent)
         connect(model, &TimelineModel::modelChanged, this, [this]() {
             double t = getCurrentTime();
             const auto &evts = this->model->getEvents();
-            eventStartFired.resize(evts.size());
-            eventEndFired.resize(evts.size());
-            for (size_t i = 0; i < evts.size(); i++) {
-                eventStartFired[i] = (evts[i].timeMs < t);
-                if (evts[i].hasDuration && evts[i].durationMs > 0) {
-                    const double endMs = evts[i].timeMs + evts[i].durationMs;
-                    eventEndFired[i] = (endMs < t);
+            eventStartFired.clear();
+            eventEndFired.clear();
+            for (const auto &evt : evts) {
+                if (evt.timeMs < t) {
+                    eventStartFired.insert(evt.id);
+                }
+                if (evt.hasDuration && evt.durationMs > 0) {
+                    const double endMs = evt.timeMs + evt.durationMs;
+                    if (endMs < t) {
+                        eventEndFired.insert(evt.id);
+                    }
                 } else {
-                    eventEndFired[i] = true;
+                    eventEndFired.insert(evt.id);
                 }
             }
         });
@@ -66,19 +70,23 @@ void TimelineScheduler::resume() {
 void TimelineScheduler::seek(double timeMs) {
     currentOffsetMs = timeMs;
     startTime = std::chrono::high_resolution_clock::now();
-    
+
     // Reset fired status for events
     if (model) {
-        const auto& events = model->getEvents();
-        eventStartFired.resize(events.size());
-        eventEndFired.resize(events.size());
-        for (size_t i = 0; i < events.size(); i++) {
-            eventStartFired[i] = (events[i].timeMs < timeMs);
-            if (events[i].hasDuration && events[i].durationMs > 0) {
-                const double endMs = events[i].timeMs + events[i].durationMs;
-                eventEndFired[i] = (endMs < timeMs);
+        const auto &events = model->getEvents();
+        eventStartFired.clear();
+        eventEndFired.clear();
+        for (const auto &evt : events) {
+            if (evt.timeMs < timeMs) {
+                eventStartFired.insert(evt.id);
+            }
+            if (evt.hasDuration && evt.durationMs > 0) {
+                const double endMs = evt.timeMs + evt.durationMs;
+                if (endMs < timeMs) {
+                    eventEndFired.insert(evt.id);
+                }
             } else {
-                eventEndFired[i] = true;
+                eventEndFired.insert(evt.id);
             }
         }
     }
@@ -107,25 +115,15 @@ void TimelineScheduler::setLooping(bool loop) {
 
 void TimelineScheduler::onTimerTick() {
     double currentTime = getCurrentTime();
-    
+
     // Check if we've reached the end time
     if (endTimeMs > 0 && currentTime >= endTimeMs) {
         if (looping) {
             // Loop back to start
             seek(0);
             // Reset all event fired states
-            if (model) {
-                const auto &events = model->getEvents();
-                eventStartFired.assign(events.size(), false);
-                eventEndFired.resize(events.size());
-                for (size_t i = 0; i < events.size(); ++i) {
-                    if (events[i].hasDuration && events[i].durationMs > 0) {
-                        eventEndFired[i] = false;
-                    } else {
-                        eventEndFired[i] = true;
-                    }
-                }
-            }
+            eventStartFired.clear();
+            eventEndFired.clear();
             emit looped();
             blog(LOG_INFO, "Timeline looped back to start");
             return;
@@ -137,38 +135,26 @@ void TimelineScheduler::onTimerTick() {
             return;
         }
     }
-    
+
     emit tick(currentTime);
 
     if (!model) return;
 
-    const auto& events = model->getEvents();
-    if (eventStartFired.size() != events.size()) {
-        eventStartFired.resize(events.size(), false);
-    }
-    if (eventEndFired.size() != events.size()) {
-        eventEndFired.resize(events.size(), true);
-        for (size_t i = 0; i < events.size(); ++i) {
-            if (events[i].hasDuration && events[i].durationMs > 0) {
-                eventEndFired[i] = false;
-            }
-        }
-    }
+    const auto &events = model->getEvents();
 
     // Fire events
-    for (size_t i = 0; i < events.size(); i++) {
-        const TimelineEvent &evt = events[i];
+    for (const TimelineEvent &evt : events) {
 
-        if (!eventStartFired[i] && evt.timeMs <= currentTime) {
+        if (!eventStartFired.contains(evt.id) && evt.timeMs <= currentTime) {
             emit eventStarted(evt);
-            eventStartFired[i] = true;
+            eventStartFired.insert(evt.id);
         }
 
         if (evt.hasDuration && evt.durationMs > 0) {
             const double endMs = evt.timeMs + evt.durationMs;
-            if (!eventEndFired[i] && endMs <= currentTime) {
+            if (!eventEndFired.contains(evt.id) && endMs <= currentTime) {
                 emit eventEnded(evt);
-                eventEndFired[i] = true;
+                eventEndFired.insert(evt.id);
             }
         }
     }
