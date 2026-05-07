@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(obs-timeline-plugin VERSION 1.0.0)
+project(timeline VERSION 1.0.0)
+
+# Remove 'lib' prefix from shared library on Linux
+set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
 option(ENABLE_OBS_WEBSOCKET_VENDOR "Enable obs-websocket vendor integration" ON)
 
@@ -88,18 +91,18 @@ else()
     target_compile_definitions(${PROJECT_NAME} PRIVATE OBS_TIMELINE_HAS_WEBSOCKET=0)
 endif()
 
-set(OBS_TIMELINE_PLUGIN_ROOT
-    "$ENV{HOME}/.config/obs-studio/plugins/obs-timeline-plugin"
-    CACHE PATH "OBS Timeline plugin install root"
+set(TIMELINE_PLUGIN_ROOT
+    "$ENV{HOME}/.config/obs-studio/plugins/timeline"
+    CACHE PATH "Timeline for OBS plugin install root"
 )
 
 set(OBS_PLUGIN_DESTINATION
-    "${OBS_TIMELINE_PLUGIN_ROOT}/bin/64bit"
+    "${TIMELINE_PLUGIN_ROOT}/bin/64bit"
     CACHE PATH "OBS plugin binary destination"
 )
 
 set(OBS_DATA_DESTINATION
-    "${OBS_TIMELINE_PLUGIN_ROOT}/data"
+    "${TIMELINE_PLUGIN_ROOT}/data"
     CACHE PATH "OBS plugin data destination"
 )
 

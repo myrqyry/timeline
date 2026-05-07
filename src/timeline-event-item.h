@@ -83,6 +83,9 @@ private:
     // Snap settings
     bool snapEnabled = false;
     double snapIntervalMs = 1000.0; // Default 1 second
+
+    // Drag tracking
+    bool isBeingDragged = false;
     
     // Duration display
     bool hasDuration = false;

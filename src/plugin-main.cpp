@@ -11,14 +11,14 @@
 static TimelineDock *g_timelineDock = nullptr;
 
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("obs-timeline-plugin", "en-US")
+OBS_MODULE_USE_DEFAULT_LOCALE("timeline", "en-US")
 
 bool obs_module_load(void)
 {
 	g_timelineDock = new TimelineDock();
 	obs_frontend_add_dock_by_id("timeline_dock", "Timeline", g_timelineDock);
 
-	blog(LOG_INFO, "OBS Timeline Plugin loaded successfully");
+	blog(LOG_INFO, "Timeline for OBS loaded successfully");
 	return true;
 }
 
@@ -28,7 +28,7 @@ void obs_module_unload(void)
 		g_timelineDock->deleteLater();
 		g_timelineDock = nullptr;
 	}
-	blog(LOG_INFO, "OBS Timeline Plugin unloaded");
+	blog(LOG_INFO, "Timeline for OBS unloaded");
 }
 
 void obs_module_post_load(void)
@@ -37,7 +37,7 @@ void obs_module_post_load(void)
 	if (!g_timelineDock)
 		return;
 
-	obs_websocket_vendor vendor = obs_websocket_register_vendor("obs-timeline-plugin");
+	obs_websocket_vendor vendor = obs_websocket_register_vendor("timeline");
 	if (vendor) {
 		blog(LOG_INFO, "Registered as obs-websocket vendor");
 		g_timelineDock->setObsWebSocketVendor(vendor);

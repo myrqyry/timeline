@@ -140,7 +140,8 @@ void TimelineScheduler::onTimerTick() {
 
     if (!model) return;
 
-    const auto &events = model->getEvents();
+    // Take a value copy to avoid iterator invalidation if model mutates concurrently
+    const auto events = model->getEvents();
 
     // Fire events
     for (const TimelineEvent &evt : events) {

@@ -133,7 +133,7 @@ void TimelineDock::onRestartHotkey()
 
 void TimelineDock::save()
 {
-	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline_events.json");
+	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline.json");
 	if (!configPath)
 		return;
 
@@ -152,7 +152,7 @@ void TimelineDock::save()
 
 void TimelineDock::load()
 {
-	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline_events.json");
+	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline.json");
 	if (!configPath)
 		return;
 
@@ -176,12 +176,8 @@ void TimelineDock::load()
 		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
 
-		onLoopToggled(timelineDoc.loop);
-		onEndTimeChanged(timelineDoc.endTimeSeconds);
-		onSnapToggled(timelineDoc.snap);
-		onBpmChanged(timelineDoc.bpm);
-		onBpmGridToggled(timelineDoc.gridToBpm);
-		onCenterControlsToggled(timelineDoc.centerControls);
+		// onXxx() slots are already called via the signal/slot connections above
+		// (setChecked/setValue triggers toggled/valueChanged signals)
 
 		updateLayout(); // Refresh UI with new events
 		blog(LOG_INFO, "Loaded timeline from %s", configPath);
@@ -355,6 +351,8 @@ void TimelineDock::setupUi()
 
 void TimelineDock::updateControlsLayout()
 {
+	setUpdatesEnabled(false); // Prevent flicker from hide/show cycle
+
 	// Clear layout (but don't delete widgets!)
 	QLayoutItem *child;
 	while ((child = controlsLayout->takeAt(0)) != 0) {
@@ -387,6 +385,8 @@ void TimelineDock::updateControlsLayout()
 	for (QWidget *w : rightWidgets) {
 		controlsLayout->addWidget(show(w));
 	}
+
+	setUpdatesEnabled(true); // Re-enable updates after layout change
 }
 
 void TimelineDock::onZoomInClicked()
@@ -409,7 +409,9 @@ void TimelineDock::onZoomOutClicked()
 
 void TimelineDock::onSnapIntervalChanged(double value)
 {
-	manualSnapIntervalMs = value * 1000.0;
+	if (!gridToBpm) {
+		manualSnapIntervalMs = value * 1000.0;
+	}
 	if (snapEnabled && !gridToBpm) {
 		for (TimelineEventItem *item : eventItemMap) {
 			if (item) {
@@ -513,20 +515,23 @@ void TimelineDock::clearRuler()
 
 void TimelineDock::drawRuler()
 {
-	if (!scene)
+	if (!scene || !view)
 		return;
 
 	clearRuler(); // Clean up old ruler
 
-	// Draw ticks every second
-	double durationSec = scene->width() / pixelsPerSecond;
+	// Only draw what's visible + a buffer to avoid huge allocations at high zoom
+	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
+	double startSec = std::max(0.0, visible.left() / pixelsPerSecond);
+	double endSec = (visible.right() + pixelsPerSecond) / pixelsPerSecond;
+
 	int step = 1;
 	if (pixelsPerSecond < 50)
 		step = 5;
 	if (pixelsPerSecond < 10)
 		step = 10;
 
-	for (int i = 0; i <= durationSec; i += step) {
+	for (int i = static_cast<int>(startSec); i <= endSec; i += step) {
 		double x = i * pixelsPerSecond;
 		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, QPen(Qt::lightGray));
 		rulerItems.append(line);
@@ -758,12 +763,8 @@ void TimelineDock::onLoadClicked()
 		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
 
-		onLoopToggled(timelineDoc.loop);
-		onEndTimeChanged(timelineDoc.endTimeSeconds);
-		onSnapToggled(timelineDoc.snap);
-		onBpmChanged(timelineDoc.bpm);
-		onBpmGridToggled(timelineDoc.gridToBpm);
-		onCenterControlsToggled(timelineDoc.centerControls);
+		// onXxx() slots are already called via the signal/slot connections above
+		// (setChecked/setValue triggers toggled/valueChanged signals)
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
@@ -804,7 +805,7 @@ void TimelineDock::keyPressEvent(QKeyEvent *event)
 	}
 
 	switch (event->key()) {
-	// Space, Delete, Home handled by QShortcut in setupUi()
+	// Space, Delete, Home, Copy, Paste handled by QShortcut in setupUi()
 	case Qt::Key_Left:
 		if (event->modifiers() & Qt::ShiftModifier) {
 			nudgeSelectedEvents(-100); // -100ms with shift
@@ -817,16 +818,6 @@ void TimelineDock::keyPressEvent(QKeyEvent *event)
 			nudgeSelectedEvents(100); // +100ms with shift
 		} else {
 			nudgeSelectedEvents(1000); // +1 second
-		}
-		break;
-	case Qt::Key_C:
-		if (event->modifiers() & Qt::ControlModifier) {
-			copySelectedEvents();
-		}
-		break;
-	case Qt::Key_V:
-		if (event->modifiers() & Qt::ControlModifier) {
-			pasteEvents();
 		}
 		break;
 	default:
@@ -1086,6 +1077,9 @@ void TimelineDock::rebuildEventItems()
 {
 	rebuildScheduled = false;
 	if (isDragging) {
+		// Re-queue for after drag ends
+		rebuildScheduled = true;
+		QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
 		return;
 	}
 
@@ -1205,7 +1199,7 @@ void TimelineDock::rebuildEventItems()
 			emptyHintItem->setBrush(QBrush(Qt::gray));
 			emptyHintItem->setFont(QFont("Arial", 10));
 			emptyHintItem->setZValue(-5);
-			}
+		}
 
 		const double x = std::max(20.0, scene->sceneRect().width() * 0.1);
 		emptyHintItem->setPos(x, 60);

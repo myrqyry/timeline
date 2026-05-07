@@ -117,11 +117,13 @@ void TimelineEventItem::setStackOffset(int offset) {
 
 
 void TimelineEventItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
+    isBeingDragged = true;
     QGraphicsEllipseItem::mousePressEvent(event);
     emit dragStarted();
 }
 
 void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
+    isBeingDragged = false;
     QGraphicsEllipseItem::mouseReleaseEvent(event);
     setCursor(Qt::OpenHandCursor);
     emit eventMoved(getTimeMs());
