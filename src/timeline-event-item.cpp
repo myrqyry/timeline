@@ -178,20 +178,19 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     if (isSelected()) {
         // Cleaner selection ring
         painter->setBrush(Qt::NoBrush);
-        
+
         // White outer ring for contrast
         painter->setPen(QPen(Qt::white, 3));
         painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
-        
+
         // Color inner ring
         painter->setPen(QPen(QColor(255, 200, 0), 2)); // Gold/Orange
         painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
-    } else {
-        painter->setPen(QPen(Qt::black, 1.5));
-        painter->setBrush(QBrush(eventColor));
     }
-    
-    // Draw circle
+
+    // Draw main circle (restoring pen/brush so selection doesn't wipe the fill)
+    painter->setPen(QPen(Qt::black, 1.5));
+    painter->setBrush(QBrush(eventColor));
     painter->drawEllipse(r);
     
     if (renderer && renderer->isValid()) {
