@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(timeline VERSION 1.0.0)
+project(obs-timeline-plugin VERSION 1.0.0)
 
 # Remove 'lib' prefix from shared library on Linux
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
@@ -92,7 +92,7 @@ else()
 endif()
 
 set(TIMELINE_PLUGIN_ROOT
-    "$ENV{HOME}/.config/obs-studio/plugins/timeline"
+    "$ENV{HOME}/.config/obs-studio/plugins/obs-timeline-plugin"
     CACHE PATH "Timeline for OBS plugin install root"
 )
 
