@@ -433,6 +433,8 @@ void EventEditor::pickColor()
 
 void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 {
+    evt.timeMs = eventTimeMs;
+
     evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
 
     if (evt.type == TimelineEventType::TriggerTimeline) {

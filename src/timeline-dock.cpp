@@ -493,7 +493,14 @@ void TimelineDock::updateLayout()
 	// 1. Update scene rect
 	scene->setSceneRect(0, 0, std::max(5000.0, 300.0 * pixelsPerSecond), view->viewport()->height());
 
-	// 2. Rebuild event items from model is driven by modelChanged signal
+	// 2. Update event item positions for zoom/resize
+	for (TimelineEventItem *item : eventItemMap) {
+		if (item) {
+			item->setSuppressDragSignals(true);
+			item->setPixelsPerSecond(pixelsPerSecond);
+			item->setSuppressDragSignals(false);
+		}
+	}
 
 	// 3. Redraw ruler and grid
 	drawRuler();
@@ -515,15 +522,12 @@ void TimelineDock::clearRuler()
 
 void TimelineDock::drawRuler()
 {
-	if (!scene || !view)
+	if (!scene)
 		return;
 
-	clearRuler(); // Clean up old ruler
+	clearRuler();
 
-	// Only draw what's visible + a buffer to avoid huge allocations at high zoom
-	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
-	double startSec = std::max(0.0, visible.left() / pixelsPerSecond);
-	double endSec = (visible.right() + pixelsPerSecond) / pixelsPerSecond;
+	double durationSec = scene->sceneRect().width() / pixelsPerSecond;
 
 	int step = 1;
 	if (pixelsPerSecond < 50)
@@ -531,8 +535,9 @@ void TimelineDock::drawRuler()
 	if (pixelsPerSecond < 10)
 		step = 10;
 
-	for (int i = static_cast<int>(startSec); i <= endSec; i += step) {
+	for (int i = 0; i <= durationSec; i += step) {
 		double x = i * pixelsPerSecond;
+
 		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, QPen(Qt::lightGray));
 		rulerItems.append(line);
 
@@ -542,7 +547,6 @@ void TimelineDock::drawRuler()
 		text->setFont(QFont("Arial", 8));
 		rulerItems.append(text);
 
-		// Minor ticks
 		if (pixelsPerSecond > 50) {
 			for (int j = 1; j < 10; j++) {
 				double xm = x + (j * pixelsPerSecond / 10.0);
@@ -591,22 +595,27 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					}
 				}
 
-				// Not on an item - perform scrub
-				double x = scenePos.x();
-				double timeMs = (x / pixelsPerSecond) * 1000.0;
-				if (timeMs < 0)
-					timeMs = 0;
+			// Not on an item - clear selection and scrub
+			for (TimelineEventItem *item : eventItemMap) {
+				if (item)
+					item->setSelected(false);
+			}
 
-				if (scheduler->isPlaying()) {
-					scheduler->pause();
-					if (executor) {
-						executor->cancelAll();
-					}
-					playButton->setText("Play");
+			double x = scenePos.x();
+			double timeMs = (x / pixelsPerSecond) * 1000.0;
+			if (timeMs < 0)
+				timeMs = 0;
+
+			if (scheduler->isPlaying()) {
+				scheduler->pause();
+				if (executor) {
+					executor->cancelAll();
 				}
+				playButton->setText("Play");
+			}
 
-				scheduler->seek(timeMs);
-				return true;
+			scheduler->seek(timeMs);
+			return true;
 			}
 		}
 	}
@@ -1016,14 +1025,25 @@ void TimelineDock::updatePlayhead(double timeMs)
 
 void TimelineDock::onAddEventClicked()
 {
-	double time = scheduler->getCurrentTime(); // Place at playhead
+	const double currentTimeMs = scheduler ? scheduler->getCurrentTime() : 0.0;
 
-	EventEditor editor(time, this);
-	if (editor.exec() == QDialog::Accepted) {
-		TimelineEvent evt;
-		editor.getUpdatedEvent(evt);
-		model->addEvent(evt);
+	EventEditor editor(currentTimeMs, this);
+	if (editor.exec() != QDialog::Accepted)
+		return;
+
+	TimelineEvent evt;
+	evt.timeMs = currentTimeMs;
+
+	editor.getUpdatedEvent(evt);
+
+	// Protect against editor regressions.
+	evt.timeMs = currentTimeMs;
+
+	if (evt.color == QColor(0, 200, 255)) {
+		evt.color = ThemeIcons::getDefaultColor(evt.type);
 	}
+
+	model->addEvent(evt);
 }
 
 void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &eventId)
@@ -1110,13 +1130,15 @@ void TimelineDock::rebuildEventItems()
 			eventItemMap[evt.id] = item;
 		} else {
 			// Update existing item properties
+			item->setSuppressDragSignals(true);
 			item->setPixelsPerSecond(pixelsPerSecond);
 			item->setTimeMs(evt.timeMs);
+			item->setStackOffset(stackIndex);
+			item->setSuppressDragSignals(false);
 			item->setEventType(evt.type);
 			item->setEventColor(evt.color);
 			item->setCustomIconPath(evt.customIconPath);
 		}
-		item->setStackOffset(stackIndex);
 
 		item->setHasDuration(evt.hasDuration);
 		item->setDuration(evt.durationMs);

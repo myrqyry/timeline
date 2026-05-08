@@ -118,12 +118,13 @@ void TimelineEventItem::setStackOffset(int offset) {
 
 void TimelineEventItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     isBeingDragged = true;
+    dragStartedEmitted = false;
     QGraphicsEllipseItem::mousePressEvent(event);
-    emit dragStarted();
 }
 
 void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
     isBeingDragged = false;
+    dragStartedEmitted = false;
     QGraphicsEllipseItem::mouseReleaseEvent(event);
     setCursor(Qt::OpenHandCursor);
     emit eventMoved(getTimeMs());
@@ -245,25 +246,33 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
             // Calculate current time at center
             double centerX = newPos.x() + ITEM_SIZE / 2.0;
             double timeMs = centerX / pixelsPerSecond * 1000.0;
-            
+
             double snappedTimeMs = std::round(timeMs / snapIntervalMs) * snapIntervalMs;
-            
+
             // Convert back to top-left position
             double snappedCenterX = snappedTimeMs / 1000.0 * pixelsPerSecond;
             newPos.setX(snappedCenterX - ITEM_SIZE / 2.0);
-            
-            // Emit move while dragging for guide update (only when actually dragging)
-            if (isBeingDragged) {
+
+            // Emit drag signals only during actual user drag
+            if (isBeingDragged && !suppressDragSignals) {
+                if (!dragStartedEmitted) {
+                    dragStartedEmitted = true;
+                    emit dragStarted();
+                }
                 emit dragMoved(snappedTimeMs);
             }
         } else {
             // Calculate time for current pos
-             double centerX = newPos.x() + ITEM_SIZE / 2.0;
-             double timeMs = centerX / pixelsPerSecond * 1000.0;
-             if (timeMs < 0) timeMs = 0;
-             if (isBeingDragged) {
-                 emit dragMoved(timeMs);
-             }
+            double centerX = newPos.x() + ITEM_SIZE / 2.0;
+            double timeMs = centerX / pixelsPerSecond * 1000.0;
+            if (timeMs < 0) timeMs = 0;
+            if (isBeingDragged && !suppressDragSignals) {
+                if (!dragStartedEmitted) {
+                    dragStartedEmitted = true;
+                    emit dragStarted();
+                }
+                emit dragMoved(timeMs);
+            }
         }
         
         return newPos;

@@ -47,6 +47,9 @@ public:
     void setEventId(const QString &id);
     QString getEventId() const;
 
+    // Suppress drag signals during programmatic moves
+    void setSuppressDragSignals(bool suppress) { suppressDragSignals = suppress; }
+
 private:
     void refreshRenderer();
 
@@ -86,7 +89,9 @@ private:
 
     // Drag tracking
     bool isBeingDragged = false;
-    
+    bool dragStartedEmitted = false;
+    bool suppressDragSignals = false;
+
     // Duration display
     bool hasDuration = false;
     double durationMs = 0.0;
