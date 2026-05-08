@@ -66,6 +66,9 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 	hotkeyIdRestart = obs_hotkey_register_frontend("Timeline.Restart", "Timeline: Restart",
 						       TimelineDock::hotkeyRestart, this);
 
+	// Register theme change callback
+	obs_frontend_add_event_callback(themeChangedCallback, this);
+
 	// Initial Load
 	blog(LOG_INFO, "TimelineDock loading initial data");
 	load();
@@ -75,6 +78,7 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 
 TimelineDock::~TimelineDock()
 {
+	obs_frontend_remove_event_callback(themeChangedCallback, this);
 	obs_frontend_remove_save_callback(saveCallback, this);
 
 	obs_hotkey_unregister(hotkeyIdPlayPause);
@@ -122,6 +126,14 @@ void TimelineDock::hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hot
 		return;
 	TimelineDock *dock = static_cast<TimelineDock *>(data);
 	QMetaObject::invokeMethod(dock, "onRestartHotkey", Qt::QueuedConnection);
+}
+
+void TimelineDock::themeChangedCallback(enum obs_frontend_event event, void *private_data)
+{
+	if (event == OBS_FRONTEND_EVENT_THEME_CHANGED) {
+		auto *dock = static_cast<TimelineDock *>(private_data);
+		QMetaObject::invokeMethod(dock, "updateLayout", Qt::QueuedConnection);
+	}
 }
 
 void TimelineDock::onRestartHotkey()
@@ -334,7 +346,8 @@ void TimelineDock::setupUi()
 	view->viewport()->installEventFilter(this);
 
 	// Playhead
-	playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(Qt::red, 2));
+	playheadItem = scene->addLine(0, 0, 0, view->height(),
+				      QPen(palette().color(QPalette::Highlight), 2));
 	playheadItem->setZValue(100);
 
 	// Drag Guide (hidden by default)
@@ -493,11 +506,17 @@ void TimelineDock::updateLayout()
 	// 1. Update scene rect
 	scene->setSceneRect(0, 0, std::max(5000.0, 300.0 * pixelsPerSecond), view->viewport()->height());
 
-	// 2. Update event item positions for zoom/resize
+	// 2. Update event item positions and theme colors for zoom/resize
+	QColor borderColor = palette().color(QPalette::Text);
+	QColor selectionColor = palette().color(QPalette::Highlight);
+	QColor bgColor = palette().color(QPalette::Base);
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item) {
 			item->setSuppressDragSignals(true);
 			item->setPixelsPerSecond(pixelsPerSecond);
+			item->setBorderColor(borderColor);
+			item->setSelectionColor(selectionColor);
+			item->setBackgroundColor(bgColor);
 			item->setSuppressDragSignals(false);
 		}
 	}
@@ -535,22 +554,26 @@ void TimelineDock::drawRuler()
 	if (pixelsPerSecond < 10)
 		step = 10;
 
+	QColor rulerColor = palette().color(QPalette::Mid);
+	QColor textColor = palette().color(QPalette::Text);
+	QColor minorColor = palette().color(QPalette::Dark);
+
 	for (int i = 0; i <= durationSec; i += step) {
 		double x = i * pixelsPerSecond;
 
-		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, QPen(Qt::lightGray));
+		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, QPen(rulerColor));
 		rulerItems.append(line);
 
 		QGraphicsSimpleTextItem *text = scene->addSimpleText(QString::number(i) + "s");
 		text->setPos(x + 2, 0);
-		text->setBrush(QBrush(Qt::lightGray));
+		text->setBrush(QBrush(textColor));
 		text->setFont(QFont("Arial", 8));
 		rulerItems.append(text);
 
 		if (pixelsPerSecond > 50) {
 			for (int j = 1; j < 10; j++) {
 				double xm = x + (j * pixelsPerSecond / 10.0);
-				QGraphicsLineItem *minor = scene->addLine(xm, 10, xm, 20, QPen(Qt::darkGray));
+				QGraphicsLineItem *minor = scene->addLine(xm, 10, xm, 20, QPen(minorColor));
 				rulerItems.append(minor);
 			}
 		}
@@ -798,8 +821,9 @@ void TimelineDock::updateEndMarker()
 	if (endTimeMs > 0 && view) {
 		double x = (endTimeMs / 1000.0) * pixelsPerSecond;
 		double h = view->viewport()->height();
-		endMarkerItem =
-			scene->addLine(x, 0, x, h, QPen(QColor(255, 165, 0), 2, Qt::DashLine)); // Orange dashed line
+		endMarkerItem = scene->addLine(
+			x, 0, x, h,
+			QPen(palette().color(QPalette::Link), 2, Qt::DashLine)); // Accent dashed line
 		endMarkerItem->setZValue(99);
 		endMarkerItem->setToolTip(QString("End time: %1 sec").arg(endTimeMs / 1000.0, 0, 'f', 1));
 	}
@@ -960,7 +984,8 @@ void TimelineDock::drawGrid()
 	}
 
 	// Draw vertical grid lines
-	QPen gridPen(QColor(60, 60, 60), 1, Qt::DotLine);
+	QColor gridColor = palette().color(QPalette::Mid);
+	QPen gridPen(gridColor, 1, Qt::DotLine);
 	for (double x = 0; x < sceneWidth; x += stepPx) {
 		// Skip x=0 (optional, but usually 0 is implied)
 		if (x < 0.1)
@@ -1015,6 +1040,7 @@ void TimelineDock::updatePlayhead(double timeMs)
 	double x = (timeMs / 1000.0) * pixelsPerSecond;
 	double h = view->viewport()->height();
 	playheadItem->setLine(x, 0, x, h);
+	playheadItem->setPen(QPen(palette().color(QPalette::Highlight), 2));
 
 	// Only auto-scroll when playhead is near an edge
 	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
@@ -1120,11 +1146,18 @@ void TimelineDock::rebuildEventItems()
 		int timeBucket = static_cast<int>(evt.timeMs / STACK_TOLERANCE_MS);
 		int stackIndex = timeSlotCount[timeBucket]++;
 
+		QColor borderColor = palette().color(QPalette::Text);
+		QColor selectionColor = palette().color(QPalette::Highlight);
+		QColor bgColor = palette().color(QPalette::Base);
+
 		TimelineEventItem *item = eventItemMap.value(evt.id, nullptr);
 		if (!item) {
 			// Create new item
 			item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color, evt.customIconPath);
 			item->setEventId(evt.id);
+			item->setBorderColor(borderColor);
+			item->setSelectionColor(selectionColor);
+			item->setBackgroundColor(bgColor);
 			scene->addItem(item);
 			connectItemSignals(item, evt.id);
 			eventItemMap[evt.id] = item;
@@ -1138,7 +1171,11 @@ void TimelineDock::rebuildEventItems()
 			item->setEventType(evt.type);
 			item->setEventColor(evt.color);
 			item->setCustomIconPath(evt.customIconPath);
+			item->setBorderColor(borderColor);
+			item->setSelectionColor(selectionColor);
+			item->setBackgroundColor(bgColor);
 		}
+		item->setStackOffset(stackIndex);
 
 		item->setHasDuration(evt.hasDuration);
 		item->setDuration(evt.durationMs);
@@ -1216,10 +1253,12 @@ void TimelineDock::rebuildEventItems()
 	// Empty hint
 	if (events.empty()) {
 		if (!emptyHintItem) {
-			emptyHintItem = scene->addSimpleText(
-				"Double-click timeline or press Add Event to create your first event");
-			emptyHintItem->setBrush(QBrush(Qt::gray));
-			emptyHintItem->setFont(QFont("Arial", 10));
+		emptyHintItem = scene->addSimpleText(
+			"Double-click timeline or press Add Event to create your first event");
+		QColor hintColor = palette().color(QPalette::Text);
+		hintColor.setAlpha(128);
+		emptyHintItem->setBrush(QBrush(hintColor));
+		emptyHintItem->setFont(QFont("Arial", 10));
 			emptyHintItem->setZValue(-5);
 		}
 

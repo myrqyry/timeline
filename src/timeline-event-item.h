@@ -50,6 +50,11 @@ public:
     // Suppress drag signals during programmatic moves
     void setSuppressDragSignals(bool suppress) { suppressDragSignals = suppress; }
 
+    // Theme colors
+    void setBorderColor(const QColor &color);
+    void setSelectionColor(const QColor &color);
+    void setBackgroundColor(const QColor &color);
+
 private:
     void refreshRenderer();
 
@@ -95,6 +100,11 @@ private:
     // Duration display
     bool hasDuration = false;
     double durationMs = 0.0;
-    
+
+    // Theme colors
+    QColor borderColor = Qt::black;
+    QColor selectionColor = QColor(255, 200, 0);
+    QColor backgroundColor = Qt::white;
+
     QSvgRenderer *renderer = nullptr;
 };

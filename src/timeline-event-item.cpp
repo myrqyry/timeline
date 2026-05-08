@@ -19,7 +19,7 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
     // Center the item horizontally on the time
     setPos((timeMs / 1000.0 * pixelsPerSecond) - (ITEM_SIZE / 2.0), baseY);
     setBrush(QBrush(eventColor));
-    setPen(QPen(Qt::black));
+    setPen(QPen(borderColor));
 
     setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
     setCursor(Qt::OpenHandCursor);
@@ -176,20 +176,19 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     }
     
     if (isSelected()) {
-        // Cleaner selection ring
         painter->setBrush(Qt::NoBrush);
 
-        // White outer ring for contrast
-        painter->setPen(QPen(Qt::white, 3));
+        // Outer ring: background color for contrast against whatever is behind
+        painter->setPen(QPen(backgroundColor, 3));
         painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
 
-        // Color inner ring
-        painter->setPen(QPen(QColor(255, 200, 0), 2)); // Gold/Orange
+        // Inner ring: theme highlight color
+        painter->setPen(QPen(selectionColor, 2));
         painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
     }
 
-    // Draw main circle (restoring pen/brush so selection doesn't wipe the fill)
-    painter->setPen(QPen(Qt::black, 1.5));
+    // Draw main circle
+    painter->setPen(QPen(borderColor, 1.5));
     painter->setBrush(QBrush(eventColor));
     painter->drawEllipse(r);
     
@@ -219,6 +218,22 @@ void TimelineEventItem::setSnapInterval(double intervalMs) {
 
 void TimelineEventItem::setEventId(const QString &id) {
     eventId = id;
+}
+
+void TimelineEventItem::setBorderColor(const QColor &color) {
+    borderColor = color;
+    setPen(QPen(borderColor, 1.5));
+    update();
+}
+
+void TimelineEventItem::setSelectionColor(const QColor &color) {
+    selectionColor = color;
+    update();
+}
+
+void TimelineEventItem::setBackgroundColor(const QColor &color) {
+    backgroundColor = color;
+    update();
 }
 
 QString TimelineEventItem::getEventId() const {

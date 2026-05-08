@@ -39,6 +39,9 @@ public:
     static void hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
     static void hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
     static void hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed);
+
+    // Theme change callback
+    static void themeChangedCallback(enum obs_frontend_event event, void *private_data);
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
