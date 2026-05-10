@@ -55,7 +55,8 @@ bool TimelineSerialization::fromJsonDocument(const QJsonDocument &doc, TimelineM
 
 bool TimelineSerialization::saveToFile(const QString &filePath, const QJsonObject &root, QString *errorMessage)
 {
-	QFile file(filePath);
+	const QString tempPath = filePath + ".tmp";
+	QFile file(tempPath);
 	if (!file.open(QIODevice::WriteOnly)) {
 		if (errorMessage) {
 			*errorMessage = "Failed to open file for writing";
@@ -64,15 +65,26 @@ bool TimelineSerialization::saveToFile(const QString &filePath, const QJsonObjec
 	}
 
 	const QJsonDocument doc(root);
-	if (file.write(doc.toJson()) < 0) {
+	const QByteArray json = doc.toJson();
+	if (file.write(json) != json.size()) {
 		if (errorMessage) {
 			*errorMessage = "Failed to write timeline JSON";
 		}
 		file.close();
+		QFile::remove(tempPath);
 		return false;
 	}
 
 	file.close();
+
+	if (!QFile::rename(tempPath, filePath)) {
+		if (errorMessage) {
+			*errorMessage = "Failed to finalize save";
+		}
+		QFile::remove(tempPath);
+		return false;
+	}
+
 	return true;
 }
 

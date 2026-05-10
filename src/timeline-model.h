@@ -3,6 +3,7 @@
 #include <QObject>
 #include <vector>
 #include <algorithm>
+#include <optional>
 #include "event-types.h"
 
 #include <QVariant>
@@ -24,7 +25,7 @@ public:
     bool removeEventById(const QString &id);
     bool updateEventTimeById(const QString &id, double newTimeMs);
     bool replaceEventById(const QString &id, const TimelineEvent &event);
-    const TimelineEvent *findEventById(const QString &id) const;
+    std::optional<TimelineEvent> findEventById(const QString &id) const;
 
     // Serialization
     QJsonArray toJson() const;

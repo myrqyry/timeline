@@ -13,21 +13,29 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent)
         connect(model, &TimelineModel::modelChanged, this, [this]() {
             double t = getCurrentTime();
             const auto &evts = this->model->getEvents();
-            eventStartFired.clear();
-            eventEndFired.clear();
+            QSet<QString> newStartFired;
+            QSet<QString> newEndFired;
+
             for (const auto &evt : evts) {
-                if (evt.timeMs < t) {
-                    eventStartFired.insert(evt.id);
+                // Preserve fired status for existing events; mark new ones
+                // as fired only if their time is already behind the playhead.
+                if (eventStartFired.contains(evt.id) || evt.timeMs < t) {
+                    newStartFired.insert(evt.id);
                 }
                 if (evt.hasDuration && evt.durationMs > 0) {
                     const double endMs = evt.timeMs + evt.durationMs;
-                    if (endMs < t) {
-                        eventEndFired.insert(evt.id);
+                    if (eventEndFired.contains(evt.id) || endMs < t) {
+                        newEndFired.insert(evt.id);
                     }
                 } else {
-                    eventEndFired.insert(evt.id);
+                    if (eventEndFired.contains(evt.id)) {
+                        newEndFired.insert(evt.id);
+                    }
                 }
             }
+
+            eventStartFired = newStartFired;
+            eventEndFired = newEndFired;
         });
     }
 }
@@ -140,8 +148,8 @@ void TimelineScheduler::onTimerTick() {
 
     if (!model) return;
 
-    // Take a value copy to avoid iterator invalidation if model mutates concurrently
-    const auto events = model->getEvents();
+    // Reference to avoid O(n) copy at ~60fps
+    const auto &events = model->getEvents();
 
     // Fire events
     for (const TimelineEvent &evt : events) {

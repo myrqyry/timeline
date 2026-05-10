@@ -63,12 +63,12 @@ bool TimelineModel::replaceEventById(const QString &id, const TimelineEvent &eve
     return true;
 }
 
-const TimelineEvent *TimelineModel::findEventById(const QString &id) const {
+std::optional<TimelineEvent> TimelineModel::findEventById(const QString &id) const {
     const int index = findEventIndexById(id);
     if (index < 0) {
-        return nullptr;
+        return std::nullopt;
     }
-    return &events[static_cast<size_t>(index)];
+    return events[static_cast<size_t>(index)];
 }
 
 QJsonArray TimelineModel::toJson() const {
@@ -92,7 +92,7 @@ QJsonArray TimelineModel::toJson() const {
             obj["duration"] = evt.durationMs;
         }
         if (!evt.data.isNull()) {
-            obj["data"] = evt.data.toString();
+            obj["data"] = QJsonValue::fromVariant(evt.data);
         }
         array.append(obj);
     }

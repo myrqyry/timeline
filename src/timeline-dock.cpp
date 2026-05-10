@@ -876,7 +876,7 @@ void TimelineDock::copySelectedEvents()
 
 	// Get corresponding events from model
 	for (TimelineEventItem *item : selectedItems) {
-		const TimelineEvent *evt = model->findEventById(item->getEventId());
+		auto evt = model->findEventById(item->getEventId());
 		if (evt) {
 			clipboard.append(*evt);
 		}
@@ -1109,7 +1109,7 @@ void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &ev
 		QColor newColor = QColorDialog::getColor(item->getEventColor(), this, "Select Event Color");
 		if (newColor.isValid()) {
 			item->setEventColor(newColor);
-			const TimelineEvent *original = model->findEventById(eventId);
+			auto original = model->findEventById(eventId);
 			if (!original)
 				return;
 			TimelineEvent updatedEvt = *original;
@@ -1285,7 +1285,7 @@ void TimelineDock::clearEventItems()
 void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &eventId)
 {
 	Q_UNUSED(item);
-	const TimelineEvent *original = model->findEventById(eventId);
+	auto original = model->findEventById(eventId);
 	if (!original)
 		return;
 
