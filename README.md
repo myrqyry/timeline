@@ -55,10 +55,7 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
 
 2.  **Build**:
     ```bash
-    cmake -S . -B build \
-      -DCMAKE_INSTALL_PREFIX="$HOME/.config/obs-studio/plugins/timeline" \
-      -DOBS_PLUGIN_DESTINATION="bin/64bit" \
-      -DOBS_DATA_DESTINATION="data"
+    cmake -S . -B build
     cmake --build build
     ```
 
@@ -124,35 +121,20 @@ For a comprehensive technical reference covering the plugin's architecture, desi
 ### Build Commands
 
 ```bash
-# Configure
-cmake -S . -B build \
-  -DCMAKE_INSTALL_PREFIX="$HOME/.config/obs-studio/plugins/timeline" \
-  -DOBS_PLUGIN_DESTINATION="bin/64bit" \
-  -DOBS_DATA_DESTINATION="data"
-
-# Build
+# Configure and build
+cmake -S . -B build
 cmake --build build
 
 # Install
 cmake --install build
 
 # Run tests
-cd build && ctest --verbose
+cd build && ./tests/run_tests -v
 ```
 
-## Recent Fixes
+## Contributing
 
-- **Scheduler robustness**: Fired-state tracking now uses stable event IDs instead of vector indices, preventing events from re-firing or being skipped after sorts/drags.
-- **Memory safety**: Replaced deferred `deleteLater()` with immediate `delete` for graphics items during rebuilds, eliminating use-after-free risks.
-- **Keyboard input**: Fixed double-handling of Space/Delete/Home/C/V keys that caused toggles to cancel out or copy/paste to fire twice.
-- **Drag-rebuild race**: `rebuildEventItems()` now re-queues itself when bailing due to an active drag, ensuring no model changes are lost.
-- **BPM grid snap**: `onSnapIntervalChanged` no longer clobbers the user's manual snap interval when BPM grid is enabled.
-- **Import safety**: Removed silent auto-save after file import — changes now persist only via OBS's save callback.
-- **Cross-scene source visibility**: Source visibility events now fall back to searching all scenes if the source is not in the current scene.
-- **Performance**: Playhead auto-scroll is now gated to trigger only near viewport edges, reducing spurious repaints.
-- **UI flicker**: `updateControlsLayout` now wraps widget hide/show in `setUpdatesEnabled` to prevent visible flicker.
-- **Ruler rendering**: `drawRuler()` now only draws the visible region + buffer, avoiding huge allocations at high zoom levels.
-- **Event item drag tracking**: Added `isBeingDragged` flag to prevent `dragMoved` emissions during programmatic position changes (e.g., zoom).
+See the root `AGENTS.md` for developer conventions, critical rules (memory management, threading), and task-oriented routing to folder-specific guides.
 
 ## License
 
