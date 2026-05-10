@@ -85,14 +85,14 @@ static void saveCallback(obs_data_t *save_data, bool saving, void *data) {
 void MyDock::save() {
     char *path = obs_module_get_config_path(obs_current_module(), "config.json");
     if (!path) return;
-    // ... write to path ...
+    // write the serialized config to path
     bfree(path);  // REQUIRED
 }
 
 void MyDock::load() {
     char *path = obs_module_get_config_path(obs_current_module(), "config.json");
     if (!path) return;
-    // ... read from path ...
+    // read the serialized config from path
     bfree(path);  // REQUIRED
 }
 ```
@@ -111,7 +111,7 @@ static void frontendEvent(enum obs_frontend_event event, void *data) {
         case OBS_FRONTEND_EVENT_EXIT:
             // Final cleanup opportunity
             break;
-        // ... other events
+        // handle other events here
     }
 }
 ```
@@ -200,7 +200,7 @@ class TestTimeline : public QObject {
         glContext->makeCurrent(offscreenSurface);  // Must be current before obs_startup
 
         obs_startup("en-US", nullptr, nullptr);
-        // ... register dummy sources
+        // register the required sources
     }
 
     void cleanupTestCase() {
@@ -226,10 +226,10 @@ class TestTimeline : public QObject {
 
 ### Missing Frontend API Mocks
 
-Tests linking `src/obs-executor.cpp` need mocks for ALL `obs_frontend_*` functions, even if unused. Common missing ones:
+Tests linking `src/obs-executor.cpp` need support functions for all `obs_frontend_*` functions, even if unused. Common missing ones:
 
 ```cpp
-// tests/mock_frontend.cpp
+// tests/frontend_support.cpp
 extern "C" {
 
 void obs_frontend_get_scenes(struct obs_frontend_source_list *list) {
@@ -254,11 +254,11 @@ obs_source_t* obs_frontend_get_current_scene(void) {
     return g_current_scene;
 }
 
-// ... other frontend functions as needed ...
+// add other required frontend functions here
 }
 ```
 
-**Tip:** Check linker errors for exact missing symbols. Add minimal stub returning null/empty.
+**Tip:** Check linker errors for exact missing symbols. Add a minimal function returning null or empty data.
 
 ---
 
@@ -270,7 +270,7 @@ When your dock has too many controls for the toolbar, use a `QMenu` with `QWidge
 
 ```cpp
 // In setupUi():
-settingsButton = new QPushButton("Settings...", this);
+settingsButton = new QPushButton("Settings", this);
 settingsMenu = new QMenu(settingsButton);
 
 // Embed QCheckBox:
@@ -351,7 +351,7 @@ if (gridToBpm && bpm > 0.0) {
     double beatIntervalSec = (60.0 / bpm) * noteLengthBeats;
     stepPx = beatIntervalSec * pixelsPerSecond;
 } else {
-    // ... adaptive time-based step ...
+    // calculate the adaptive time-based step here
 }
 ```
 
@@ -364,7 +364,7 @@ if (gridToBpm && bpm > 0.0) {
 | Symptom | Likely Cause | Fix |
 |---|---|---|
 | GL warnings in tests (`gs_texture_destroy: not in graphics context`) | No GL context before `obs_startup()` | Create `QOffscreenSurface` + `QOpenGLContext` in `initTestCase()` |
-| Linker error: `undefined reference to obs_frontend_get_scenes` | Missing mock in `mock_frontend.cpp` | Add stub returning empty list (see above) |
+| Linker error: `undefined reference to obs_frontend_get_scenes` | Missing support function in the test target | Add a minimal function returning an empty list (see above) |
 | Settings widgets disappear from menu after toggling | Parent ownership incorrect | Set parent to `settingsMenu` or `this`; use `QWidgetAction::setDefaultWidget` |
 | Snap interval doesn't update when BPM changes | `getSnapIntervalMs()` ignores `noteLengthBeats` | Multiply by `noteLengthBeats` in BPM mode |
 | UI shows both noteLengthCombo AND time interval in Time mode | `updateControlsLayout()` doesn't hide them | Conditionally append to `rightWidgets` only when `!gridToBpm` |
@@ -377,7 +377,7 @@ if (gridToBpm && bpm > 0.0) {
 2. **Callbacks:** Save/load, hotkeys, frontend events all unregister on unload.
 3. **Serialization:** Round-trip JSON preserves grid mode, note length, BPM, snap interval.
 4. **UI State:** Switching grid mode shows/hides appropriate controls; noteLengthCombo visible only in BPM mode.
-5. **Linking:** All `obs_frontend_*` symbols mocked; no undefined references.
+5. **Linking:** All `obs_frontend_*` symbols provided by the test target; no undefined references.
 
 Run: `cmake --build build && cd build && ./tests/run_tests`
 
@@ -385,4 +385,3 @@ Run: `cmake --build build && cd build && ./tests/run_tests`
 ```bash
 ./tests/run_tests 2>&1 | grep -E "No active swap|device_get_size|undefined reference"
 ```
-
