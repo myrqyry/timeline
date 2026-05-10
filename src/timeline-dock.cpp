@@ -325,7 +325,7 @@ void TimelineDock::setupUi()
 	endLabel = new QLabel("End:", this);
 
 	// Settings menu for advanced options
-	settingsButton = new QPushButton("Settings...", this);
+	settingsButton = new QPushButton("Settings", this);
 	settingsButton->setToolTip("Show advanced settings (Center, BPM, End Time)");
 
 	settingsMenu = new QMenu(settingsButton);
