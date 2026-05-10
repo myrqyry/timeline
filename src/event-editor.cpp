@@ -124,25 +124,52 @@ void EventEditor::buildUi()
     durationSpin->setEnabled(false);
     connect(durationCheck, &QCheckBox::toggled, durationSpin, &QDoubleSpinBox::setEnabled);
 
-    auto *durationLayout = new QHBoxLayout();
-    durationLayout->addWidget(durationCheck);
-    durationLayout->addWidget(durationSpin);
-    layout->addRow(durationLayout);
+     auto *durationLayout = new QHBoxLayout();
+     durationLayout->addWidget(durationCheck);
+     durationLayout->addWidget(durationSpin);
+     layout->addRow(durationLayout);
 
-    // Time info label
-    int minutes = static_cast<int>(eventTimeMs / 1000.0) / 60;
-    int seconds = static_cast<int>(eventTimeMs / 1000.0) % 60;
-    int ms = static_cast<int>(eventTimeMs) % 1000;
-    QString timeStr = QString("Event %1 at: %2:%3.%4")
-                  .arg(isNewMode ? "will be placed" : "time")
-                  .arg(minutes, 2, 10, QChar('0'))
-                  .arg(seconds, 2, 10, QChar('0'))
-                  .arg(ms / 10, 2, 10, QChar('0'));
-    timeInfoLabel = new QLabel(timeStr, this);
-    timeInfoLabel->setStyleSheet("color: gray; font-style: italic;");
-    layout->addRow(timeInfoLabel);
+     // Fine-tune exact time (seconds with millisecond precision)
+     timeSpin = new QDoubleSpinBox(this);
+     timeSpin->setRange(0.0, 36000.0); // Up to 10 hours
+     timeSpin->setDecimals(3);
+     timeSpin->setSuffix(" sec");
+     timeSpin->setSingleStep(0.1);
+     timeSpin->setValue(eventTimeMs / 1000.0);
+     layout->addRow("Exact Time:", timeSpin);
 
-    // Buttons
+     // Time info label (updates as user changes timeSpin)
+     int minutes = static_cast<int>(eventTimeMs / 1000.0) / 60;
+     int seconds = static_cast<int>(eventTimeMs / 1000.0) % 60;
+     int ms = static_cast<int>(eventTimeMs) % 1000;
+     QString timeStr = QString("Event %1 at: %2:%3.%4")
+                   .arg(isNewMode ? "will be placed" : "time")
+                   .arg(minutes, 2, 10, QChar('0'))
+                   .arg(seconds, 2, 10, QChar('0'))
+                   .arg(ms / 10, 2, 10, QChar('0'));
+     timeInfoLabel = new QLabel(timeStr, this);
+     timeInfoLabel->setStyleSheet("color: gray; font-style: italic;");
+     layout->addRow(timeInfoLabel);
+
+     // Connect live updates
+     connect(timeSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [this](double val) {
+         int totalMs = static_cast<int>(val * 1000);
+         int minutes = totalMs / 60000;
+         int seconds = (totalMs / 1000) % 60;
+         int ms = totalMs % 1000;
+         timeInfoLabel->setText(QString("Event time: %1:%2.%3")
+                                    .arg(minutes, 2, 10, QChar('0'))
+                                    .arg(seconds, 2, 10, QChar('0'))
+                                    .arg(ms / 10, 2, 10, QChar('0')));
+     });
+
+     // Optional display label
+     labelEdit = new QLineEdit(this);
+     labelEdit->setPlaceholderText("Optional display label (max 12 chars)");
+     labelEdit->setMaxLength(12);
+     layout->addRow("Timeline Label:", labelEdit);
+
+     // Buttons
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttonBox, &QDialogButtonBox::accepted, this, &EventEditor::validateAndAccept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -356,13 +383,15 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
         targetCombo->setCurrentText(evt.sourceName);
     }
 
-    selectedColor = evt.color;
-    colorButton->setStyleSheet(
-        QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
-    iconPathEdit->setText(evt.customIconPath);
-    durationCheck->setChecked(evt.hasDuration);
-    durationSpin->setValue(evt.durationMs / 1000.0);
-}
+     selectedColor = evt.color;
+     colorButton->setStyleSheet(
+         QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+     iconPathEdit->setText(evt.customIconPath);
+     labelEdit->setText(evt.label);
+     durationCheck->setChecked(evt.hasDuration);
+     durationSpin->setValue(evt.durationMs / 1000.0);
+     timeSpin->setValue(evt.timeMs / 1000.0);
+ }
 
 void EventEditor::validateAndAccept()
 {
@@ -431,11 +460,11 @@ void EventEditor::pickColor()
     }
 }
 
-void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
-{
-    evt.timeMs = eventTimeMs;
+ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
+ {
+     evt.timeMs = timeSpin->value() * 1000.0;
 
-    evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+     evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
 
     if (evt.type == TimelineEventType::TriggerTimeline) {
         evt.data = fileEdit->text();
@@ -470,8 +499,9 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
         evt.sourceName = targetCombo->currentText();
     }
 
-    evt.color = selectedColor;
-    evt.customIconPath = iconPathEdit->text();
-    evt.hasDuration = durationCheck->isChecked();
-    evt.durationMs = durationSpin->value() * 1000.0;
-}
+     evt.color = selectedColor;
+     evt.customIconPath = iconPathEdit->text();
+     evt.label = labelEdit->text().trimmed();
+     evt.hasDuration = durationCheck->isChecked();
+     evt.durationMs = durationSpin->value() * 1000.0;
+ }

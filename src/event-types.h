@@ -27,7 +27,8 @@ struct TimelineEvent {
     QVariant data;    // Additional data (e.g., volume level, seek position)
     QColor color = QColor(0, 200, 255); // Default cyan color
     QString customIconPath; // Path to custom SVG icon
-    
+    QString label; // Optional display label for the event
+
     // Duration
     bool hasDuration = false;
     double durationMs = 0.0;

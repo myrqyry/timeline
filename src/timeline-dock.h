@@ -53,8 +53,9 @@ private slots:
 	void onPlayClicked();
 	void onStopClicked();
 	void onTick(double currentTimeMs);
-	void onAddEventClicked();
-	void onEventDoubleClicked(TimelineEventItem *item, const QString &eventId);
+ 	void onAddEventClicked();
+ 	void addEventAtTime(double timeMs);
+ 	void onEventDoubleClicked(TimelineEventItem *item, const QString &eventId);
 	void onLoopToggled(bool checked);
 	void onEndTimeChanged(double value);
 	void onSnapToggled(bool checked);
@@ -71,25 +72,27 @@ private slots:
 	void onCenterControlsToggled(bool checked);
 	void onRestartHotkey();
 
-private:
-	void setupUi();
-	void updatePlayhead(double timeMs);
-	void updateLayout();
-	void drawRuler();
-	void drawGrid();
-	void clearRuler();
-	void rebuildEventItems();
-	void clearEventItems();
-	void updateZoomLabel();
-	void updateEndMarker();
-	void deleteSelectedEvents();
-	void copySelectedEvents();
-	void pasteEvents();
-	void nudgeSelectedEvents(double deltaMs);
-	void updateControlsLayout();
-	double getSnapIntervalMs() const;
-	void applySnapIntervalToItems();
-	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
+ private:
+ 	void setupUi();
+ 	void setupModeToggle();
+ 	void updatePlayhead(double timeMs);
+ 	void updateLayout();
+ 	void drawRuler();
+ 	void drawGrid();
+ 	void clearRuler();
+ 	void rebuildEventItems();
+ 	void clearEventItems();
+ 	void updateZoomLabel();
+ 	void updateEndMarker();
+ 	void deleteSelectedEvents();
+ 	void copySelectedEvents();
+ 	void pasteEvents();
+ 	void nudgeSelectedEvents(double deltaMs);
+ 	void updateControlsLayout();
+ 	double getSnapIntervalMs() const;
+ 	void applySnapIntervalToItems();
+ 	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
+ 	void updateButtonIcon(QPushButton *btn, const char *path);
 
 	QList<TimelineEvent> clipboard;
 
@@ -116,6 +119,11 @@ private:
 	QPushButton *saveButton;
 	QPushButton *loadButton;
 	QPushButton *settingsButton;
+
+	// Mode toggle buttons
+	QPushButton *timeModeBtn;
+	QPushButton *bpmModeBtn;
+	QWidget *modeToggleContainer;
 
 	// Options
 	QCheckBox *loopCheckbox;

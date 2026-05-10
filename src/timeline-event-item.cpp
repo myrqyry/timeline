@@ -1,12 +1,13 @@
-#include "timeline-event-item.h"
-#include <QGraphicsSceneMouseEvent>
-#include <QGraphicsSceneContextMenuEvent>
-#include <QMenu>
-#include <QCursor>
-#include <QPainter>
-#include <QStyleOptionGraphicsItem>
-#include <QFontMetrics>
-#include <QFile>
+ #include "timeline-event-item.h"
+ #include <QGraphicsSceneMouseEvent>
+ #include <QGraphicsSceneContextMenuEvent>
+ #include <QMenu>
+ #include <QCursor>
+ #include <QPainter>
+ #include <QStyleOptionGraphicsItem>
+ #include <QFontMetrics>
+ #include <QFile>
+ #include <QApplication>
 
 #include "theme-helpers.h"
 
@@ -192,11 +193,48 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     painter->setBrush(QBrush(eventColor));
     painter->drawEllipse(r);
     
-    if (renderer && renderer->isValid()) {
-        QRectF iconRect = r.adjusted(6, 6, -6, -6); // Padding
-        renderer->render(painter, iconRect);
-    }
-}
+     if (renderer && renderer->isValid()) {
+         QRectF iconRect = r.adjusted(6, 6, -6, -6); // Padding
+         renderer->render(painter, iconRect);
+     }
+
+     // Draw circular label (top arch) if label is set
+     if (!eventLabel.isEmpty()) {
+         painter->save();
+         painter->setRenderHint(QPainter::TextAntialiasing);
+         // Use QApplication palette for theme-aware text color
+         QColor textColor = QApplication::palette().color(QPalette::Text);
+         painter->setPen(textColor);
+         QFont font = painter->font();
+         font.setPointSize(6);
+         font.setBold(true);
+         painter->setFont(font);
+
+         // Translate to center of item
+         painter->translate(ITEM_SIZE / 2.0, ITEM_SIZE / 2.0);
+
+         double radius = (ITEM_SIZE / 2.0) + 4.0; // Just outside the circle border
+         int len = eventLabel.length();
+         if (len > 0) {
+             // Draw text along top arc (approx 120 degrees centered at top)
+             double totalArc = 120.0;
+             double startAngle = -90.0 - (totalArc / 2.0); // Start from left-top
+             double step = totalArc / (double)(len - 1);  // Distribute characters evenly
+
+             for (int i = 0; i < len; ++i) {
+                 painter->save();
+                 double angle = startAngle + (i * step);
+                 painter->rotate(angle);
+                 // Position character at radius distance, centered on the radial line
+                 // Draw character with its baseline at the radial position
+                 QRectF charRect(-5, -radius - 8, 10, 10);
+                 painter->drawText(charRect, Qt::AlignCenter, QString(eventLabel[i]));
+                 painter->restore();
+             }
+         }
+         painter->restore();
+     }
+ }
 
 void TimelineEventItem::setDuration(double duration) {
     durationMs = duration;

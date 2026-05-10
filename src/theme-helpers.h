@@ -24,9 +24,13 @@ inline const char* PATH_MEDIA_STOP = "<path d=\"M6 6h12v12H6z\"/>";
 inline const char* PATH_FILTER_ENABLE = "<path d=\"M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z\"/>";
 inline const char* PATH_FILTER_DISABLE = "<path d=\"M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z\"/>";
 inline const char* PATH_HOTKEY = "<path d=\"M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2z\"/>";
-inline const char* PATH_TRIGGER_TIMELINE = "<path d=\"M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z\"/>";
+ inline const char* PATH_TRIGGER_TIMELINE = "<path d=\"M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z\"/>";
 
-inline QByteArray getIconSvg(TimelineEventType type, const QString& color = "white") {
+ // Mode toggle icons
+ inline const char* PATH_CLOCK = "<path d=\"M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z\"/>";
+ inline const char* PATH_MUSIC_NOTE = "<path d=\"M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z\"/>";
+
+ inline QByteArray getIconSvg(TimelineEventType type, const QString& color = "white") {
     switch (type) {
         case TimelineEventType::SceneSwitch:   return wrapSvg(PATH_SCENE_SWITCH, color);
         case TimelineEventType::SourceShow:    return wrapSvg(PATH_SOURCE_SHOW, color);

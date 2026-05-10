@@ -37,9 +37,13 @@ private:
     QComboBox *transitionCombo = nullptr;
     QPushButton *colorButton = nullptr;
     QLineEdit *iconPathEdit = nullptr;
-    QCheckBox *durationCheck = nullptr;
-    QDoubleSpinBox *durationSpin = nullptr;
-    QLabel *timeInfoLabel = nullptr;
+     QCheckBox *durationCheck = nullptr;
+     QDoubleSpinBox *durationSpin = nullptr;
+     QLabel *timeInfoLabel = nullptr;
+
+     QDoubleSpinBox *timeSpin = nullptr;
+
+    QLineEdit *labelEdit = nullptr;
 
     QColor selectedColor;
     double eventTimeMs = 0.0;

@@ -19,9 +19,10 @@
 #include <QMouseEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSimpleTextItem>
-#include <QWheelEvent>
-#include <cmath>
-#include <QDialog>
+ #include <QWheelEvent>
+ #include <cmath>
+ #include <algorithm>
+ #include <QDialog>
 #include <QFileDialog>
 #include <QComboBox>
 #include <QLineEdit>
@@ -33,11 +34,16 @@
 #include <QShortcut>
 #include <QMenu>
 #include <QWidgetAction>
-#include "event-editor.h"
-#include "timeline-serialization.h"
+ #include "event-editor.h"
+ #include "timeline-serialization.h"
 
-TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
-{
+ // Stepped zoom levels for clean, professional increments
+ static const std::vector<double> ZOOM_LEVELS = { 5.0,  10.0, 15.0, 20.0, 30.0,
+ 						50.0, 75.0, 100.0, 150.0, 200.0,
+ 						300.0, 500.0, 750.0, 1000.0 };
+
+ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
+ {
 	blog(LOG_INFO, "TimelineDock constructor started");
 	model = new TimelineModel(this);
 	blog(LOG_INFO, "TimelineDock: Model created");
@@ -383,10 +389,13 @@ void TimelineDock::setupUi()
 	endTimeAction->setDefaultWidget(endTimeSpinbox);
 	settingsMenu->addAction(endTimeAction);
 
-	connect(settingsButton, &QPushButton::clicked, this,
-		[this]() { settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height()))); });
+ 	connect(settingsButton, &QPushButton::clicked, this,
+ 		[this]() { settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height()))); });
 
-	updateControlsLayout();
+ 	// Create mode toggle (Time/BPM) buttons
+ 	setupModeToggle();
+
+ 	updateControlsLayout();
 
 	mainLayout->addLayout(controlsLayout);
 
@@ -442,12 +451,13 @@ void TimelineDock::updateControlsLayout()
 		return w;
 	};
 
-	if (centerControls)
-		controlsLayout->addStretch();
+ 	if (centerControls)
+ 		controlsLayout->addStretch();
 
-	QList<QWidget *> leftWidgets = {playButton,     stopButton, zoomOutButton, zoomInButton,
-					addEventButton, saveButton, loadButton,    timeLabel};
-	for (QWidget *w : leftWidgets) {
+ 	QList<QWidget *> leftWidgets = {playButton, stopButton, modeToggleContainer,
+ 					zoomOutButton, zoomInButton, addEventButton,
+ 					saveButton, loadButton, timeLabel};
+ 	for (QWidget *w : leftWidgets) {
 		controlsLayout->addWidget(show(w));
 	}
 
@@ -468,23 +478,28 @@ void TimelineDock::updateControlsLayout()
 	setUpdatesEnabled(true); // Re-enable updates after layout change
 }
 
-void TimelineDock::onZoomInClicked()
-{
-	pixelsPerSecond *= 1.25;
-	if (pixelsPerSecond > 1000.0)
-		pixelsPerSecond = 1000.0;
-	updateLayout();
-	updateZoomLabel();
-}
+ void TimelineDock::onZoomInClicked()
+ {
+ 	// Find the first level strictly greater than current
+ 	auto it = std::upper_bound(ZOOM_LEVELS.begin(), ZOOM_LEVELS.end(), pixelsPerSecond + 0.01);
+ 	if (it != ZOOM_LEVELS.end()) {
+ 		pixelsPerSecond = *it;
+ 		updateLayout();
+ 		updateZoomLabel();
+ 	}
+ }
 
-void TimelineDock::onZoomOutClicked()
-{
-	pixelsPerSecond /= 1.25;
-	if (pixelsPerSecond < 5.0)
-		pixelsPerSecond = 5.0;
-	updateLayout();
-	updateZoomLabel();
-}
+ void TimelineDock::onZoomOutClicked()
+ {
+ 	// Find the first level greater or equal, then go back one
+ 	auto it = std::lower_bound(ZOOM_LEVELS.begin(), ZOOM_LEVELS.end(), pixelsPerSecond - 0.01);
+ 	if (it != ZOOM_LEVELS.begin()) {
+ 		--it;
+ 		pixelsPerSecond = *it;
+ 		updateLayout();
+ 		updateZoomLabel();
+ 	}
+ }
 
 void TimelineDock::onSnapIntervalChanged(double value)
 {
@@ -500,24 +515,34 @@ void TimelineDock::onSnapIntervalChanged(double value)
 	}
 }
 
-void TimelineDock::onGridModeChanged(int index)
-{
-	gridToBpm = (index == 1);
+ void TimelineDock::onGridModeChanged(int index)
+ {
+ 	gridToBpm = (index == 1);
 
-	// Show/hide note length selector in menu
-	noteLengthCombo->setVisible(gridToBpm);
+ 	// Show/hide note length selector in menu
+ 	noteLengthCombo->setVisible(gridToBpm);
 
-	// Update main toolbar layout (shows/hides snap interval controls)
-	updateControlsLayout();
+ 	// Update main toolbar layout (shows/hides snap interval controls)
+ 	updateControlsLayout();
 
-	// If switching to Time mode, restore manual interval in spinbox
-	if (!gridToBpm) {
-		snapIntervalSpinbox->setValue(manualSnapIntervalMs / 1000.0);
-	}
+ 	// If switching to Time mode, restore manual interval in spinbox
+ 	if (!gridToBpm) {
+ 		snapIntervalSpinbox->setValue(manualSnapIntervalMs / 1000.0);
+ 	}
 
-	applySnapIntervalToItems();
-	drawGrid();
-}
+ 	applySnapIntervalToItems();
+ 	drawGrid();
+
+ 	// Sync toggle buttons to match new state
+ 	if (timeModeBtn && bpmModeBtn) {
+ 		timeModeBtn->blockSignals(true);
+ 		bpmModeBtn->blockSignals(true);
+ 		timeModeBtn->setChecked(!gridToBpm);
+ 		bpmModeBtn->setChecked(gridToBpm);
+ 		timeModeBtn->blockSignals(false);
+ 		bpmModeBtn->blockSignals(false);
+ 	}
+ }
 
 void TimelineDock::onBpmChanged(double value)
 {
@@ -658,27 +683,50 @@ void TimelineDock::drawRuler()
 	}
 }
 
-bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
-{
-	if (obj == view->viewport()) {
-		if (event->type() == QEvent::Wheel) {
-			QWheelEvent *wheelEvent = static_cast<QWheelEvent *>(event);
-			if (wheelEvent->modifiers() & Qt::ControlModifier) {
-				double steps = wheelEvent->angleDelta().y() / 120.0;
-				double factor = std::pow(1.15, steps); // Slightly faster zoom
-				pixelsPerSecond *= factor;
+ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
+ {
+ 	if (obj == view->viewport()) {
+ 		// Right-click on empty area to add event
+ 		if (event->type() == QEvent::ContextMenu) {
+ 			QContextMenuEvent *ctxEvent = static_cast<QContextMenuEvent *>(event);
+ 			QPointF scenePos = view->mapToScene(ctxEvent->pos());
 
-				// Expanded zoom range
-				if (pixelsPerSecond < 5.0)
-					pixelsPerSecond = 5.0;
-				if (pixelsPerSecond > 1000.0)
-					pixelsPerSecond = 1000.0;
+ 			// Check if clicking on an event item
+ 			QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
+ 			bool onItem = false;
+ 			for (QGraphicsItem *it : itemsAt) {
+ 				if (it && (it->flags() & QGraphicsItem::ItemIsMovable)) {
+ 					onItem = true;
+ 					break;
+ 				}
+ 			}
 
-				updateLayout();
-				updateZoomLabel();
-				return true;
-			}
-		}
+ 			if (!onItem) {
+ 				double clickedTimeMs = (scenePos.x() / pixelsPerSecond) * 1000.0;
+ 				if (clickedTimeMs < 0)
+ 					clickedTimeMs = 0;
+
+ 				QMenu menu(this);
+ 				QAction *addAction = menu.addAction("Add Event Here");
+ 				connect(addAction, &QAction::triggered, [this, clickedTimeMs]() {
+ 					addEventAtTime(clickedTimeMs);
+ 				});
+ 				menu.exec(ctxEvent->globalPos());
+ 				return true;
+ 			}
+ 		}
+
+ 		if (event->type() == QEvent::Wheel) {
+ 			QWheelEvent *wheelEvent = static_cast<QWheelEvent *>(event);
+ 			if (wheelEvent->modifiers() & Qt::ControlModifier) {
+ 				if (wheelEvent->angleDelta().y() > 0) {
+ 					onZoomInClicked();
+ 				} else {
+ 					onZoomOutClicked();
+ 				}
+ 				return true;
+ 			}
+ 		}
 
 		// Only start scrubbing on press, not on move (to allow item dragging)
 		if (event->type() == QEvent::MouseButtonPress) {
@@ -1151,8 +1199,29 @@ void TimelineDock::onAddEventClicked()
 		evt.color = ThemeIcons::getDefaultColor(evt.type);
 	}
 
-	model->addEvent(evt);
-}
+ 	model->addEvent(evt);
+ }
+
+ void TimelineDock::addEventAtTime(double timeMs)
+ {
+ 	EventEditor editor(timeMs, this);
+ 	if (editor.exec() != QDialog::Accepted)
+ 		return;
+
+ 	TimelineEvent evt;
+ 	evt.timeMs = timeMs;
+
+ 	editor.getUpdatedEvent(evt);
+
+ 	// Ensure the event time matches the requested position
+ 	evt.timeMs = timeMs;
+
+ 	if (evt.color == QColor(0, 200, 255)) {
+ 		evt.color = ThemeIcons::getDefaultColor(evt.type);
+ 	}
+
+ 	model->addEvent(evt);
+ }
 
 void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &eventId)
 {
@@ -1313,8 +1382,8 @@ void TimelineDock::rebuildEventItems()
 				.arg(minutes, 2, 10, QChar('0'))
 				.arg(seconds, 2, 10, QChar('0'))
 				.arg(ms / 10, 2, 10, QChar('0'));
-		item->setToolTip(tooltip);
-		item->setEventLabel(evt.sourceName);
+        item->setToolTip(tooltip);
+        item->setEventLabel(evt.label.isEmpty() ? evt.sourceName : evt.label);
 	}
 
 	// Remove items no longer in the model
@@ -1398,5 +1467,73 @@ void TimelineDock::updateZoomLabel()
 	if (currentText.contains("|")) {
 		currentText = currentText.split("|").first().trimmed();
 	}
-	timeLabel->setText(currentText + zoomLabelCache);
-}
+ 	timeLabel->setText(currentText + zoomLabelCache);
+ }
+
+ void TimelineDock::updateButtonIcon(QPushButton *btn, const char *path)
+ {
+ 	QColor color = palette().color(QPalette::Text);
+ 	QByteArray svgData = ThemeIcons::wrapSvg(path, color.name());
+ 	QIcon icon(QPixmap::fromImage(QImage::fromData(svgData)));
+ 	btn->setIcon(icon);
+ 	btn->setText("");
+ 	btn->setFixedSize(24, 24);
+ }
+
+ void TimelineDock::setupModeToggle()
+ {
+ 	timeModeBtn = new QPushButton(this);
+ 	bpmModeBtn = new QPushButton(this);
+
+ 	timeModeBtn->setCheckable(true);
+ 	bpmModeBtn->setCheckable(true);
+ 	timeModeBtn->setAutoExclusive(true);
+ 	bpmModeBtn->setAutoExclusive(true);
+
+ 	// Set initial state
+ 	if (gridToBpm) {
+ 		bpmModeBtn->setChecked(true);
+ 	} else {
+ 		timeModeBtn->setChecked(true);
+ 	}
+
+ 	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
+ 	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
+
+ 	// Styling to join the buttons
+ 	QString leftStyle = "QPushButton { border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
+ 			    "border-right: none; padding: 4px; }"
+ 			    "QPushButton:checked { background-color: palette(highlight); }";
+ 	QString rightStyle = "QPushButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
+ 			     "border-left: none; padding: 4px; }"
+ 			     "QPushButton:checked { background-color: palette(highlight); }";
+
+ 	timeModeBtn->setStyleSheet(leftStyle);
+ 	bpmModeBtn->setStyleSheet(rightStyle);
+
+ 	connect(timeModeBtn, &QPushButton::toggled, [this](bool checked) {
+ 		if (checked && gridToBpm) {
+ 			// Switching to Time mode
+ 			gridTypeCombo->blockSignals(true);
+ 			gridTypeCombo->setCurrentIndex(0);
+ 			gridTypeCombo->blockSignals(false);
+ 			onGridModeChanged(0);
+ 		}
+ 	});
+ 	connect(bpmModeBtn, &QPushButton::toggled, [this](bool checked) {
+ 		if (checked && !gridToBpm) {
+ 			// Switching to BPM mode
+ 			gridTypeCombo->blockSignals(true);
+ 			gridTypeCombo->setCurrentIndex(1);
+ 			gridTypeCombo->blockSignals(false);
+ 			onGridModeChanged(1);
+ 		}
+ 	});
+
+ 	modeToggleContainer = new QWidget(this);
+ 	QHBoxLayout *toggleLayout = new QHBoxLayout(modeToggleContainer);
+ 	toggleLayout->setSpacing(0);
+ 	toggleLayout->setContentsMargins(0, 0, 0, 0);
+ 	toggleLayout->addWidget(timeModeBtn);
+ 	toggleLayout->addWidget(bpmModeBtn);
+ }

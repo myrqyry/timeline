@@ -86,7 +86,11 @@ QJsonArray TimelineModel::toJson() const {
         if (!evt.customIconPath.isEmpty()) {
             obj["customIconPath"] = evt.customIconPath;
         }
-        
+
+        if (!evt.label.isEmpty()) {
+            obj["label"] = evt.label;
+        }
+
         if (evt.hasDuration) {
             obj["hasDuration"] = true;
             obj["duration"] = evt.durationMs;
@@ -145,7 +149,11 @@ void TimelineModel::fromJson(const QJsonArray &json) {
         if (obj.contains("customIconPath")) {
             evt.customIconPath = obj["customIconPath"].toString();
         }
-        
+
+        if (obj.contains("label")) {
+            evt.label = obj["label"].toString();
+        }
+
         if (obj.contains("hasDuration")) {
             evt.hasDuration = obj["hasDuration"].toBool();
             evt.durationMs = obj["duration"].toDouble();
