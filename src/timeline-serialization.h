@@ -14,13 +14,14 @@ struct TimelineDocument {
 	double snapIntervalMs = 500.0;
 	double bpm = 120.0;
 	bool gridToBpm = false;
+	double noteLengthBeats = 1.0; // Quarter note = 1 beat
 	bool centerControls = false;
 };
 
 class TimelineSerialization {
 public:
 	static QJsonObject toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds, bool snap,
-					double snapIntervalMs, double bpm, bool gridToBpm,
+					double snapIntervalMs, double bpm, bool gridToBpm, double noteLengthBeats,
 					bool centerControls);
 
 	static bool fromJsonDocument(const QJsonDocument &doc, TimelineModel &model, TimelineDocument &outDocument,

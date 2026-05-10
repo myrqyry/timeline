@@ -1,9 +1,9 @@
 #include "timeline-serialization.h"
 #include <QFile>
 
-QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds,
-							bool snap, double snapIntervalMs, double bpm,
-							bool gridToBpm, bool centerControls)
+QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds, bool snap,
+						double snapIntervalMs, double bpm, bool gridToBpm,
+						double noteLengthBeats, bool centerControls)
 {
 	QJsonObject root;
 	root["events"] = model.toJson();
@@ -15,6 +15,7 @@ QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool
 	settings["snapIntervalMs"] = snapIntervalMs;
 	settings["bpm"] = bpm;
 	settings["gridToBpm"] = gridToBpm;
+	settings["noteLengthBeats"] = noteLengthBeats;
 	settings["centerControls"] = centerControls;
 	root["settings"] = settings;
 	return root;
@@ -49,6 +50,7 @@ bool TimelineSerialization::fromJsonDocument(const QJsonDocument &doc, TimelineM
 	outDocument.snapIntervalMs = settings["snapIntervalMs"].toDouble(500.0);
 	outDocument.bpm = settings["bpm"].toDouble(120.0);
 	outDocument.gridToBpm = settings["gridToBpm"].toBool(false);
+	outDocument.noteLengthBeats = settings["noteLengthBeats"].toDouble(1.0);
 	outDocument.centerControls = settings["centerControls"].toBool(false);
 	return true;
 }

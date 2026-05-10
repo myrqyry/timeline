@@ -11,6 +11,14 @@ std::vector<obs_source_t*> g_transitions;
 
 extern "C" {
 
+void obs_frontend_get_scenes(struct obs_frontend_source_list *source_list) {
+	if (!source_list) return;
+	// For tests, return an empty scene list.
+	// Tests can populate this if needed via a helper function.
+	source_list->sources.num = 0;
+	source_list->sources.array = nullptr;
+}
+
 void obs_frontend_get_transitions(struct obs_frontend_source_list *source_list) {
     if (!source_list) return;
     source_list->sources.num = g_transitions.size();

@@ -166,3 +166,223 @@ obs_websocket_vendor_register_request(m_vendor, "GetStatus", requestCallback, th
 - [ ] No `pthread_*` usage (use Qt signals or `QMetaObject::invokeMethod`)
 - [ ] No GPU operations (`gs_*` calls) in frontend code
 - [ ] Hotkey callbacks check `pressed` before acting
+
+## Testing Frontend Plugins
+
+### Headless Test Setup (GL Context Required)
+
+OBS graphics initialization requires a valid OpenGL context even in unit tests. Without it, you'll see:
+```
+debug: gs_texture_destroy: called while not in a graphics context
+warning: device_get_size (GL): No active swap
+```
+
+**Fix:** Create an offscreen GL context *before* `obs_startup()`:
+
+```cpp
+#include <QGuiApplication>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+
+class TestTimeline : public QObject {
+    Q_OFFSCREENSURFACE *offscreenSurface = nullptr;
+    QOpenGLContext *glContext = nullptr;
+
+    void initTestCase() {
+        // Create headless GL context FIRST
+        offscreenSurface = new QOffscreenSurface();
+        offscreenSurface->setFormat(QSurfaceFormat::defaultFormat());
+        offscreenSurface->create();
+
+        glContext = new QOpenGLContext();
+        glContext->setFormat(offscreenSurface->format());
+        glContext->create();
+        glContext->makeCurrent(offscreenSurface);  // Must be current before obs_startup
+
+        obs_startup("en-US", nullptr, nullptr);
+        // ... register dummy sources
+    }
+
+    void cleanupTestCase() {
+        // Re-make context current so texture cleanup happens on valid GL
+        if (glContext && offscreenSurface) {
+            glContext->makeCurrent(offscreenSurface);
+        }
+        obs_shutdown();
+
+        glContext->doneCurrent();
+        delete glContext;
+        delete offscreenSurface;
+    }
+};
+```
+
+**Requirements:**
+- Use `QGuiApplication` (not `QCoreApplication`)
+- Link `Qt6::Gui` in test `CMakeLists.txt`
+- Call `glContext->makeCurrent()` before `obs_shutdown()` to avoid cleanup warnings
+
+---
+
+### Missing Frontend API Mocks
+
+Tests linking `src/obs-executor.cpp` need mocks for ALL `obs_frontend_*` functions, even if unused. Common missing ones:
+
+```cpp
+// tests/mock_frontend.cpp
+extern "C" {
+
+void obs_frontend_get_scenes(struct obs_frontend_source_list *list) {
+    if (!list) return;
+    list->sources.num = 0;
+    list->sources.array = nullptr;
+    // If you need to populate scenes, allocate with bmalloc and addref each source
+}
+
+void obs_frontend_get_transitions(struct obs_frontend_source_list *list) {
+    if (!list) return;
+    list->sources.num = g_transitions.size();
+    list->sources.array = (obs_source_t**)bmalloc(sizeof(obs_source_t*) * g_transitions.size());
+    for (size_t i = 0; i < g_transitions.size(); i++) {
+        list->sources.array[i] = g_transitions[i];
+        obs_source_get_ref(g_transitions[i]);
+    }
+}
+
+obs_source_t* obs_frontend_get_current_scene(void) {
+    if (g_current_scene) obs_source_get_ref(g_current_scene);
+    return g_current_scene;
+}
+
+// ... other frontend functions as needed ...
+}
+```
+
+**Tip:** Check linker errors for exact missing symbols. Add minimal stub returning null/empty.
+
+---
+
+## Advanced UI Patterns
+
+### Settings Menu with Embedded Widgets
+
+When your dock has too many controls for the toolbar, use a `QMenu` with `QWidgetAction` to embed any Qt widget:
+
+```cpp
+// In setupUi():
+settingsButton = new QPushButton("Settings...", this);
+settingsMenu = new QMenu(settingsButton);
+
+// Embed QCheckBox:
+QWidgetAction *centerAction = new QWidgetAction(settingsMenu);
+centerAction->setDefaultWidget(centerControlsCheckbox);
+settingsMenu->addAction(centerAction);
+
+// Embed QComboBox:
+QWidgetAction *gridTypeAction = new QWidgetAction(settingsMenu);
+gridTypeAction->setDefaultWidget(gridTypeCombo);
+settingsMenu->addAction(gridTypeAction);
+
+// Embed QSpinBox with label:
+QWidgetAction *bpmAction = new QWidgetAction(settingsMenu);
+bpmAction->setDefaultWidget(bpmSpinbox);
+settingsMenu->addAction(bpmAction);
+
+// Connect button to show menu:
+connect(settingsButton, &QPushButton::clicked, this, [this]() {
+    settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+});
+
+// In updateControlsLayout(): remove embedded widgets from main layout
+// Only add settingsButton to rightWidgets list
+```
+
+**Gotcha:** The embedded widgets must have a parent (usually `settingsMenu` or the main dock). They are automatically destroyed when the menu is destroyed. If you conditionally hide/show based on other settings (e.g., only show `noteLengthCombo` in BPM mode), call `setVisible()` in your mode-change handler.
+
+---
+
+### Two-Mode Grid with Note Subdivision
+
+Separate time-based snapping from BPM-based musical snapping using a combo box and a note-length selector:
+
+```cpp
+// Members in header:
+QComboBox *gridTypeCombo;     // "Time" (0) or "BPM" (1)
+QComboBox *noteLengthCombo;   // Whole, Half, Quarter, Eighth, Sixteenth, 32nd
+double noteLengthBeats = 1.0;  // Quarter note = 1 beat
+bool gridToBpm = false;
+
+// In setupUi():
+gridTypeCombo = new QComboBox(this);
+gridTypeCombo->addItem("Time", 0);
+gridTypeCombo->addItem("BPM", 1);
+connect(gridTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+        this, &TimelineDock::onGridModeChanged);
+
+noteLengthCombo = new QComboBox(this);
+noteLengthCombo->addItem("Whole", 4.0);
+noteLengthCombo->addItem("Half", 2.0);
+noteLengthCombo->addItem("Quarter", 1.0);
+noteLengthCombo->addItem("Eighth", 0.5);
+noteLengthCombo->addItem("Sixteenth", 0.25);
+noteLengthCombo->addItem("32nd", 0.125);
+connect(noteLengthCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+        this, &TimelineDock::onNoteLengthChanged);
+
+// In onGridModeChanged:
+void TimelineDock::onGridModeChanged(int index) {
+    gridToBpm = (index == 1);
+    noteLengthCombo->setVisible(gridToBpm);           // Show only in BPM mode
+    updateControlsLayout();                          // Refresh main toolbar
+    applySnapIntervalToItems();
+    drawGrid();
+}
+
+// In getSnapIntervalMs():
+double getSnapIntervalMs() const {
+    if (gridToBpm && bpm > 0.0) {
+        return (60.0 / bpm) * noteLengthBeats * 1000.0;
+    }
+    return manualSnapIntervalMs;  // from spinbox value
+}
+
+// In drawGrid() - calculate step based on mode:
+if (gridToBpm && bpm > 0.0) {
+    double beatIntervalSec = (60.0 / bpm) * noteLengthBeats;
+    stepPx = beatIntervalSec * pixelsPerSecond;
+} else {
+    // ... adaptive time-based step ...
+}
+```
+
+**Persistence:** Save `gridToBpm` (bool or combo index) and `noteLengthBeats` (double) in your JSON settings. On load, restore with `noteLengthCombo->setCurrentIndex(noteLengthCombo->findData(noteLengthBeats))`.
+
+---
+
+## Common Mistakes
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| GL warnings in tests (`gs_texture_destroy: not in graphics context`) | No GL context before `obs_startup()` | Create `QOffscreenSurface` + `QOpenGLContext` in `initTestCase()` |
+| Linker error: `undefined reference to obs_frontend_get_scenes` | Missing mock in `mock_frontend.cpp` | Add stub returning empty list (see above) |
+| Settings widgets disappear from menu after toggling | Parent ownership incorrect | Set parent to `settingsMenu` or `this`; use `QWidgetAction::setDefaultWidget` |
+| Snap interval doesn't update when BPM changes | `getSnapIntervalMs()` ignores `noteLengthBeats` | Multiply by `noteLengthBeats` in BPM mode |
+| UI shows both noteLengthCombo AND time interval in Time mode | `updateControlsLayout()` doesn't hide them | Conditionally append to `rightWidgets` only when `!gridToBpm` |
+
+---
+
+## Testing Strategy
+
+1. **GL Context:** Verify no `device_get_size` warnings in test output.
+2. **Callbacks:** Save/load, hotkeys, frontend events all unregister on unload.
+3. **Serialization:** Round-trip JSON preserves grid mode, note length, BPM, snap interval.
+4. **UI State:** Switching grid mode shows/hides appropriate controls; noteLengthCombo visible only in BPM mode.
+5. **Linking:** All `obs_frontend_*` symbols mocked; no undefined references.
+
+Run: `cmake --build build && cd build && ./tests/run_tests`
+
+**Grep for warnings:**
+```bash
+./tests/run_tests 2>&1 | grep -E "No active swap|device_get_size|undefined reference"
+```
+

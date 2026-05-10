@@ -31,6 +31,8 @@
 #include <QUuid>
 #include <QApplication>
 #include <QShortcut>
+#include <QMenu>
+#include <QWidgetAction>
 #include "event-editor.h"
 #include "timeline-serialization.h"
 
@@ -149,15 +151,15 @@ void TimelineDock::save()
 	if (!configPath)
 		return;
 
-	const QJsonObject root = TimelineSerialization::toJsonObject(
-		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
-		getSnapIntervalMs(), bpm, gridToBpm, centerControls);
+	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
+								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
+								     getSnapIntervalMs(), bpm, gridToBpm,
+								     noteLengthBeats, centerControls);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 		blog(LOG_INFO, "Saved timeline to %s", configPath);
 	} else {
-		blog(LOG_WARNING, "Failed to save timeline to %s: %s", configPath,
-		     errorMessage.toUtf8().constData());
+		blog(LOG_WARNING, "Failed to save timeline to %s: %s", configPath, errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
@@ -176,7 +178,6 @@ void TimelineDock::load()
 		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
 			blog(LOG_WARNING, "Failed to parse timeline config %s: %s", configPath,
 			     errorMessage.toUtf8().constData());
-			bfree(configPath);
 			return;
 		}
 
@@ -185,7 +186,11 @@ void TimelineDock::load()
 		snapCheckbox->setChecked(timelineDoc.snap);
 		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
 		bpmSpinbox->setValue(timelineDoc.bpm);
-		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
+		gridTypeCombo->setCurrentIndex(timelineDoc.gridToBpm ? 1 : 0);
+		noteLengthBeats = timelineDoc.noteLengthBeats;
+		int noteIdx = noteLengthCombo->findData(noteLengthBeats);
+		if (noteIdx >= 0)
+			noteLengthCombo->setCurrentIndex(noteIdx);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
 
 		// onXxx() slots are already called via the signal/slot connections above
@@ -294,10 +299,6 @@ void TimelineDock::setupUi()
 	centerControlsCheckbox->setToolTip("Center controls in the interface");
 	connect(centerControlsCheckbox, &QCheckBox::toggled, this, &TimelineDock::onCenterControlsToggled);
 
-	bpmGridCheckbox = new QCheckBox("BPM Grid", this);
-	bpmGridCheckbox->setToolTip("Align grid to BPM");
-	connect(bpmGridCheckbox, &QCheckBox::toggled, this, &TimelineDock::onBpmGridToggled);
-
 	bpmSpinbox = new QDoubleSpinBox(this);
 	bpmSpinbox->setRange(10, 300);
 	bpmSpinbox->setValue(120);
@@ -323,6 +324,68 @@ void TimelineDock::setupUi()
 
 	endLabel = new QLabel("End:", this);
 
+	// Settings menu for advanced options
+	settingsButton = new QPushButton("Settings...", this);
+	settingsButton->setToolTip("Show advanced settings (Center, BPM, End Time)");
+
+	settingsMenu = new QMenu(settingsButton);
+
+	// Embed centerControlsCheckbox in the menu
+	QWidgetAction *centerAction = new QWidgetAction(settingsMenu);
+	centerAction->setDefaultWidget(centerControlsCheckbox);
+	settingsMenu->addAction(centerAction);
+
+	// Grid mode selector (Time vs BPM)
+	gridTypeCombo = new QComboBox(this);
+	gridTypeCombo->addItem("Time", 0);
+	gridTypeCombo->addItem("BPM", 1);
+	gridTypeCombo->setToolTip("Grid snapping mode: Time (seconds) or BPM (musical)");
+	connect(gridTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&TimelineDock::onGridModeChanged);
+
+	QWidgetAction *gridTypeAction = new QWidgetAction(settingsMenu);
+	gridTypeAction->setDefaultWidget(gridTypeCombo);
+	settingsMenu->addAction(gridTypeAction);
+
+	// Note length selector (for BPM mode)
+	noteLengthCombo = new QComboBox(this);
+	noteLengthCombo->addItem("Whole", 4.0);
+	noteLengthCombo->addItem("Half", 2.0);
+	noteLengthCombo->addItem("Quarter", 1.0);
+	noteLengthCombo->addItem("Eighth", 0.5);
+	noteLengthCombo->addItem("Sixteenth", 0.25);
+	noteLengthCombo->addItem("32nd", 0.125);
+	noteLengthCombo->setToolTip("Note duration for BPM snapping");
+	noteLengthCombo->setCurrentIndex(2); // Default: quarter note
+	connect(noteLengthCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+		&TimelineDock::onNoteLengthChanged);
+
+	QWidgetAction *noteLengthAction = new QWidgetAction(settingsMenu);
+	noteLengthAction->setDefaultWidget(noteLengthCombo);
+	settingsMenu->addAction(noteLengthAction);
+
+	// Initially hidden; shown when BPM mode is active
+	noteLengthCombo->setVisible(false);
+
+	// Embed BPM spinbox
+	QWidgetAction *bpmSpinAction = new QWidgetAction(settingsMenu);
+	bpmSpinAction->setDefaultWidget(bpmSpinbox);
+	settingsMenu->addAction(bpmSpinAction);
+
+	settingsMenu->addSeparator();
+
+	// Embed End label and spinbox
+	QWidgetAction *endLabelAction = new QWidgetAction(settingsMenu);
+	endLabelAction->setDefaultWidget(endLabel);
+	settingsMenu->addAction(endLabelAction);
+
+	QWidgetAction *endTimeAction = new QWidgetAction(settingsMenu);
+	endTimeAction->setDefaultWidget(endTimeSpinbox);
+	settingsMenu->addAction(endTimeAction);
+
+	connect(settingsButton, &QPushButton::clicked, this,
+		[this]() { settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height()))); });
+
 	updateControlsLayout();
 
 	mainLayout->addLayout(controlsLayout);
@@ -346,8 +409,7 @@ void TimelineDock::setupUi()
 	view->viewport()->installEventFilter(this);
 
 	// Playhead
-	playheadItem = scene->addLine(0, 0, 0, view->height(),
-				      QPen(palette().color(QPalette::Highlight), 2));
+	playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(palette().color(QPalette::Highlight), 2));
 	playheadItem->setZValue(100);
 
 	// Drag Guide (hidden by default)
@@ -383,18 +445,22 @@ void TimelineDock::updateControlsLayout()
 	if (centerControls)
 		controlsLayout->addStretch();
 
-	QList<QWidget *> leftWidgets = {playButton, stopButton,    zoomOutButton, zoomInButton,
-					addEventButton, saveButton,  loadButton,    timeLabel};
+	QList<QWidget *> leftWidgets = {playButton,     stopButton, zoomOutButton, zoomInButton,
+					addEventButton, saveButton, loadButton,    timeLabel};
 	for (QWidget *w : leftWidgets) {
 		controlsLayout->addWidget(show(w));
 	}
 
 	controlsLayout->addStretch();
 
-	QList<QWidget *> rightWidgets = {snapCheckbox,      snapIntervalLabel, snapIntervalSpinbox,
-					 loopCheckbox,      centerControlsCheckbox,
-					 bpmGridCheckbox,   bpmSpinbox,
-					 endLabel,          endTimeSpinbox};
+	QList<QWidget *> rightWidgets;
+	rightWidgets.append(snapCheckbox);
+	if (!gridToBpm) {
+		rightWidgets.append(snapIntervalLabel);
+		rightWidgets.append(snapIntervalSpinbox);
+	}
+	rightWidgets.append(loopCheckbox);
+	rightWidgets.append(settingsButton);
 	for (QWidget *w : rightWidgets) {
 		controlsLayout->addWidget(show(w));
 	}
@@ -434,20 +500,22 @@ void TimelineDock::onSnapIntervalChanged(double value)
 	}
 }
 
-void TimelineDock::onBpmGridToggled(bool checked)
+void TimelineDock::onGridModeChanged(int index)
 {
-	gridToBpm = checked;
-	bpmSpinbox->setEnabled(checked);
-	snapIntervalSpinbox->setEnabled(!checked);
-	if (checked) {
-		double beatIntervalSec = 60.0 / bpm;
-		snapIntervalSpinbox->setValue(beatIntervalSec);
-	} else {
+	gridToBpm = (index == 1);
+
+	// Show/hide note length selector in menu
+	noteLengthCombo->setVisible(gridToBpm);
+
+	// Update main toolbar layout (shows/hides snap interval controls)
+	updateControlsLayout();
+
+	// If switching to Time mode, restore manual interval in spinbox
+	if (!gridToBpm) {
 		snapIntervalSpinbox->setValue(manualSnapIntervalMs / 1000.0);
 	}
-	if (snapEnabled) {
-		applySnapIntervalToItems();
-	}
+
+	applySnapIntervalToItems();
 	drawGrid();
 }
 
@@ -455,12 +523,22 @@ void TimelineDock::onBpmChanged(double value)
 {
 	bpm = value;
 	if (gridToBpm) {
-		double beatIntervalSec = 60.0 / bpm;
-		snapIntervalSpinbox->setValue(beatIntervalSec);
-		if (snapEnabled) {
-			applySnapIntervalToItems();
-		}
+		applySnapIntervalToItems();
 		drawGrid();
+	}
+}
+
+void TimelineDock::onNoteLengthChanged(int index)
+{
+	QVariant data = noteLengthCombo->itemData(index);
+	bool ok;
+	double beats = data.toDouble(&ok);
+	if (ok) {
+		noteLengthBeats = beats;
+		if (gridToBpm) {
+			applySnapIntervalToItems();
+			drawGrid();
+		}
 	}
 }
 
@@ -618,27 +696,27 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					}
 				}
 
-			// Not on an item - clear selection and scrub
-			for (TimelineEventItem *item : eventItemMap) {
-				if (item)
-					item->setSelected(false);
-			}
-
-			double x = scenePos.x();
-			double timeMs = (x / pixelsPerSecond) * 1000.0;
-			if (timeMs < 0)
-				timeMs = 0;
-
-			if (scheduler->isPlaying()) {
-				scheduler->pause();
-				if (executor) {
-					executor->cancelAll();
+				// Not on an item - clear selection and scrub
+				for (TimelineEventItem *item : eventItemMap) {
+					if (item)
+						item->setSelected(false);
 				}
-				playButton->setText("Play");
-			}
 
-			scheduler->seek(timeMs);
-			return true;
+				double x = scenePos.x();
+				double timeMs = (x / pixelsPerSecond) * 1000.0;
+				if (timeMs < 0)
+					timeMs = 0;
+
+				if (scheduler->isPlaying()) {
+					scheduler->pause();
+					if (executor) {
+						executor->cancelAll();
+					}
+					playButton->setText("Play");
+				}
+
+				scheduler->seek(timeMs);
+				return true;
 			}
 		}
 	}
@@ -727,7 +805,7 @@ void TimelineDock::onTimelineLooped()
 double TimelineDock::getSnapIntervalMs() const
 {
 	if (gridToBpm && bpm > 0.0) {
-		return (60.0 / bpm) * 1000.0;
+		return (60.0 / bpm) * noteLengthBeats * 1000.0;
 	}
 	return snapIntervalSpinbox->value() * 1000.0;
 }
@@ -759,9 +837,10 @@ void TimelineDock::onSaveClicked()
 		fileName += ".json";
 	}
 
-	const QJsonObject root = TimelineSerialization::toJsonObject(
-		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
-		getSnapIntervalMs(), bpm, gridToBpm, centerControls);
+	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
+								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
+								     getSnapIntervalMs(), bpm, gridToBpm,
+								     noteLengthBeats, centerControls);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
@@ -792,7 +871,11 @@ void TimelineDock::onLoadClicked()
 		snapCheckbox->setChecked(timelineDoc.snap);
 		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
 		bpmSpinbox->setValue(timelineDoc.bpm);
-		bpmGridCheckbox->setChecked(timelineDoc.gridToBpm);
+		gridTypeCombo->setCurrentIndex(timelineDoc.gridToBpm ? 1 : 0);
+		noteLengthBeats = timelineDoc.noteLengthBeats;
+		int noteIdx = noteLengthCombo->findData(noteLengthBeats);
+		if (noteIdx >= 0)
+			noteLengthCombo->setCurrentIndex(noteIdx);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
 
 		// onXxx() slots are already called via the signal/slot connections above
@@ -822,8 +905,7 @@ void TimelineDock::updateEndMarker()
 		double x = (endTimeMs / 1000.0) * pixelsPerSecond;
 		double h = view->viewport()->height();
 		endMarkerItem = scene->addLine(
-			x, 0, x, h,
-			QPen(palette().color(QPalette::Link), 2, Qt::DashLine)); // Accent dashed line
+			x, 0, x, h, QPen(palette().color(QPalette::Link), 2, Qt::DashLine)); // Accent dashed line
 		endMarkerItem->setZValue(99);
 		endMarkerItem->setToolTip(QString("End time: %1 sec").arg(endTimeMs / 1000.0, 0, 'f', 1));
 	}
@@ -967,8 +1049,8 @@ void TimelineDock::drawGrid()
 	double stepPx;
 
 	if (gridToBpm && bpm > 0.0) {
-		// Calculate beat interval in seconds
-		double beatIntervalSec = 60.0 / bpm;
+		// Calculate beat interval in seconds, scaled by note length
+		double beatIntervalSec = (60.0 / bpm) * noteLengthBeats;
 		stepPx = beatIntervalSec * pixelsPerSecond;
 	} else {
 		// Determine grid step based on zoom level (existing logic)
@@ -1101,9 +1183,7 @@ void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &ev
 	connect(item, &TimelineEventItem::doubleClicked,
 		[this, item, eventId]() { onEventDoubleClicked(item, eventId); });
 
-	connect(item, &TimelineEventItem::deleteRequested, [this, eventId]() {
-		model->removeEventById(eventId);
-	});
+	connect(item, &TimelineEventItem::deleteRequested, [this, eventId]() { model->removeEventById(eventId); });
 
 	connect(item, &TimelineEventItem::colorChangeRequested, [this, item, eventId]() {
 		QColor newColor = QColorDialog::getColor(item->getEventColor(), this, "Select Event Color");
@@ -1153,7 +1233,8 @@ void TimelineDock::rebuildEventItems()
 		TimelineEventItem *item = eventItemMap.value(evt.id, nullptr);
 		if (!item) {
 			// Create new item
-			item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color, evt.customIconPath);
+			item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color,
+						     evt.customIconPath);
 			item->setEventId(evt.id);
 			item->setBorderColor(borderColor);
 			item->setSelectionColor(selectionColor);
@@ -1253,12 +1334,12 @@ void TimelineDock::rebuildEventItems()
 	// Empty hint
 	if (events.empty()) {
 		if (!emptyHintItem) {
-		emptyHintItem = scene->addSimpleText(
-			"Double-click timeline or press Add Event to create your first event");
-		QColor hintColor = palette().color(QPalette::Text);
-		hintColor.setAlpha(128);
-		emptyHintItem->setBrush(QBrush(hintColor));
-		emptyHintItem->setFont(QFont("Arial", 10));
+			emptyHintItem = scene->addSimpleText(
+				"Double-click timeline or press Add Event to create your first event");
+			QColor hintColor = palette().color(QPalette::Text);
+			hintColor.setAlpha(128);
+			emptyHintItem->setBrush(QBrush(hintColor));
+			emptyHintItem->setFont(QFont("Arial", 10));
 			emptyHintItem->setZValue(-5);
 		}
 
@@ -1269,7 +1350,6 @@ void TimelineDock::rebuildEventItems()
 		emptyHintItem->setVisible(false);
 	}
 }
-
 
 void TimelineDock::clearEventItems()
 {
@@ -1294,7 +1374,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &
 
 	if (editor.exec() == QDialog::Accepted) {
 		editor.getUpdatedEvent(evt);
-		evt.id = eventId; // Preserve ID
+		evt.id = eventId;              // Preserve ID
 		evt.timeMs = original->timeMs; // Preserve time
 		model->replaceEventById(eventId, evt);
 		save();
