@@ -14,6 +14,7 @@
 !.gersemirc
 !.gitignore
 !buildspec.json
+!AGENTS.md
 !CMakeLists.txt
 !CMakePresets.json
 !LICENSE

@@ -32,12 +32,12 @@ No deviations — follow root conventions. Tests use the same memory rules (`bza
 ## Commands (Folder-Specific Only)
 
 ```bash
-# Run all tests with verbose output
-./run_tests -v
+# Run all tests with verbose output (from build directory)
+cd build && ./tests/run_tests -v
 
 # Run a specific test function
-./run_tests testSceneSwitch
+cd build && ./tests/run_tests testSceneSwitch
 
 # Run tests matching a pattern
-./run_tests testMedia*
+cd build && ./tests/run_tests testMedia*
 ```

@@ -21,7 +21,7 @@ Main plugin source code. Contains the dock widget (`TimelineDock`), timeline mod
 ## Deviations from Root
 
 - Qt objects rely on parent-child ownership; prefer `deleteLater()` over direct `delete` for items that may be handling events.
-- Event items are stored in a `QList<TimelineEventItem *>` (not a map) to support multiple events at the same timestamp.
+- Event items are stored in a `QHash<QString, TimelineEventItem *>` keyed by event ID to support fast lookup and multiple events at the same timestamp.
 
 ## Dependencies & Side Effects
 
