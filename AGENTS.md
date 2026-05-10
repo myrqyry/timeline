@@ -33,7 +33,7 @@ Before debugging logic, prove you are running the new code:
 Every plugin entry file (`plugin-main.cpp`) must contain:
 ```c
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("obs-timeline-plugin", "en-US")
+OBS_MODULE_USE_DEFAULT_LOCALE("timeline", "en-US")
 ```
 
 ## Quick Commands
