@@ -2,6 +2,7 @@
 #include <obs-module.h>
 
 #include <QGraphicsLineItem>
+#include <QGraphicsPolygonItem>
 #include <QGraphicsRectItem>
 #include <QResizeEvent>
 #include <obs-frontend-api.h>
@@ -10,6 +11,7 @@
 #endif
 #include <QDateTime>
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -19,10 +21,10 @@
 #include <QMouseEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSimpleTextItem>
- #include <QWheelEvent>
- #include <cmath>
- #include <algorithm>
- #include <QDialog>
+#include <QWheelEvent>
+#include <cmath>
+#include <algorithm>
+#include <QDialog>
 #include <QFileDialog>
 #include <QComboBox>
 #include <QLineEdit>
@@ -32,18 +34,18 @@
 #include <QUuid>
 #include <QApplication>
 #include <QShortcut>
+#include <QScrollBar>
 #include <QMenu>
 #include <QWidgetAction>
- #include "event-editor.h"
- #include "timeline-serialization.h"
+#include "event-editor.h"
+#include "timeline-serialization.h"
 
- // Stepped zoom levels for clean, professional increments
- static const std::vector<double> ZOOM_LEVELS = { 5.0,  10.0, 15.0, 20.0, 30.0,
- 						50.0, 75.0, 100.0, 150.0, 200.0,
- 						300.0, 500.0, 750.0, 1000.0 };
+// Stepped zoom levels for clean, professional increments
+static const std::vector<double> ZOOM_LEVELS = {5.0,   10.0,  15.0,  20.0,  30.0,  50.0,  75.0,
+						100.0, 150.0, 200.0, 300.0, 500.0, 750.0, 1000.0};
 
- TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
- {
+TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
+{
 	blog(LOG_INFO, "TimelineDock constructor started");
 	model = new TimelineModel(this);
 	blog(LOG_INFO, "TimelineDock: Model created");
@@ -53,6 +55,7 @@
 	blog(LOG_INFO, "TimelineDock: Executor created");
 
 	setupUi();
+	blog(LOG_INFO, "TimelineDock: setupUi completed");
 
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
 	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
@@ -61,6 +64,9 @@
 		if (!rebuildScheduled) {
 			rebuildScheduled = true;
 			QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
+		}
+		if (!loadingTimeline) {
+			save();
 		}
 	});
 
@@ -86,6 +92,8 @@
 
 TimelineDock::~TimelineDock()
 {
+	blog(LOG_INFO, "TimelineDock destructor started");
+	save();
 	obs_frontend_remove_event_callback(themeChangedCallback, this);
 	obs_frontend_remove_save_callback(saveCallback, this);
 
@@ -140,7 +148,13 @@ void TimelineDock::themeChangedCallback(enum obs_frontend_event event, void *pri
 {
 	if (event == OBS_FRONTEND_EVENT_THEME_CHANGED) {
 		auto *dock = static_cast<TimelineDock *>(private_data);
-		QMetaObject::invokeMethod(dock, "updateLayout", Qt::QueuedConnection);
+		QMetaObject::invokeMethod(
+			dock,
+			[dock]() {
+				dock->updateToolbarIcons();
+				dock->updateLayout();
+			},
+			Qt::QueuedConnection);
 	}
 }
 
@@ -148,7 +162,7 @@ void TimelineDock::onRestartHotkey()
 {
 	scheduler->stop();
 	scheduler->start();
-	playButton->setText("Pause");
+	updatePlayButtonIcon();
 }
 
 void TimelineDock::save()
@@ -156,11 +170,16 @@ void TimelineDock::save()
 	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline.json");
 	if (!configPath)
 		return;
+	if (loadingTimeline) {
+		bfree(configPath);
+		return;
+	}
 
 	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
 								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
 								     getSnapIntervalMs(), bpm, gridToBpm,
-								     noteLengthBeats, centerControls);
+								     noteLengthBeats, centerControls,
+								     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 		blog(LOG_INFO, "Saved timeline to %s", configPath);
@@ -178,12 +197,16 @@ void TimelineDock::load()
 
 	QJsonDocument doc;
 	QString errorMessage;
+	const QFileInfo configInfo(configPath);
 	if (TimelineSerialization::loadFromFile(configPath, doc, &errorMessage)) {
 		blog(LOG_INFO, "Loading config file: %s", configPath);
 		TimelineDocument timelineDoc;
+		loadingTimeline = true;
 		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			loadingTimeline = false;
 			blog(LOG_WARNING, "Failed to parse timeline config %s: %s", configPath,
 			     errorMessage.toUtf8().constData());
+			bfree(configPath);
 			return;
 		}
 
@@ -198,65 +221,71 @@ void TimelineDock::load()
 		if (noteIdx >= 0)
 			noteLengthCombo->setCurrentIndex(noteIdx);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
+		scheduler->seek(timelineDoc.currentTimeMs);
+		loadingTimeline = false;
 
 		// onXxx() slots are already called via the signal/slot connections above
 		// (setChecked/setValue triggers toggled/valueChanged signals)
 
 		updateLayout(); // Refresh UI with new events
 		blog(LOG_INFO, "Loaded timeline from %s", configPath);
+	} else if (!configInfo.exists()) {
+		QDir().mkpath(configInfo.absolutePath());
+		const QJsonObject root = TimelineSerialization::toJsonObject(
+			*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
+			getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls,
+			scheduler->getCurrentTime(), pixelsPerSecond);
+		if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
+			blog(LOG_INFO, "Created default timeline config at %s", configPath);
+		} else {
+			blog(LOG_WARNING, "Failed to create default timeline config %s: %s", configPath,
+			     errorMessage.toUtf8().constData());
+		}
 	} else {
-		blog(LOG_INFO, "No config file found at: %s (%s)", configPath, errorMessage.toUtf8().constData());
+		blog(LOG_WARNING, "Failed to load timeline config %s: %s", configPath,
+		     errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
 
 void TimelineDock::setupUi()
 {
+	blog(LOG_INFO, "setupUi: entered");
 	QVBoxLayout *mainLayout = new QVBoxLayout(this);
+	blog(LOG_INFO, "setupUi: created mainLayout");
 
-	auto shouldIgnoreShortcut = [this]() -> bool {
-		QWidget *focusWidget = QApplication::focusWidget();
-		return focusWidget &&
-		       (qobject_cast<QLineEdit *>(focusWidget) || qobject_cast<QComboBox *>(focusWidget));
-	};
+	// Compute playhead color (lighter version of highlight)
+	playheadColor = palette().color(QPalette::Highlight).lighter(130);
+	blog(LOG_INFO, "setupUi: playheadColor set");
+	blog(LOG_INFO, "setupUi: skipping shortcuts for now");
 
-	auto *spaceShortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
-	spaceShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-	connect(spaceShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
-		if (!shouldIgnoreShortcut())
-			onPlayClicked();
-	});
-
-	auto *deleteShortcut = new QShortcut(QKeySequence(Qt::Key_Delete), this);
-	deleteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-	connect(deleteShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
-		if (!shouldIgnoreShortcut())
-			deleteSelectedEvents();
-	});
-
-	auto *homeShortcut = new QShortcut(QKeySequence(Qt::Key_Home), this);
-	homeShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-	connect(homeShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
-		if (!shouldIgnoreShortcut())
-			scheduler->seek(0);
-	});
-
-	auto *copyShortcut = new QShortcut(QKeySequence::Copy, this);
-	copyShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-	connect(copyShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
-		if (!shouldIgnoreShortcut())
-			copySelectedEvents();
-	});
-
-	auto *pasteShortcut = new QShortcut(QKeySequence::Paste, this);
-	pasteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-	connect(pasteShortcut, &QShortcut::activated, this, [this, shouldIgnoreShortcut]() {
-		if (!shouldIgnoreShortcut())
-			pasteEvents();
-	});
+	blog(LOG_INFO, "setupUi: about to create controls");
 
 	// Unified Controls Row
 	controlsLayout = new QHBoxLayout();
+
+	blog(LOG_INFO, "setupUi: controlsLayout created");
+
+	settingsButton = new QPushButton(this);
+	settingsButton->setToolTip("Show timeline settings and file actions");
+	blog(LOG_INFO, "setupUi: created buttons");
+
+	blog(LOG_INFO, "setupUi: about to create separators");
+	auto createSeparator = [this]() {
+		QFrame *line = new QFrame(this);
+		line->setFrameShape(QFrame::VLine);
+		line->setFrameShadow(QFrame::Sunken);
+		return line;
+	};
+	settingsSeparator = createSeparator();
+	playbackSeparator = createSeparator();
+	timeSeparator = createSeparator();
+	zoomSeparator = createSeparator();
+	addSeparator = createSeparator();
+	modeSeparator = createSeparator();
+	snapSeparator = createSeparator();
+	blog(LOG_INFO, "setupUi: separators created");
 
 	// Playback Controls
 	playButton = new QPushButton("Play", this);
@@ -267,7 +296,7 @@ void TimelineDock::setupUi()
 	zoomOutButton->setToolTip("Zoom out (Ctrl+Scroll)");
 	zoomInButton = new QPushButton("+", this);
 	zoomInButton->setToolTip("Zoom in (Ctrl+Scroll)");
-	addEventButton = new QPushButton("Add Event", this);
+	addEventButton = new QPushButton(this);
 	addEventButton->setToolTip("Add a new event at the current playhead position");
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
@@ -276,30 +305,43 @@ void TimelineDock::setupUi()
 	connect(zoomInButton, &QPushButton::clicked, this, &TimelineDock::onZoomInClicked);
 	connect(addEventButton, &QPushButton::clicked, this, &TimelineDock::onAddEventClicked);
 
-	// Save/Load (will be added in updateControlsLayout)
-
 	// Time Display
 	timeLabel = new QLabel("00:00:00", this);
 	timeLabel->setToolTip("Current timeline position | Zoom level");
 
-	// Options
-	snapCheckbox = new QCheckBox("Snap", this);
-	snapCheckbox->setToolTip("Snap events to grid when dragging");
-	connect(snapCheckbox, &QCheckBox::toggled, this, &TimelineDock::onSnapToggled);
+	// Zoom label (overlay on viewport)
+	zoomLabel = new QLabel(this);
+	zoomLabel->setToolTip("Current zoom level");
+	zoomLabel->setStyleSheet(
+		"QLabel { background-color: rgba(0,0,0,120); color: white; padding: 2px 6px; border-radius: 3px; }");
 
-	snapIntervalLabel = new QLabel("Interval:", this);
+	// Options
+	snapCheckbox = new QPushButton(this);
+	snapCheckbox->setCheckable(true);
+	snapCheckbox->setToolTip("Snap events to grid when dragging");
+	connect(snapCheckbox, &QPushButton::toggled, this, &TimelineDock::onSnapToggled);
+
+	snapIntervalLabel = new QLabel(this);
 	snapIntervalSpinbox = new QDoubleSpinBox(this);
 	snapIntervalSpinbox->setRange(0.05, 10.0);
 	snapIntervalSpinbox->setValue(0.5);
 	snapIntervalSpinbox->setDecimals(2);
 	snapIntervalSpinbox->setSingleStep(0.05);
+	snapIntervalSpinbox->setSuffix(" sec");
 	snapIntervalSpinbox->setToolTip("Snap interval in seconds");
 	connect(snapIntervalSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
 		&TimelineDock::onSnapIntervalChanged);
 
-	loopCheckbox = new QCheckBox("Loop", this);
+	loopCheckbox = new QPushButton(this);
+	loopCheckbox->setCheckable(true);
 	loopCheckbox->setToolTip("Loop playback when end time is reached");
-	connect(loopCheckbox, &QCheckBox::toggled, this, &TimelineDock::onLoopToggled);
+	connect(loopCheckbox, &QPushButton::toggled, this, &TimelineDock::onLoopToggled);
+
+	QString iconToggleStyle = "QPushButton { padding: 4px; }"
+				  "QPushButton:checked { background-color: palette(highlight); "
+				  "color: palette(highlighted-text); }";
+	snapCheckbox->setStyleSheet(iconToggleStyle);
+	loopCheckbox->setStyleSheet(iconToggleStyle);
 
 	centerControlsCheckbox = new QCheckBox("Center", this);
 	centerControlsCheckbox->setToolTip("Center controls in the interface");
@@ -308,6 +350,7 @@ void TimelineDock::setupUi()
 	bpmSpinbox = new QDoubleSpinBox(this);
 	bpmSpinbox->setRange(10, 300);
 	bpmSpinbox->setValue(120);
+	bpmSpinbox->setSuffix(" bpm");
 	bpmSpinbox->setToolTip("Beats Per Minute");
 	connect(bpmSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &TimelineDock::onBpmChanged);
 
@@ -316,25 +359,27 @@ void TimelineDock::setupUi()
 	endTimeSpinbox->setValue(0);
 	endTimeSpinbox->setDecimals(1);
 	endTimeSpinbox->setSingleStep(1.0);
+	endTimeSpinbox->setSuffix(" sec");
 	endTimeSpinbox->setToolTip("Set timeline end time (0 = no limit)");
 	connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
 		&TimelineDock::onEndTimeChanged);
 
 	saveButton = new QPushButton("Save", this);
 	saveButton->setToolTip("Export timeline to JSON file");
+	saveButton->hide();
 	connect(saveButton, &QPushButton::clicked, this, &TimelineDock::onSaveClicked);
 
 	loadButton = new QPushButton("Load", this);
 	loadButton->setToolTip("Import timeline from JSON file");
+	loadButton->hide();
 	connect(loadButton, &QPushButton::clicked, this, &TimelineDock::onLoadClicked);
 
 	endLabel = new QLabel("End:", this);
 
-	// Settings menu for advanced options
-	settingsButton = new QPushButton("Settings", this);
-	settingsButton->setToolTip("Show advanced settings (Center, BPM, End Time)");
-
 	settingsMenu = new QMenu(settingsButton);
+	settingsMenu->addAction("Save Timeline", this, &TimelineDock::onSaveClicked);
+	settingsMenu->addAction("Load Timeline", this, &TimelineDock::onLoadClicked);
+	settingsMenu->addSeparator();
 
 	// Embed centerControlsCheckbox in the menu
 	QWidgetAction *centerAction = new QWidgetAction(settingsMenu);
@@ -373,40 +418,42 @@ void TimelineDock::setupUi()
 	// Initially hidden; shown when BPM mode is active
 	noteLengthCombo->setVisible(false);
 
-	// Embed BPM spinbox
-	QWidgetAction *bpmSpinAction = new QWidgetAction(settingsMenu);
-	bpmSpinAction->setDefaultWidget(bpmSpinbox);
-	settingsMenu->addAction(bpmSpinAction);
+	connect(settingsButton, &QPushButton::clicked, this,
+		[this]() { settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height()))); });
 
-	settingsMenu->addSeparator();
+	// Create mode toggle (Time/BPM) buttons
+	setupModeToggle();
 
-	// Embed End label and spinbox
-	QWidgetAction *endLabelAction = new QWidgetAction(settingsMenu);
-	endLabelAction->setDefaultWidget(endLabel);
-	settingsMenu->addAction(endLabelAction);
+	zoomToggleContainer = new QWidget(this);
+	QHBoxLayout *zoomLayout = new QHBoxLayout(zoomToggleContainer);
+	zoomLayout->setSpacing(0);
+	zoomLayout->setContentsMargins(0, 0, 0, 0);
+	QString zoomLeftStyle = "QPushButton { border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
+				"border-right: none; padding: 1px; }";
+	QString zoomRightStyle = "QPushButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
+				 "border-left: none; padding: 1px; }";
+	zoomOutButton->setStyleSheet(zoomLeftStyle);
+	zoomInButton->setStyleSheet(zoomRightStyle);
+	zoomLayout->addWidget(zoomOutButton);
+	zoomLayout->addWidget(zoomInButton);
 
-	QWidgetAction *endTimeAction = new QWidgetAction(settingsMenu);
-	endTimeAction->setDefaultWidget(endTimeSpinbox);
-	settingsMenu->addAction(endTimeAction);
+	updateToolbarIcons();
+	zoomOutButton->setFixedSize(20, 20);
+	zoomInButton->setFixedSize(20, 20);
+	updateZoomLabel();
 
- 	connect(settingsButton, &QPushButton::clicked, this,
- 		[this]() { settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height()))); });
-
- 	// Create mode toggle (Time/BPM) buttons
- 	setupModeToggle();
-
- 	updateControlsLayout();
+	updateControlsLayout();
 
 	mainLayout->addLayout(controlsLayout);
 
-	// Connect scheduler signals
-	connect(scheduler, &TimelineScheduler::finished, this, &TimelineDock::onTimelineFinished);
-	connect(scheduler, &TimelineScheduler::looped, this, &TimelineDock::onTimelineLooped);
+	blog(LOG_INFO, "setupUi: about to add view to layout");
 
 	// Timeline View
 	view = new QGraphicsView(this);
 	scene = new QGraphicsScene(this);
 	view->setScene(scene);
+	zoomLabel->setParent(view->viewport());
+	zoomLabel->raise();
 	view->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 	view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 	view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -416,15 +463,30 @@ void TimelineDock::setupUi()
 
 	// Install event filter for scrubbing handling on viewport
 	view->viewport()->installEventFilter(this);
+	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() { updateZoomLabelPosition(); });
 
 	// Playhead
-	playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(palette().color(QPalette::Highlight), 2));
+	playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(playheadColor, 2));
 	playheadItem->setZValue(100);
 
 	// Drag Guide (hidden by default)
 	dragGuideItem = scene->addLine(0, 0, 0, view->height(), QPen(QColor(0, 255, 0), 1, Qt::DashLine));
 	dragGuideItem->setZValue(110);
 	dragGuideItem->setVisible(false);
+
+	// Playhead handle (triangle glyph) for easier grabbing
+	blog(LOG_INFO, "setupUi: creating playhead handle");
+	playheadHandle = scene->addSimpleText(QString::fromUtf8("\xE2\x96\xB2")); // ▲ triangle
+	playheadHandle->setBrush(QBrush(playheadColor));
+	QFont handleFont = playheadHandle->font();
+	handleFont.setPointSize(10);
+	playheadHandle->setFont(handleFont);
+	playheadHandle->setZValue(101);
+	playheadHandle->setFlag(QGraphicsItem::ItemIgnoresTransformations);
+	playheadHandle->setAcceptedMouseButtons(Qt::NoButton);
+	blog(LOG_INFO, "setupUi: playhead handle created");
+
+	// Initial layout
 
 	// Initial layout
 	blog(LOG_INFO, "setupUi: calling updateLayout");
@@ -451,55 +513,111 @@ void TimelineDock::updateControlsLayout()
 		return w;
 	};
 
- 	if (centerControls)
- 		controlsLayout->addStretch();
+	bpmSpinbox->hide();
+	noteLengthCombo->hide();
+	snapIntervalLabel->hide();
+	snapIntervalSpinbox->hide();
 
- 	QList<QWidget *> leftWidgets = {playButton, stopButton, modeToggleContainer,
- 					zoomOutButton, zoomInButton, addEventButton,
- 					saveButton, loadButton, timeLabel};
- 	for (QWidget *w : leftWidgets) {
-		controlsLayout->addWidget(show(w));
+	controlsLayout->addWidget(show(settingsButton));
+	controlsLayout->addWidget(show(settingsSeparator));
+	if (centerControls) {
+		controlsLayout->addStretch();
 	}
-
+	controlsLayout->addWidget(show(playButton));
+	controlsLayout->addWidget(show(stopButton));
+	controlsLayout->addWidget(show(playbackSeparator));
+	controlsLayout->addWidget(show(timeLabel));
+	controlsLayout->addWidget(show(timeSeparator));
+	controlsLayout->addWidget(show(zoomToggleContainer));
+	controlsLayout->addWidget(show(zoomSeparator));
+	controlsLayout->addWidget(show(addEventButton));
+	controlsLayout->addWidget(show(addSeparator));
 	controlsLayout->addStretch();
-
-	QList<QWidget *> rightWidgets;
-	rightWidgets.append(snapCheckbox);
-	if (!gridToBpm) {
-		rightWidgets.append(snapIntervalLabel);
-		rightWidgets.append(snapIntervalSpinbox);
+	controlsLayout->addWidget(show(modeToggleContainer));
+	if (gridToBpm) {
+		controlsLayout->addWidget(show(bpmSpinbox));
 	}
-	rightWidgets.append(loopCheckbox);
-	rightWidgets.append(settingsButton);
-	for (QWidget *w : rightWidgets) {
-		controlsLayout->addWidget(show(w));
+	controlsLayout->addWidget(show(modeSeparator));
+	controlsLayout->addWidget(show(snapCheckbox));
+	if (gridToBpm) {
+		controlsLayout->addWidget(show(noteLengthCombo));
+	} else {
+		controlsLayout->addWidget(show(snapIntervalSpinbox));
 	}
+	controlsLayout->addWidget(show(snapSeparator));
+	controlsLayout->addWidget(show(endLabel));
+	controlsLayout->addWidget(show(endTimeSpinbox));
+	controlsLayout->addWidget(show(loopCheckbox));
+	updateDependentControlStates();
+	zoomLabel->show();
+	updateZoomLabelPosition();
 
 	setUpdatesEnabled(true); // Re-enable updates after layout change
 }
 
- void TimelineDock::onZoomInClicked()
- {
- 	// Find the first level strictly greater than current
- 	auto it = std::upper_bound(ZOOM_LEVELS.begin(), ZOOM_LEVELS.end(), pixelsPerSecond + 0.01);
- 	if (it != ZOOM_LEVELS.end()) {
- 		pixelsPerSecond = *it;
- 		updateLayout();
- 		updateZoomLabel();
- 	}
- }
+void TimelineDock::updateDependentControlStates()
+{
+	const bool snapSettingsEnabled = snapCheckbox->isChecked();
+	snapIntervalLabel->setEnabled(snapSettingsEnabled);
+	snapIntervalSpinbox->setEnabled(snapSettingsEnabled);
+	noteLengthCombo->setEnabled(snapSettingsEnabled);
 
- void TimelineDock::onZoomOutClicked()
- {
- 	// Find the first level greater or equal, then go back one
- 	auto it = std::lower_bound(ZOOM_LEVELS.begin(), ZOOM_LEVELS.end(), pixelsPerSecond - 0.01);
- 	if (it != ZOOM_LEVELS.begin()) {
- 		--it;
- 		pixelsPerSecond = *it;
- 		updateLayout();
- 		updateZoomLabel();
- 	}
- }
+	const bool hasEndTime = endTimeSpinbox->value() > 0.0;
+	if (!hasEndTime && loopCheckbox->isChecked()) {
+		loopCheckbox->setChecked(false);
+	}
+	loopCheckbox->setEnabled(hasEndTime);
+}
+
+void TimelineDock::updateZoomLabelPosition()
+{
+	if (!zoomLabel || !view || !view->viewport())
+		return;
+
+	zoomLabel->adjustSize();
+	const int margin = 8;
+	const QSize size = zoomLabel->sizeHint();
+	const QRect viewportRect = view->viewport()->rect();
+	zoomLabel->setGeometry(viewportRect.right() - size.width() - margin,
+			       viewportRect.bottom() - size.height() - margin, size.width(), size.height());
+	zoomLabel->raise();
+}
+
+void TimelineDock::seekToSceneX(double x)
+{
+	if (!scheduler)
+		return;
+
+	double timeMs = (x / pixelsPerSecond) * 1000.0;
+	if (timeMs < 0.0)
+		timeMs = 0.0;
+	scheduler->seek(timeMs);
+}
+
+void TimelineDock::onZoomInClicked()
+{
+	// Find the first level strictly greater than current
+	auto it = std::upper_bound(ZOOM_LEVELS.begin(), ZOOM_LEVELS.end(), pixelsPerSecond + 0.01);
+	if (it != ZOOM_LEVELS.end()) {
+		pixelsPerSecond = *it;
+		updateLayout();
+		updateZoomLabel();
+		save();
+	}
+}
+
+void TimelineDock::onZoomOutClicked()
+{
+	// Find the first level greater or equal, then go back one
+	auto it = std::lower_bound(ZOOM_LEVELS.begin(), ZOOM_LEVELS.end(), pixelsPerSecond - 0.01);
+	if (it != ZOOM_LEVELS.begin()) {
+		--it;
+		pixelsPerSecond = *it;
+		updateLayout();
+		updateZoomLabel();
+		save();
+	}
+}
 
 void TimelineDock::onSnapIntervalChanged(double value)
 {
@@ -513,36 +631,38 @@ void TimelineDock::onSnapIntervalChanged(double value)
 			}
 		}
 	}
+	save();
 }
 
- void TimelineDock::onGridModeChanged(int index)
- {
- 	gridToBpm = (index == 1);
+void TimelineDock::onGridModeChanged(int index)
+{
+	gridToBpm = (index == 1);
 
- 	// Show/hide note length selector in menu
- 	noteLengthCombo->setVisible(gridToBpm);
+	// Show/hide note length selector in menu
+	noteLengthCombo->setVisible(gridToBpm);
 
- 	// Update main toolbar layout (shows/hides snap interval controls)
- 	updateControlsLayout();
+	// Update main toolbar layout (shows/hides snap interval controls)
+	updateControlsLayout();
 
- 	// If switching to Time mode, restore manual interval in spinbox
- 	if (!gridToBpm) {
- 		snapIntervalSpinbox->setValue(manualSnapIntervalMs / 1000.0);
- 	}
+	// If switching to Time mode, restore manual interval in spinbox
+	if (!gridToBpm) {
+		snapIntervalSpinbox->setValue(manualSnapIntervalMs / 1000.0);
+	}
 
- 	applySnapIntervalToItems();
- 	drawGrid();
+	applySnapIntervalToItems();
+	drawGrid();
 
- 	// Sync toggle buttons to match new state
- 	if (timeModeBtn && bpmModeBtn) {
- 		timeModeBtn->blockSignals(true);
- 		bpmModeBtn->blockSignals(true);
- 		timeModeBtn->setChecked(!gridToBpm);
- 		bpmModeBtn->setChecked(gridToBpm);
- 		timeModeBtn->blockSignals(false);
- 		bpmModeBtn->blockSignals(false);
- 	}
- }
+	// Sync toggle buttons to match new state
+	if (timeModeBtn && bpmModeBtn) {
+		timeModeBtn->blockSignals(true);
+		bpmModeBtn->blockSignals(true);
+		timeModeBtn->setChecked(!gridToBpm);
+		bpmModeBtn->setChecked(gridToBpm);
+		timeModeBtn->blockSignals(false);
+		bpmModeBtn->blockSignals(false);
+	}
+	save();
+}
 
 void TimelineDock::onBpmChanged(double value)
 {
@@ -551,6 +671,7 @@ void TimelineDock::onBpmChanged(double value)
 		applySnapIntervalToItems();
 		drawGrid();
 	}
+	save();
 }
 
 void TimelineDock::onNoteLengthChanged(int index)
@@ -564,6 +685,7 @@ void TimelineDock::onNoteLengthChanged(int index)
 			applySnapIntervalToItems();
 			drawGrid();
 		}
+		save();
 	}
 }
 
@@ -571,6 +693,7 @@ void TimelineDock::onCenterControlsToggled(bool checked)
 {
 	centerControls = checked;
 	updateControlsLayout();
+	save();
 }
 
 void TimelineDock::resizeEvent(QResizeEvent *event)
@@ -594,6 +717,9 @@ void TimelineDock::resizeEvent(QResizeEvent *event)
 			line.setP2(QPointF(line.x1(), view->viewport()->height()));
 			dragGuideItem->setLine(line);
 		}
+
+		drawGrid();
+		updateZoomLabelPosition();
 	}
 }
 
@@ -670,7 +796,10 @@ void TimelineDock::drawRuler()
 		QGraphicsSimpleTextItem *text = scene->addSimpleText(QString::number(i) + "s");
 		text->setPos(x + 2, 0);
 		text->setBrush(QBrush(textColor));
-		text->setFont(QFont("Arial", 8));
+		QFont markerFont = text->font();
+		markerFont.setPointSize(8);
+		markerFont.setBold(false);
+		text->setFont(markerFont);
 		rulerItems.append(text);
 
 		if (pixelsPerSecond > 50) {
@@ -683,50 +812,49 @@ void TimelineDock::drawRuler()
 	}
 }
 
- bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
- {
- 	if (obj == view->viewport()) {
- 		// Right-click on empty area to add event
- 		if (event->type() == QEvent::ContextMenu) {
- 			QContextMenuEvent *ctxEvent = static_cast<QContextMenuEvent *>(event);
- 			QPointF scenePos = view->mapToScene(ctxEvent->pos());
+bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
+{
+	if (obj == view->viewport()) {
+		// Right-click on empty area to add event
+		if (event->type() == QEvent::ContextMenu) {
+			QContextMenuEvent *ctxEvent = static_cast<QContextMenuEvent *>(event);
+			QPointF scenePos = view->mapToScene(ctxEvent->pos());
 
- 			// Check if clicking on an event item
- 			QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
- 			bool onItem = false;
- 			for (QGraphicsItem *it : itemsAt) {
- 				if (it && (it->flags() & QGraphicsItem::ItemIsMovable)) {
- 					onItem = true;
- 					break;
- 				}
- 			}
+			// Check if clicking on an event item
+			QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
+			bool onItem = false;
+			for (QGraphicsItem *it : itemsAt) {
+				if (it && (it->flags() & QGraphicsItem::ItemIsMovable)) {
+					onItem = true;
+					break;
+				}
+			}
 
- 			if (!onItem) {
- 				double clickedTimeMs = (scenePos.x() / pixelsPerSecond) * 1000.0;
- 				if (clickedTimeMs < 0)
- 					clickedTimeMs = 0;
+			if (!onItem) {
+				double clickedTimeMs = (scenePos.x() / pixelsPerSecond) * 1000.0;
+				if (clickedTimeMs < 0)
+					clickedTimeMs = 0;
 
- 				QMenu menu(this);
- 				QAction *addAction = menu.addAction("Add Event Here");
- 				connect(addAction, &QAction::triggered, [this, clickedTimeMs]() {
- 					addEventAtTime(clickedTimeMs);
- 				});
- 				menu.exec(ctxEvent->globalPos());
- 				return true;
- 			}
- 		}
+				QMenu menu(this);
+				QAction *addAction = menu.addAction("Add Event Here");
+				connect(addAction, &QAction::triggered,
+					[this, clickedTimeMs]() { addEventAtTime(clickedTimeMs); });
+				menu.exec(ctxEvent->globalPos());
+				return true;
+			}
+		}
 
- 		if (event->type() == QEvent::Wheel) {
- 			QWheelEvent *wheelEvent = static_cast<QWheelEvent *>(event);
- 			if (wheelEvent->modifiers() & Qt::ControlModifier) {
- 				if (wheelEvent->angleDelta().y() > 0) {
- 					onZoomInClicked();
- 				} else {
- 					onZoomOutClicked();
- 				}
- 				return true;
- 			}
- 		}
+		if (event->type() == QEvent::Wheel) {
+			QWheelEvent *wheelEvent = static_cast<QWheelEvent *>(event);
+			if (wheelEvent->modifiers() & Qt::ControlModifier) {
+				if (wheelEvent->angleDelta().y() > 0) {
+					onZoomInClicked();
+				} else {
+					onZoomOutClicked();
+				}
+				return true;
+			}
+		}
 
 		// Only start scrubbing on press, not on move (to allow item dragging)
 		if (event->type() == QEvent::MouseButtonPress) {
@@ -734,6 +862,8 @@ void TimelineDock::drawRuler()
 			if (mouseEvent->button() == Qt::LeftButton) {
 				QPoint pos = mouseEvent->pos();
 				QPointF scenePos = view->mapToScene(pos);
+				const double playheadX = (scheduler->getCurrentTime() / 1000.0) * pixelsPerSecond;
+				const bool onPlayhead = std::abs(scenePos.x() - playheadX) <= 8.0;
 
 				// Check if clicking on a movable item - if so, let it handle the drag
 				QList<QGraphicsItem *> items = scene->items(scenePos);
@@ -744,26 +874,44 @@ void TimelineDock::drawRuler()
 					}
 				}
 
+				if (onPlayhead) {
+					draggingPlayhead = true;
+					view->viewport()->setCursor(Qt::SizeHorCursor);
+				}
+
 				// Not on an item - clear selection and scrub
 				for (TimelineEventItem *item : eventItemMap) {
 					if (item)
 						item->setSelected(false);
 				}
 
-				double x = scenePos.x();
-				double timeMs = (x / pixelsPerSecond) * 1000.0;
-				if (timeMs < 0)
-					timeMs = 0;
-
 				if (scheduler->isPlaying()) {
 					scheduler->pause();
 					if (executor) {
 						executor->cancelAll();
 					}
-					playButton->setText("Play");
+					updatePlayButtonIcon();
 				}
 
-				scheduler->seek(timeMs);
+				seekToSceneX(scenePos.x());
+				save();
+				return true;
+			}
+		}
+
+		if (event->type() == QEvent::MouseMove && draggingPlayhead) {
+			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+			seekToSceneX(view->mapToScene(mouseEvent->pos()).x());
+			return true;
+		}
+
+		if (event->type() == QEvent::MouseButtonRelease && draggingPlayhead) {
+			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+			if (mouseEvent->button() == Qt::LeftButton) {
+				draggingPlayhead = false;
+				view->viewport()->unsetCursor();
+				seekToSceneX(view->mapToScene(mouseEvent->pos()).x());
+				save();
 				return true;
 			}
 		}
@@ -778,7 +926,8 @@ void TimelineDock::onPlayClicked()
 		if (executor) {
 			executor->cancelAll();
 		}
-		playButton->setText("Play");
+		updatePlayButtonIcon();
+		save();
 #if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
@@ -789,7 +938,8 @@ void TimelineDock::onPlayClicked()
 #endif
 	} else {
 		scheduler->start();
-		playButton->setText("Pause");
+		updatePlayButtonIcon();
+		save();
 #if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
@@ -807,7 +957,8 @@ void TimelineDock::onStopClicked()
 	if (executor) {
 		executor->cancelAll();
 	}
-	playButton->setText("Play");
+	updatePlayButtonIcon();
+	save();
 
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
@@ -822,18 +973,22 @@ void TimelineDock::onStopClicked()
 void TimelineDock::onLoopToggled(bool checked)
 {
 	scheduler->setLooping(checked);
+	save();
 }
 
 void TimelineDock::onEndTimeChanged(double value)
 {
 	scheduler->setEndTime(value * 1000.0); // Convert seconds to ms
+	updateDependentControlStates();
 	updateEndMarker();
+	save();
 }
 
 void TimelineDock::onTimelineFinished()
 {
-	playButton->setText("Play");
+	updatePlayButtonIcon();
 	blog(LOG_INFO, "Timeline playback finished");
+	save();
 
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
@@ -848,6 +1003,7 @@ void TimelineDock::onTimelineFinished()
 void TimelineDock::onTimelineLooped()
 {
 	blog(LOG_INFO, "Timeline looped");
+	save();
 }
 
 double TimelineDock::getSnapIntervalMs() const
@@ -872,7 +1028,9 @@ void TimelineDock::applySnapIntervalToItems()
 void TimelineDock::onSnapToggled(bool checked)
 {
 	snapEnabled = checked;
+	updateDependentControlStates();
 	applySnapIntervalToItems();
+	save();
 }
 
 void TimelineDock::onSaveClicked()
@@ -888,7 +1046,8 @@ void TimelineDock::onSaveClicked()
 	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
 								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
 								     getSnapIntervalMs(), bpm, gridToBpm,
-								     noteLengthBeats, centerControls);
+								     noteLengthBeats, centerControls,
+								     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
@@ -908,7 +1067,9 @@ void TimelineDock::onLoadClicked()
 	QString errorMessage;
 	if (TimelineSerialization::loadFromFile(fileName, doc, &errorMessage)) {
 		TimelineDocument timelineDoc;
+		loadingTimeline = true;
 		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			loadingTimeline = false;
 			blog(LOG_WARNING, "Failed to import timeline from %s: %s", fileName.toStdString().c_str(),
 			     errorMessage.toUtf8().constData());
 			return;
@@ -925,12 +1086,16 @@ void TimelineDock::onLoadClicked()
 		if (noteIdx >= 0)
 			noteLengthCombo->setCurrentIndex(noteIdx);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
+		scheduler->seek(timelineDoc.currentTimeMs);
+		loadingTimeline = false;
 
 		// onXxx() slots are already called via the signal/slot connections above
 		// (setChecked/setValue triggers toggled/valueChanged signals)
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
+		save();
 	} else {
 		blog(LOG_WARNING, "Failed to load timeline from %s: %s", fileName.toStdString().c_str(),
 		     errorMessage.toUtf8().constData());
@@ -1113,16 +1278,17 @@ void TimelineDock::drawGrid()
 		stepPx = stepSeconds * pixelsPerSecond;
 	}
 
-	// Draw vertical grid lines
-	QColor gridColor = palette().color(QPalette::Mid);
-	QPen gridPen(gridColor, 1, Qt::DotLine);
+	// Draw visible vertical grid lines above the scene background but below event items.
+	QColor gridColor = palette().color(QPalette::Text);
+	gridColor.setAlpha(85);
+	QPen gridPen(gridColor, 1, Qt::DashLine);
 	for (double x = 0; x < sceneWidth; x += stepPx) {
 		// Skip x=0 (optional, but usually 0 is implied)
 		if (x < 0.1)
 			continue;
 
 		QGraphicsLineItem *line = scene->addLine(x, 20, x, sceneHeight, gridPen);
-		line->setZValue(-10); // Behind everything
+		line->setZValue(-1);
 		gridItems.append(line);
 	}
 }
@@ -1155,7 +1321,7 @@ void TimelineDock::onTick(double currentTimeMs)
 				   .arg(seconds, 2, 10, QChar('0'))
 				   .arg(ms / 10, 2, 10, QChar('0'));
 
-	QString newText = baseText + zoomLabelCache;
+	QString newText = baseText;
 
 	// Optimization: Only update if text actually changed
 	if (timeLabel->text() != newText) {
@@ -1170,7 +1336,13 @@ void TimelineDock::updatePlayhead(double timeMs)
 	double x = (timeMs / 1000.0) * pixelsPerSecond;
 	double h = view->viewport()->height();
 	playheadItem->setLine(x, 0, x, h);
-	playheadItem->setPen(QPen(palette().color(QPalette::Highlight), 2));
+	playheadItem->setPen(QPen(playheadColor, 2));
+
+	if (playheadHandle) {
+		// Center handle on playhead and position above the line
+		QRectF br = playheadHandle->boundingRect();
+		playheadHandle->setPos(x - br.width() / 2.0, -br.height());
+	}
 
 	// Only auto-scroll when playhead is near an edge
 	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
@@ -1199,29 +1371,29 @@ void TimelineDock::onAddEventClicked()
 		evt.color = ThemeIcons::getDefaultColor(evt.type);
 	}
 
- 	model->addEvent(evt);
- }
+	model->addEvent(evt);
+}
 
- void TimelineDock::addEventAtTime(double timeMs)
- {
- 	EventEditor editor(timeMs, this);
- 	if (editor.exec() != QDialog::Accepted)
- 		return;
+void TimelineDock::addEventAtTime(double timeMs)
+{
+	EventEditor editor(timeMs, this);
+	if (editor.exec() != QDialog::Accepted)
+		return;
 
- 	TimelineEvent evt;
- 	evt.timeMs = timeMs;
+	TimelineEvent evt;
+	evt.timeMs = timeMs;
 
- 	editor.getUpdatedEvent(evt);
+	editor.getUpdatedEvent(evt);
 
- 	// Ensure the event time matches the requested position
- 	evt.timeMs = timeMs;
+	// Ensure the event time matches the requested position
+	evt.timeMs = timeMs;
 
- 	if (evt.color == QColor(0, 200, 255)) {
- 		evt.color = ThemeIcons::getDefaultColor(evt.type);
- 	}
+	if (evt.color == QColor(0, 200, 255)) {
+		evt.color = ThemeIcons::getDefaultColor(evt.type);
+	}
 
- 	model->addEvent(evt);
- }
+	model->addEvent(evt);
+}
 
 void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &eventId)
 {
@@ -1382,8 +1554,8 @@ void TimelineDock::rebuildEventItems()
 				.arg(minutes, 2, 10, QChar('0'))
 				.arg(seconds, 2, 10, QChar('0'))
 				.arg(ms / 10, 2, 10, QChar('0'));
-        item->setToolTip(tooltip);
-        item->setEventLabel(evt.label.isEmpty() ? evt.sourceName : evt.label);
+		item->setToolTip(tooltip);
+		item->setEventLabel(evt.label.isEmpty() ? evt.sourceName : evt.label);
 	}
 
 	// Remove items no longer in the model
@@ -1452,88 +1624,100 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &
 
 void TimelineDock::updateZoomLabel()
 {
-	QString zoomText;
-	if (pixelsPerSecond < 20) {
-		zoomText = QString("Zoom: %1x (Wide)").arg(pixelsPerSecond / 10.0, 0, 'f', 1);
-	} else if (pixelsPerSecond > 200) {
-		zoomText = QString("Zoom: %1x (Close)").arg(pixelsPerSecond / 10.0, 0, 'f', 1);
+	QString zoomText = QString("x%1").arg(pixelsPerSecond / 100.0, 0, 'f', 1);
+
+	zoomLabelCache = zoomText;
+	if (zoomLabel) {
+		zoomLabel->setText(zoomLabelCache);
+		updateZoomLabelPosition();
+	}
+}
+
+void TimelineDock::updatePlayButtonIcon()
+{
+	updateButtonIcon(playButton, scheduler->isPlaying() ? ThemeIcons::PATH_PAUSE : ThemeIcons::PATH_PLAY);
+}
+
+void TimelineDock::updateToolbarIcons()
+{
+	updateButtonIcon(settingsButton, ThemeIcons::PATH_MENU);
+	updatePlayButtonIcon();
+	updateButtonIcon(stopButton, ThemeIcons::PATH_STOP);
+	updateButtonIcon(zoomOutButton, ThemeIcons::PATH_MINUS);
+	updateButtonIcon(zoomInButton, ThemeIcons::PATH_PLUS);
+	updateButtonIcon(snapCheckbox, ThemeIcons::PATH_MAGNET);
+	updateButtonIcon(loopCheckbox, ThemeIcons::PATH_REPEAT);
+	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
+	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
+	QColor color = palette().color(QPalette::Text);
+	QByteArray svgData = ThemeIcons::wrapSvg(ThemeIcons::PATH_ADD_EVENT, color.name());
+	addEventButton->setIcon(QIcon(QPixmap::fromImage(QImage::fromData(svgData))));
+}
+
+void TimelineDock::updateButtonIcon(QPushButton *btn, const char *path)
+{
+	QColor color = palette().color(QPalette::Text);
+	QByteArray svgData = ThemeIcons::wrapSvg(path, color.name());
+	QIcon icon(QPixmap::fromImage(QImage::fromData(svgData)));
+	btn->setIcon(icon);
+	btn->setText("");
+	btn->setFixedSize(24, 24);
+}
+
+void TimelineDock::setupModeToggle()
+{
+	timeModeBtn = new QPushButton(this);
+	bpmModeBtn = new QPushButton(this);
+
+	timeModeBtn->setCheckable(true);
+	bpmModeBtn->setCheckable(true);
+	timeModeBtn->setAutoExclusive(true);
+	bpmModeBtn->setAutoExclusive(true);
+
+	// Set initial state
+	if (gridToBpm) {
+		bpmModeBtn->setChecked(true);
 	} else {
-		zoomText = QString("Zoom: %1x").arg(pixelsPerSecond / 10.0, 0, 'f', 1);
+		timeModeBtn->setChecked(true);
 	}
 
-	zoomLabelCache = " | " + zoomText;
+	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
+	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
 
-	QString currentText = timeLabel->text();
-	if (currentText.contains("|")) {
-		currentText = currentText.split("|").first().trimmed();
-	}
- 	timeLabel->setText(currentText + zoomLabelCache);
- }
+	// Styling to join the buttons
+	QString leftStyle = "QPushButton { border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
+			    "border-right: none; padding: 4px; }"
+			    "QPushButton:checked { background-color: palette(highlight); }";
+	QString rightStyle = "QPushButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
+			     "border-left: none; padding: 4px; }"
+			     "QPushButton:checked { background-color: palette(highlight); }";
 
- void TimelineDock::updateButtonIcon(QPushButton *btn, const char *path)
- {
- 	QColor color = palette().color(QPalette::Text);
- 	QByteArray svgData = ThemeIcons::wrapSvg(path, color.name());
- 	QIcon icon(QPixmap::fromImage(QImage::fromData(svgData)));
- 	btn->setIcon(icon);
- 	btn->setText("");
- 	btn->setFixedSize(24, 24);
- }
+	timeModeBtn->setStyleSheet(leftStyle);
+	bpmModeBtn->setStyleSheet(rightStyle);
 
- void TimelineDock::setupModeToggle()
- {
- 	timeModeBtn = new QPushButton(this);
- 	bpmModeBtn = new QPushButton(this);
+	connect(timeModeBtn, &QPushButton::toggled, [this](bool checked) {
+		if (checked && gridToBpm) {
+			// Switching to Time mode
+			gridTypeCombo->blockSignals(true);
+			gridTypeCombo->setCurrentIndex(0);
+			gridTypeCombo->blockSignals(false);
+			onGridModeChanged(0);
+		}
+	});
+	connect(bpmModeBtn, &QPushButton::toggled, [this](bool checked) {
+		if (checked && !gridToBpm) {
+			// Switching to BPM mode
+			gridTypeCombo->blockSignals(true);
+			gridTypeCombo->setCurrentIndex(1);
+			gridTypeCombo->blockSignals(false);
+			onGridModeChanged(1);
+		}
+	});
 
- 	timeModeBtn->setCheckable(true);
- 	bpmModeBtn->setCheckable(true);
- 	timeModeBtn->setAutoExclusive(true);
- 	bpmModeBtn->setAutoExclusive(true);
-
- 	// Set initial state
- 	if (gridToBpm) {
- 		bpmModeBtn->setChecked(true);
- 	} else {
- 		timeModeBtn->setChecked(true);
- 	}
-
- 	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
- 	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
-
- 	// Styling to join the buttons
- 	QString leftStyle = "QPushButton { border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
- 			    "border-right: none; padding: 4px; }"
- 			    "QPushButton:checked { background-color: palette(highlight); }";
- 	QString rightStyle = "QPushButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
- 			     "border-left: none; padding: 4px; }"
- 			     "QPushButton:checked { background-color: palette(highlight); }";
-
- 	timeModeBtn->setStyleSheet(leftStyle);
- 	bpmModeBtn->setStyleSheet(rightStyle);
-
- 	connect(timeModeBtn, &QPushButton::toggled, [this](bool checked) {
- 		if (checked && gridToBpm) {
- 			// Switching to Time mode
- 			gridTypeCombo->blockSignals(true);
- 			gridTypeCombo->setCurrentIndex(0);
- 			gridTypeCombo->blockSignals(false);
- 			onGridModeChanged(0);
- 		}
- 	});
- 	connect(bpmModeBtn, &QPushButton::toggled, [this](bool checked) {
- 		if (checked && !gridToBpm) {
- 			// Switching to BPM mode
- 			gridTypeCombo->blockSignals(true);
- 			gridTypeCombo->setCurrentIndex(1);
- 			gridTypeCombo->blockSignals(false);
- 			onGridModeChanged(1);
- 		}
- 	});
-
- 	modeToggleContainer = new QWidget(this);
- 	QHBoxLayout *toggleLayout = new QHBoxLayout(modeToggleContainer);
- 	toggleLayout->setSpacing(0);
- 	toggleLayout->setContentsMargins(0, 0, 0, 0);
- 	toggleLayout->addWidget(timeModeBtn);
- 	toggleLayout->addWidget(bpmModeBtn);
- }
+	modeToggleContainer = new QWidget(this);
+	QHBoxLayout *toggleLayout = new QHBoxLayout(modeToggleContainer);
+	toggleLayout->setSpacing(0);
+	toggleLayout->setContentsMargins(0, 0, 0, 0);
+	toggleLayout->addWidget(timeModeBtn);
+	toggleLayout->addWidget(bpmModeBtn);
+}

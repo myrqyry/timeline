@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QHash>
 #include <QSet>
+#include <QFrame>
 #include <map>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
@@ -53,9 +54,9 @@ private slots:
 	void onPlayClicked();
 	void onStopClicked();
 	void onTick(double currentTimeMs);
- 	void onAddEventClicked();
- 	void addEventAtTime(double timeMs);
- 	void onEventDoubleClicked(TimelineEventItem *item, const QString &eventId);
+	void onAddEventClicked();
+	void addEventAtTime(double timeMs);
+	void onEventDoubleClicked(TimelineEventItem *item, const QString &eventId);
 	void onLoopToggled(bool checked);
 	void onEndTimeChanged(double value);
 	void onSnapToggled(bool checked);
@@ -72,27 +73,32 @@ private slots:
 	void onCenterControlsToggled(bool checked);
 	void onRestartHotkey();
 
- private:
- 	void setupUi();
- 	void setupModeToggle();
- 	void updatePlayhead(double timeMs);
- 	void updateLayout();
- 	void drawRuler();
- 	void drawGrid();
- 	void clearRuler();
- 	void rebuildEventItems();
- 	void clearEventItems();
- 	void updateZoomLabel();
- 	void updateEndMarker();
- 	void deleteSelectedEvents();
- 	void copySelectedEvents();
- 	void pasteEvents();
- 	void nudgeSelectedEvents(double deltaMs);
- 	void updateControlsLayout();
- 	double getSnapIntervalMs() const;
- 	void applySnapIntervalToItems();
- 	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
- 	void updateButtonIcon(QPushButton *btn, const char *path);
+private:
+	void setupUi();
+	void setupModeToggle();
+	void updatePlayhead(double timeMs);
+	void updateLayout();
+	void drawRuler();
+	void drawGrid();
+	void clearRuler();
+	void rebuildEventItems();
+	void clearEventItems();
+	void updateZoomLabel();
+	void updateEndMarker();
+	void updatePlayButtonIcon();
+	void updateToolbarIcons();
+	void deleteSelectedEvents();
+	void copySelectedEvents();
+	void pasteEvents();
+	void nudgeSelectedEvents(double deltaMs);
+	void updateControlsLayout();
+	double getSnapIntervalMs() const;
+	void applySnapIntervalToItems();
+	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
+	void updateButtonIcon(QPushButton *btn, const char *path);
+	void updateDependentControlStates();
+	void updateZoomLabelPosition();
+	void seekToSceneX(double x);
 
 	QList<TimelineEvent> clipboard;
 
@@ -119,6 +125,14 @@ private slots:
 	QPushButton *saveButton;
 	QPushButton *loadButton;
 	QPushButton *settingsButton;
+	QWidget *zoomToggleContainer;
+	QFrame *settingsSeparator;
+	QFrame *playbackSeparator;
+	QFrame *timeSeparator;
+	QFrame *zoomSeparator;
+	QFrame *addSeparator;
+	QFrame *modeSeparator;
+	QFrame *snapSeparator;
 
 	// Mode toggle buttons
 	QPushButton *timeModeBtn;
@@ -126,8 +140,8 @@ private slots:
 	QWidget *modeToggleContainer;
 
 	// Options
-	QCheckBox *loopCheckbox;
-	QCheckBox *snapCheckbox;
+	QPushButton *loopCheckbox;
+	QPushButton *snapCheckbox;
 	QCheckBox *centerControlsCheckbox;
 	QDoubleSpinBox *endTimeSpinbox;
 	QDoubleSpinBox *bpmSpinbox;
@@ -135,6 +149,7 @@ private slots:
 	QComboBox *gridTypeCombo;
 	QComboBox *noteLengthCombo;
 	QLabel *timeLabel;
+	QLabel *zoomLabel;
 	QLabel *endLabel;
 	QLabel *snapIntervalLabel;
 
@@ -145,10 +160,13 @@ private slots:
 	double noteLengthBeats = 1.0; // Quarter note (1 beat)
 
 	QGraphicsLineItem *playheadItem;
+	QGraphicsSimpleTextItem *playheadHandle = nullptr;
 
 	QGraphicsLineItem *endMarkerItem = nullptr;
 	QGraphicsLineItem *dragGuideItem = nullptr;
 	QGraphicsSimpleTextItem *emptyHintItem = nullptr;
+
+	QColor playheadColor;
 
 	QList<QGraphicsItem *> rulerItems;
 	QList<QGraphicsItem *> gridItems;
@@ -158,7 +176,9 @@ private slots:
 
 	double pixelsPerSecond = 100.0;
 	bool snapEnabled = false;
+	bool draggingPlayhead = false;
 	double manualSnapIntervalMs = 500.0;
+	bool loadingTimeline = false;
 
 	// Hotkeys
 	obs_hotkey_id hotkeyIdPlayPause = OBS_INVALID_HOTKEY_ID;

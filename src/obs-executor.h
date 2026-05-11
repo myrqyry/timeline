@@ -13,6 +13,7 @@ class ObsExecutor : public QObject {
 
 public:
 	ObsExecutor(QObject *parent = nullptr);
+	~ObsExecutor();
 	void setObsWebSocketVendor(void *vendor);
 
 public slots:

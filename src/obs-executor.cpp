@@ -9,7 +9,10 @@
 
 ObsExecutor::ObsExecutor(QObject *parent) : QObject(parent)
 {
-	blog(LOG_INFO, "ObsExecutor created");
+}
+
+ObsExecutor::~ObsExecutor()
+{
 }
 
 void ObsExecutor::setObsWebSocketVendor(void *vendor)
