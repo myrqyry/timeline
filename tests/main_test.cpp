@@ -407,8 +407,8 @@ private slots:
 		QVERIFY(TimelineSerialization::fromJsonDocument(legacyDoc, model, docData));
 		QCOMPARE(static_cast<int>(docData.events.size()), 1);
 
-		QJsonObject root =
-			TimelineSerialization::toJsonObject(model, true, 12.5, true, 750.0, 128.0, true, 1.0, true);
+		QJsonObject root = TimelineSerialization::toJsonObject(model, true, 12.5, true, 750.0, 128.0, true, 1.0,
+									true, false);
 		QJsonDocument objectDoc(root);
 		TimelineDocument loaded;
 		QVERIFY(TimelineSerialization::fromJsonDocument(objectDoc, model, loaded));

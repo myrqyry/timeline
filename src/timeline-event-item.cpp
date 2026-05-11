@@ -1,6 +1,7 @@
  #include "timeline-event-item.h"
- #include <QGraphicsSceneMouseEvent>
- #include <QGraphicsSceneContextMenuEvent>
+#include <QGraphicsSceneMouseEvent>
+#include <QGraphicsSceneHoverEvent>
+#include <QGraphicsSceneContextMenuEvent>
  #include <QMenu>
  #include <QCursor>
  #include <QPainter>
@@ -16,16 +17,18 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
     : QObject(nullptr), QGraphicsEllipseItem(parent), pixelsPerSecond(pixelsPerSecond),
       eventColor(color), customIconPath(customIconPath), eventType(type)
 {
-    setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
-    // Center the item horizontally on the time
-    setPos((timeMs / 1000.0 * pixelsPerSecond) - (ITEM_SIZE / 2.0), baseY);
-    setBrush(QBrush(eventColor));
-    setPen(QPen(borderColor));
+	setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
+	// Center the item horizontally on the time
+	setPos((timeMs / 1000.0 * pixelsPerSecond) - (ITEM_SIZE / 2.0), baseY);
+	setBrush(QBrush(eventColor));
+	setPen(QPen(borderColor));
 
-    setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
-    setCursor(Qt::OpenHandCursor);
+	setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
+	setAcceptHoverEvents(true);
+	setTransformOriginPoint(ITEM_SIZE / 2.0, ITEM_SIZE / 2.0);
+	setCursor(Qt::OpenHandCursor);
 
-    refreshRenderer();
+	refreshRenderer();
 }
 
 double TimelineEventItem::getTimeMs() const {
@@ -118,17 +121,20 @@ void TimelineEventItem::setStackOffset(int offset) {
 
 
 void TimelineEventItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
-    isBeingDragged = true;
-    dragStartedEmitted = false;
-    QGraphicsEllipseItem::mousePressEvent(event);
+	isBeingDragged = true;
+	dragStartedEmitted = false;
+	setScale(0.95);
+	setCursor(Qt::ClosedHandCursor);
+	QGraphicsEllipseItem::mousePressEvent(event);
 }
 
 void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
-    isBeingDragged = false;
-    dragStartedEmitted = false;
-    QGraphicsEllipseItem::mouseReleaseEvent(event);
-    setCursor(Qt::OpenHandCursor);
-    emit eventMoved(getTimeMs());
+	isBeingDragged = false;
+	dragStartedEmitted = false;
+	setScale(isHovered ? 1.15 : 1.0);
+	setCursor(isHovered ? Qt::PointingHandCursor : Qt::OpenHandCursor);
+	QGraphicsEllipseItem::mouseReleaseEvent(event);
+	emit eventMoved(getTimeMs());
 }
 
 void TimelineEventItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
@@ -151,6 +157,24 @@ void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) 
     } else if (selected == colorAction) {
         emit colorChangeRequested();
     }
+}
+
+void TimelineEventItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
+{
+	isHovered = true;
+	setScale(1.15);
+	setCursor(Qt::PointingHandCursor);
+	update();
+	QGraphicsEllipseItem::hoverEnterEvent(event);
+}
+
+void TimelineEventItem::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
+{
+	isHovered = false;
+	setScale(1.0);
+	setCursor(Qt::OpenHandCursor);
+	update();
+	QGraphicsEllipseItem::hoverLeaveEvent(event);
 }
 
 void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) {
@@ -188,10 +212,19 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
         painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
     }
 
-    // Draw main circle
-    painter->setPen(QPen(borderColor, 1.5));
-    painter->setBrush(QBrush(eventColor));
-    painter->drawEllipse(r);
+	// Hover glow
+	if (isHovered) {
+		QColor glow = eventColor.lighter(150);
+		glow.setAlpha(80);
+		painter->setPen(Qt::NoPen);
+		painter->setBrush(QBrush(glow));
+		painter->drawEllipse(r.adjusted(-6, -6, 6, 6));
+	}
+
+	// Draw main circle
+	painter->setPen(QPen(borderColor, 1.5));
+	painter->setBrush(QBrush(eventColor));
+	painter->drawEllipse(r);
     
      if (renderer && renderer->isValid()) {
          QRectF iconRect = r.adjusted(6, 6, -6, -6); // Padding

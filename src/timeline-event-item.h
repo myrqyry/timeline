@@ -69,12 +69,14 @@ signals:
     void colorChangeRequested();
     
 protected:
-    void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
-    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
-    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
-    void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
-    QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
+	void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
+	void mouseReleaseEvent(QGraphicsSceneMouseEvent *event) override;
+	void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
+	void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override;
+	void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
+	void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override;
+	void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+	QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
     double pixelsPerSecond;
@@ -92,10 +94,13 @@ private:
     bool snapEnabled = false;
     double snapIntervalMs = 1000.0; // Default 1 second
 
-    // Drag tracking
-    bool isBeingDragged = false;
-    bool dragStartedEmitted = false;
-    bool suppressDragSignals = false;
+	// Drag tracking
+	bool isBeingDragged = false;
+	bool dragStartedEmitted = false;
+	bool suppressDragSignals = false;
+
+	// Hover tracking
+	bool isHovered = false;
 
     // Duration display
     bool hasDuration = false;

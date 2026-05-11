@@ -178,7 +178,7 @@ void TimelineDock::save()
 	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
 								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
 								     getSnapIntervalMs(), bpm, gridToBpm,
-								     noteLengthBeats, centerControls,
+								     noteLengthBeats, centerControls, alternatingBg,
 								     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
@@ -214,6 +214,12 @@ void TimelineDock::load()
 		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
 		snapCheckbox->setChecked(timelineDoc.snap);
 		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
+		for (int i = 0; i < snapIntervalCombo->count(); i++) {
+			if (snapIntervalCombo->itemData(i).toDouble() == manualSnapIntervalMs) {
+				snapIntervalCombo->setCurrentIndex(i);
+				break;
+			}
+		}
 		bpmSpinbox->setValue(timelineDoc.bpm);
 		gridTypeCombo->setCurrentIndex(timelineDoc.gridToBpm ? 1 : 0);
 		noteLengthBeats = timelineDoc.noteLengthBeats;
@@ -221,6 +227,10 @@ void TimelineDock::load()
 		if (noteIdx >= 0)
 			noteLengthCombo->setCurrentIndex(noteIdx);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+		alternatingBg = timelineDoc.alternatingBg;
+		alternatingBgCheckbox->blockSignals(true);
+		alternatingBgCheckbox->setChecked(alternatingBg);
+		alternatingBgCheckbox->blockSignals(false);
 		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
 		scheduler->seek(timelineDoc.currentTimeMs);
 		loadingTimeline = false;
@@ -234,7 +244,7 @@ void TimelineDock::load()
 		QDir().mkpath(configInfo.absolutePath());
 		const QJsonObject root = TimelineSerialization::toJsonObject(
 			*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
-			getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls,
+			getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls, alternatingBg,
 			scheduler->getCurrentTime(), pixelsPerSecond);
 		if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 			blog(LOG_INFO, "Created default timeline config at %s", configPath);
@@ -296,7 +306,7 @@ void TimelineDock::setupUi()
 	zoomOutButton->setToolTip("Zoom out (Ctrl+Scroll)");
 	zoomInButton = new QPushButton("+", this);
 	zoomInButton->setToolTip("Zoom in (Ctrl+Scroll)");
-	addEventButton = new QPushButton(this);
+	addEventButton = new QPushButton("Add Event", this);
 	addEventButton->setToolTip("Add a new event at the current playhead position");
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
@@ -308,12 +318,26 @@ void TimelineDock::setupUi()
 	// Time Display
 	timeLabel = new QLabel("00:00:00", this);
 	timeLabel->setToolTip("Current timeline position | Zoom level");
+	QFont timeFont = timeLabel->font();
+	timeFont.setPointSize(28);
+	timeFont.setBold(true);
+	timeLabel->setFont(timeFont);
 
 	// Zoom label (overlay on viewport)
 	zoomLabel = new QLabel(this);
 	zoomLabel->setToolTip("Current zoom level");
 	zoomLabel->setStyleSheet(
 		"QLabel { background-color: rgba(0,0,0,120); color: white; padding: 2px 6px; border-radius: 3px; }");
+
+	// Hover time label (overlay on viewport, shows time at cursor)
+	hoverTimeLabel = new QLabel(this);
+	hoverTimeLabel->setStyleSheet(
+		"QLabel { background-color: rgba(0,0,0,120); color: white; padding: 2px 6px; border-radius: 3px; }");
+	QFont hoverFont = hoverTimeLabel->font();
+	hoverFont.setPointSize(11);
+	hoverFont.setBold(true);
+	hoverTimeLabel->setFont(hoverFont);
+	hoverTimeLabel->hide();
 
 	// Options
 	snapCheckbox = new QPushButton(this);
@@ -322,14 +346,14 @@ void TimelineDock::setupUi()
 	connect(snapCheckbox, &QPushButton::toggled, this, &TimelineDock::onSnapToggled);
 
 	snapIntervalLabel = new QLabel(this);
-	snapIntervalSpinbox = new QDoubleSpinBox(this);
-	snapIntervalSpinbox->setRange(0.05, 10.0);
-	snapIntervalSpinbox->setValue(0.5);
-	snapIntervalSpinbox->setDecimals(2);
-	snapIntervalSpinbox->setSingleStep(0.05);
-	snapIntervalSpinbox->setSuffix(" sec");
-	snapIntervalSpinbox->setToolTip("Snap interval in seconds");
-	connect(snapIntervalSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+	snapIntervalCombo = new QComboBox(this);
+	snapIntervalCombo->addItem("100 ms", 100);
+	snapIntervalCombo->addItem("250 ms", 250);
+	snapIntervalCombo->addItem("500 ms", 500);
+	snapIntervalCombo->addItem("1 s", 1000);
+	snapIntervalCombo->setCurrentIndex(2); // default: 500 ms
+	snapIntervalCombo->setToolTip("Snap interval");
+	connect(snapIntervalCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		&TimelineDock::onSnapIntervalChanged);
 
 	loopCheckbox = new QPushButton(this);
@@ -385,6 +409,18 @@ void TimelineDock::setupUi()
 	QWidgetAction *centerAction = new QWidgetAction(settingsMenu);
 	centerAction->setDefaultWidget(centerControlsCheckbox);
 	settingsMenu->addAction(centerAction);
+
+	// Alternating background checkbox
+	alternatingBgCheckbox = new QCheckBox("Alt. Background", this);
+	alternatingBgCheckbox->setToolTip("Alternate background colors between time sections");
+	connect(alternatingBgCheckbox, &QCheckBox::toggled, this, [this](bool checked) {
+		alternatingBg = checked;
+		drawGrid();
+		save();
+	});
+	QWidgetAction *altBgAction = new QWidgetAction(settingsMenu);
+	altBgAction->setDefaultWidget(alternatingBgCheckbox);
+	settingsMenu->addAction(altBgAction);
 
 	// Grid mode selector (Time vs BPM)
 	gridTypeCombo = new QComboBox(this);
@@ -454,6 +490,8 @@ void TimelineDock::setupUi()
 	view->setScene(scene);
 	zoomLabel->setParent(view->viewport());
 	zoomLabel->raise();
+	hoverTimeLabel->setParent(view->viewport());
+	hoverTimeLabel->raise();
 	view->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 	view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 	view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -463,6 +501,7 @@ void TimelineDock::setupUi()
 
 	// Install event filter for scrubbing handling on viewport
 	view->viewport()->installEventFilter(this);
+	view->viewport()->setMouseTracking(true);
 	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() { updateZoomLabelPosition(); });
 
 	// Playhead
@@ -516,10 +555,12 @@ void TimelineDock::updateControlsLayout()
 	bpmSpinbox->hide();
 	noteLengthCombo->hide();
 	snapIntervalLabel->hide();
-	snapIntervalSpinbox->hide();
+	snapIntervalCombo->hide();
 
 	controlsLayout->addWidget(show(settingsButton));
 	controlsLayout->addWidget(show(settingsSeparator));
+	controlsLayout->addWidget(show(addEventButton));
+	controlsLayout->addWidget(show(addSeparator));
 	if (centerControls) {
 		controlsLayout->addStretch();
 	}
@@ -530,8 +571,6 @@ void TimelineDock::updateControlsLayout()
 	controlsLayout->addWidget(show(timeSeparator));
 	controlsLayout->addWidget(show(zoomToggleContainer));
 	controlsLayout->addWidget(show(zoomSeparator));
-	controlsLayout->addWidget(show(addEventButton));
-	controlsLayout->addWidget(show(addSeparator));
 	controlsLayout->addStretch();
 	controlsLayout->addWidget(show(modeToggleContainer));
 	if (gridToBpm) {
@@ -542,7 +581,7 @@ void TimelineDock::updateControlsLayout()
 	if (gridToBpm) {
 		controlsLayout->addWidget(show(noteLengthCombo));
 	} else {
-		controlsLayout->addWidget(show(snapIntervalSpinbox));
+		controlsLayout->addWidget(show(snapIntervalCombo));
 	}
 	controlsLayout->addWidget(show(snapSeparator));
 	controlsLayout->addWidget(show(endLabel));
@@ -559,7 +598,7 @@ void TimelineDock::updateDependentControlStates()
 {
 	const bool snapSettingsEnabled = snapCheckbox->isChecked();
 	snapIntervalLabel->setEnabled(snapSettingsEnabled);
-	snapIntervalSpinbox->setEnabled(snapSettingsEnabled);
+	snapIntervalCombo->setEnabled(snapSettingsEnabled);
 	noteLengthCombo->setEnabled(snapSettingsEnabled);
 
 	const bool hasEndTime = endTimeSpinbox->value() > 0.0;
@@ -619,10 +658,12 @@ void TimelineDock::onZoomOutClicked()
 	}
 }
 
-void TimelineDock::onSnapIntervalChanged(double value)
+void TimelineDock::onSnapIntervalChanged(int index)
 {
+	Q_UNUSED(index);
 	if (!gridToBpm) {
-		manualSnapIntervalMs = value * 1000.0;
+		manualSnapIntervalMs = snapIntervalCombo->currentData().toDouble();
+		drawGrid();
 	}
 	if (snapEnabled && !gridToBpm) {
 		for (TimelineEventItem *item : eventItemMap) {
@@ -644,9 +685,14 @@ void TimelineDock::onGridModeChanged(int index)
 	// Update main toolbar layout (shows/hides snap interval controls)
 	updateControlsLayout();
 
-	// If switching to Time mode, restore manual interval in spinbox
+	// If switching to Time mode, restore manual interval in combo
 	if (!gridToBpm) {
-		snapIntervalSpinbox->setValue(manualSnapIntervalMs / 1000.0);
+		for (int i = 0; i < snapIntervalCombo->count(); i++) {
+			if (snapIntervalCombo->itemData(i).toDouble() == manualSnapIntervalMs) {
+				snapIntervalCombo->setCurrentIndex(i);
+				break;
+			}
+		}
 	}
 
 	applySnapIntervalToItems();
@@ -797,7 +843,7 @@ void TimelineDock::drawRuler()
 		text->setPos(x + 2, 0);
 		text->setBrush(QBrush(textColor));
 		QFont markerFont = text->font();
-		markerFont.setPointSize(8);
+		markerFont.setPointSize(9);
 		markerFont.setBold(false);
 		text->setFont(markerFont);
 		rulerItems.append(text);
@@ -899,10 +945,48 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			}
 		}
 
-		if (event->type() == QEvent::MouseMove && draggingPlayhead) {
+		if (event->type() == QEvent::MouseMove) {
+			if (draggingPlayhead) {
+				QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+				seekToSceneX(view->mapToScene(mouseEvent->pos()).x());
+				return true;
+			}
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
-			seekToSceneX(view->mapToScene(mouseEvent->pos()).x());
-			return true;
+			QPointF scenePos = view->mapToScene(mouseEvent->pos());
+			double timeMs = (scenePos.x() / pixelsPerSecond) * 1000.0;
+			if (timeMs < 0)
+				timeMs = 0;
+			int totalSec = static_cast<int>(timeMs / 1000.0);
+			int hrs = totalSec / 3600;
+			int mins = (totalSec % 3600) / 60;
+			int secs = totalSec % 60;
+			int msec = static_cast<int>(timeMs) % 1000;
+			hoverTimeLabel->setText(QString("%1:%2:%3.%4")
+							.arg(hrs, 2, 10, QChar('0'))
+							.arg(mins, 2, 10, QChar('0'))
+							.arg(secs, 2, 10, QChar('0'))
+							.arg(msec, 3, 10, QChar('0')));
+			hoverTimeLabel->adjustSize();
+			QSize size = hoverTimeLabel->sizeHint();
+			int labelX = mouseEvent->pos().x() + 12;
+			int labelY = mouseEvent->pos().y() - size.height() - 8;
+			if (labelY < 0)
+				labelY = 0;
+			if (labelX + size.width() > view->viewport()->width())
+				labelX = view->viewport()->width() - size.width() - 4;
+			hoverTimeLabel->setGeometry(labelX, labelY, size.width(), size.height());
+			hoverTimeLabel->raise();
+			return false;
+		}
+
+		if (event->type() == QEvent::Enter) {
+			hoverTimeLabel->show();
+			return false;
+		}
+
+		if (event->type() == QEvent::Leave) {
+			hoverTimeLabel->hide();
+			return false;
 		}
 
 		if (event->type() == QEvent::MouseButtonRelease && draggingPlayhead) {
@@ -1011,7 +1095,7 @@ double TimelineDock::getSnapIntervalMs() const
 	if (gridToBpm && bpm > 0.0) {
 		return (60.0 / bpm) * noteLengthBeats * 1000.0;
 	}
-	return snapIntervalSpinbox->value() * 1000.0;
+	return snapIntervalCombo->currentData().toDouble();
 }
 
 void TimelineDock::applySnapIntervalToItems()
@@ -1046,7 +1130,7 @@ void TimelineDock::onSaveClicked()
 	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
 								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
 								     getSnapIntervalMs(), bpm, gridToBpm,
-								     noteLengthBeats, centerControls,
+								     noteLengthBeats, centerControls, alternatingBg,
 								     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
@@ -1086,12 +1170,15 @@ void TimelineDock::onLoadClicked()
 		if (noteIdx >= 0)
 			noteLengthCombo->setCurrentIndex(noteIdx);
 		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
+		alternatingBg = timelineDoc.alternatingBg;
+		alternatingBgCheckbox->blockSignals(true);
+		alternatingBgCheckbox->setChecked(alternatingBg);
+		alternatingBgCheckbox->blockSignals(false);
 		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
 		scheduler->seek(timelineDoc.currentTimeMs);
 		loadingTimeline = false;
 
 		// onXxx() slots are already called via the signal/slot connections above
-		// (setChecked/setValue triggers toggled/valueChanged signals)
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
@@ -1266,16 +1353,34 @@ void TimelineDock::drawGrid()
 		double beatIntervalSec = (60.0 / bpm) * noteLengthBeats;
 		stepPx = beatIntervalSec * pixelsPerSecond;
 	} else {
-		// Determine grid step based on zoom level (existing logic)
-		double stepSeconds = 1.0;
-		if (pixelsPerSecond < 20)
-			stepSeconds = 10.0;
-		else if (pixelsPerSecond < 50)
-			stepSeconds = 5.0;
-		else if (pixelsPerSecond > 200)
-			stepSeconds = 0.5;
+		double stepSec = getSnapIntervalMs() / 1000.0;
+		stepPx = stepSec * pixelsPerSecond;
+	}
 
-		stepPx = stepSeconds * pixelsPerSecond;
+	// Alternating background sections
+	if (alternatingBg) {
+		QColor altColor = palette().color(QPalette::Mid);
+		altColor.setAlpha(100);
+		double altStepPx;
+		if (gridToBpm && bpm > 0.0) {
+			// BPM mode: one measure = 4 beats
+			double measureSec = (60.0 / bpm) * 4.0;
+			altStepPx = measureSec * pixelsPerSecond;
+		} else {
+			// Time mode: 1 second intervals
+			altStepPx = pixelsPerSecond;
+		}
+		for (double x = 0; x < sceneWidth; x += altStepPx * 2.0) {
+			double rectW = altStepPx;
+			if (x + rectW > sceneWidth)
+				rectW = sceneWidth - x;
+			if (rectW < 0.1)
+				break;
+			QGraphicsRectItem *rect = scene->addRect(x, 20, rectW, sceneHeight - 20, QPen(Qt::NoPen),
+								   QBrush(altColor));
+			rect->setZValue(-2);
+			gridItems.append(rect);
+		}
 	}
 
 	// Draw visible vertical grid lines above the scene background but below event items.
@@ -1649,9 +1754,7 @@ void TimelineDock::updateToolbarIcons()
 	updateButtonIcon(loopCheckbox, ThemeIcons::PATH_REPEAT);
 	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
 	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
-	QColor color = palette().color(QPalette::Text);
-	QByteArray svgData = ThemeIcons::wrapSvg(ThemeIcons::PATH_ADD_EVENT, color.name());
-	addEventButton->setIcon(QIcon(QPixmap::fromImage(QImage::fromData(svgData))));
+	addEventButton->setText("Add Event");
 }
 
 void TimelineDock::updateButtonIcon(QPushButton *btn, const char *path)

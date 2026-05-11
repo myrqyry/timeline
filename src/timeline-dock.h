@@ -66,7 +66,7 @@ private slots:
 	void onTimelineLooped();
 	void onZoomInClicked();
 	void onZoomOutClicked();
-	void onSnapIntervalChanged(double value);
+	void onSnapIntervalChanged(int index);
 	void onGridModeChanged(int index);
 	void onNoteLengthChanged(int index);
 	void onBpmChanged(double value);
@@ -143,18 +143,21 @@ private:
 	QPushButton *loopCheckbox = nullptr;
 	QPushButton *snapCheckbox = nullptr;
 	QCheckBox *centerControlsCheckbox = nullptr;
+	QCheckBox *alternatingBgCheckbox = nullptr;
 	QDoubleSpinBox *endTimeSpinbox = nullptr;
 	QDoubleSpinBox *bpmSpinbox = nullptr;
-	QDoubleSpinBox *snapIntervalSpinbox = nullptr;
+	QComboBox *snapIntervalCombo = nullptr;
 	QComboBox *gridTypeCombo = nullptr;
 	QComboBox *noteLengthCombo = nullptr;
 	QLabel *timeLabel = nullptr;
 	QLabel *zoomLabel = nullptr;
+	QLabel *hoverTimeLabel = nullptr;
 	QLabel *endLabel = nullptr;
 	QLabel *snapIntervalLabel = nullptr;
 
 	// Settings
 	bool centerControls = false;
+	bool alternatingBg = false;
 	double bpm = 120.0;
 	bool gridToBpm = false;
 	double noteLengthBeats = 1.0; // Quarter note (1 beat)
@@ -174,7 +177,7 @@ private:
 	// Event tracking
 	QHash<QString, TimelineEventItem *> eventItemMap;
 
-	double pixelsPerSecond = 100.0;
+	double pixelsPerSecond = 99.0;
 	bool snapEnabled = false;
 	bool draggingPlayhead = false;
 	double manualSnapIntervalMs = 500.0;

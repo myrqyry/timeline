@@ -3,8 +3,8 @@
 
 QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds, bool snap,
 						double snapIntervalMs, double bpm, bool gridToBpm,
-						double noteLengthBeats, bool centerControls, double currentTimeMs,
-						double zoomPixelsPerSecond)
+						double noteLengthBeats, bool centerControls, bool alternatingBg,
+						double currentTimeMs, double zoomPixelsPerSecond)
 {
 	QJsonObject root;
 	root["events"] = model.toJson();
@@ -18,6 +18,7 @@ QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool
 	settings["gridToBpm"] = gridToBpm;
 	settings["noteLengthBeats"] = noteLengthBeats;
 	settings["centerControls"] = centerControls;
+	settings["alternatingBg"] = alternatingBg;
 	settings["currentTimeMs"] = currentTimeMs;
 	settings["zoomPixelsPerSecond"] = zoomPixelsPerSecond;
 	root["settings"] = settings;
@@ -55,6 +56,7 @@ bool TimelineSerialization::fromJsonDocument(const QJsonDocument &doc, TimelineM
 	outDocument.gridToBpm = settings["gridToBpm"].toBool(false);
 	outDocument.noteLengthBeats = settings["noteLengthBeats"].toDouble(1.0);
 	outDocument.centerControls = settings["centerControls"].toBool(false);
+	outDocument.alternatingBg = settings["alternatingBg"].toBool(false);
 	outDocument.currentTimeMs = settings["currentTimeMs"].toDouble(0.0);
 	outDocument.zoomPixelsPerSecond = settings["zoomPixelsPerSecond"].toDouble(100.0);
 	return true;
@@ -84,6 +86,7 @@ bool TimelineSerialization::saveToFile(const QString &filePath, const QJsonObjec
 
 	file.close();
 
+	QFile::remove(filePath);
 	if (!QFile::rename(tempPath, filePath)) {
 		if (errorMessage) {
 			*errorMessage = "Failed to finalize save";
