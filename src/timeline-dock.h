@@ -102,56 +102,56 @@ private:
 
 	QList<TimelineEvent> clipboard;
 
-	TimelineModel *model;
-	TimelineScheduler *scheduler;
-	ObsExecutor *executor;
+	TimelineModel *model = nullptr;
+	TimelineScheduler *scheduler = nullptr;
+	ObsExecutor *executor = nullptr;
 
 	// UI Elements
-	QGraphicsView *view;
-	QGraphicsScene *scene;
+	QGraphicsView *view = nullptr;
+	QGraphicsScene *scene = nullptr;
 
 	// Layout
-	QHBoxLayout *controlsLayout;
+	QHBoxLayout *controlsLayout = nullptr;
 
 	// Settings Menu
-	QMenu *settingsMenu;
+	QMenu *settingsMenu = nullptr;
 
 	// Buttons & Controls
-	QPushButton *playButton;
-	QPushButton *stopButton;
-	QPushButton *zoomInButton;
-	QPushButton *zoomOutButton;
-	QPushButton *addEventButton;
-	QPushButton *saveButton;
-	QPushButton *loadButton;
-	QPushButton *settingsButton;
-	QWidget *zoomToggleContainer;
-	QFrame *settingsSeparator;
-	QFrame *playbackSeparator;
-	QFrame *timeSeparator;
-	QFrame *zoomSeparator;
-	QFrame *addSeparator;
-	QFrame *modeSeparator;
-	QFrame *snapSeparator;
+	QPushButton *playButton = nullptr;
+	QPushButton *stopButton = nullptr;
+	QPushButton *zoomInButton = nullptr;
+	QPushButton *zoomOutButton = nullptr;
+	QPushButton *addEventButton = nullptr;
+	QPushButton *saveButton = nullptr;
+	QPushButton *loadButton = nullptr;
+	QPushButton *settingsButton = nullptr;
+	QWidget *zoomToggleContainer = nullptr;
+	QFrame *settingsSeparator = nullptr;
+	QFrame *playbackSeparator = nullptr;
+	QFrame *timeSeparator = nullptr;
+	QFrame *zoomSeparator = nullptr;
+	QFrame *addSeparator = nullptr;
+	QFrame *modeSeparator = nullptr;
+	QFrame *snapSeparator = nullptr;
 
 	// Mode toggle buttons
-	QPushButton *timeModeBtn;
-	QPushButton *bpmModeBtn;
-	QWidget *modeToggleContainer;
+	QPushButton *timeModeBtn = nullptr;
+	QPushButton *bpmModeBtn = nullptr;
+	QWidget *modeToggleContainer = nullptr;
 
 	// Options
-	QPushButton *loopCheckbox;
-	QPushButton *snapCheckbox;
-	QCheckBox *centerControlsCheckbox;
-	QDoubleSpinBox *endTimeSpinbox;
-	QDoubleSpinBox *bpmSpinbox;
-	QDoubleSpinBox *snapIntervalSpinbox;
-	QComboBox *gridTypeCombo;
-	QComboBox *noteLengthCombo;
-	QLabel *timeLabel;
-	QLabel *zoomLabel;
-	QLabel *endLabel;
-	QLabel *snapIntervalLabel;
+	QPushButton *loopCheckbox = nullptr;
+	QPushButton *snapCheckbox = nullptr;
+	QCheckBox *centerControlsCheckbox = nullptr;
+	QDoubleSpinBox *endTimeSpinbox = nullptr;
+	QDoubleSpinBox *bpmSpinbox = nullptr;
+	QDoubleSpinBox *snapIntervalSpinbox = nullptr;
+	QComboBox *gridTypeCombo = nullptr;
+	QComboBox *noteLengthCombo = nullptr;
+	QLabel *timeLabel = nullptr;
+	QLabel *zoomLabel = nullptr;
+	QLabel *endLabel = nullptr;
+	QLabel *snapIntervalLabel = nullptr;
 
 	// Settings
 	bool centerControls = false;
@@ -159,7 +159,7 @@ private:
 	bool gridToBpm = false;
 	double noteLengthBeats = 1.0; // Quarter note (1 beat)
 
-	QGraphicsLineItem *playheadItem;
+	QGraphicsLineItem *playheadItem = nullptr;
 	QGraphicsSimpleTextItem *playheadHandle = nullptr;
 
 	QGraphicsLineItem *endMarkerItem = nullptr;
