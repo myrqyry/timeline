@@ -191,6 +191,7 @@ private:
 	void *obsWebSocketVendor = nullptr;
 	qint64 lastTickTime = 0;
 	bool rebuildScheduled = false;
+	bool savePending = false;
 	bool isDragging = false;
 	QString zoomLabelCache;
 };

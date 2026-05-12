@@ -65,8 +65,12 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 			rebuildScheduled = true;
 			QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
 		}
-		if (!loadingTimeline) {
-			save();
+		if (!loadingTimeline && !savePending) {
+			savePending = true;
+			QMetaObject::invokeMethod(this, [this]() {
+				savePending = false;
+				save();
+			}, Qt::QueuedConnection);
 		}
 	});
 

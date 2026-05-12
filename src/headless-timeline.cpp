@@ -21,9 +21,6 @@ HeadlessTimeline::HeadlessTimeline(QObject *parent) : QObject(parent)
 
 HeadlessTimeline::~HeadlessTimeline()
 {
-	if (executor) {
-		executor->cancelAll();
-	}
 	// scheduler->stop() is redundant: TimelineScheduler's destructor calls stop()
 }
 

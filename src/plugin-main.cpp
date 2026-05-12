@@ -26,10 +26,7 @@ void obs_module_unload(void)
 {
 	obs_frontend_remove_dock("timeline_dock");
 
-	if (g_timelineDock) {
-		g_timelineDock->deleteLater();
-		g_timelineDock = nullptr;
-	}
+	g_timelineDock = nullptr;
 	blog(LOG_INFO, "Timeline for OBS unloaded");
 }
 

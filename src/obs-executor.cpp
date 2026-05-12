@@ -307,23 +307,33 @@ void ObsExecutor::handleHotkey(const TimelineEvent &evt)
 	// targetId contains the hotkey name, now stored in sourceName
 	QString hotkeyName = evt.sourceName;
 
-	// Use obs_hotkey_inject_event to trigger the hotkey
-	// First, we need to find the hotkey by name
+	struct HotkeySearch {
+		QString targetName;
+		obs_hotkey_id foundId = OBS_INVALID_HOTKEY_ID;
+	};
+	HotkeySearch search;
+	search.targetName = hotkeyName;
+
+	// Collect the hotkey ID first, trigger after enumeration completes
+	// (triggering during enumeration may mutate the hotkey data structure)
 	obs_enum_hotkeys(
 		[](void *data, obs_hotkey_id id, obs_hotkey_t *hotkey) {
-			QString *targetName = static_cast<QString *>(data);
+			HotkeySearch *s = static_cast<HotkeySearch *>(data);
 			const char *name = obs_hotkey_get_name(hotkey);
 
-			if (name && QString::fromUtf8(name) == *targetName) {
-				// Trigger key down then key up
-				obs_hotkey_trigger_routed_callback(id, true);  // Press
-				obs_hotkey_trigger_routed_callback(id, false); // Release
-				blog(LOG_INFO, "Timeline: Triggered hotkey '%s'", name);
+			if (name && QString::fromUtf8(name) == s->targetName) {
+				s->foundId = id;
 				return false; // Stop enumeration
 			}
 			return true; // Continue enumeration
 		},
-		&hotkeyName);
+		&search);
+
+	if (search.foundId != OBS_INVALID_HOTKEY_ID) {
+		obs_hotkey_trigger_routed_callback(search.foundId, true);  // Press
+		obs_hotkey_trigger_routed_callback(search.foundId, false); // Release
+		blog(LOG_INFO, "Timeline: Triggered hotkey '%s'", hotkeyName.toUtf8().constData());
+	}
 }
 
 void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)

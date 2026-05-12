@@ -66,7 +66,6 @@ target_include_directories(${PROJECT_NAME}
     PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${OBS_INCLUDE_DIRS}
-    /usr/include/obs
 )
 
 # Optional obs-websocket vendor integration
