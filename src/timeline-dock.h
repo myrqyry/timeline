@@ -153,7 +153,7 @@ private:
 	QLabel *zoomLabel = nullptr;
 	QLabel *hoverTimeLabel = nullptr;
 	QLabel *endLabel = nullptr;
-	QLabel *snapIntervalLabel = nullptr;
+
 
 	// Settings
 	bool centerControls = false;

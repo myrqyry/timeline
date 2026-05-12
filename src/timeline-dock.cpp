@@ -155,6 +155,7 @@ void TimelineDock::themeChangedCallback(enum obs_frontend_event event, void *pri
 		QMetaObject::invokeMethod(
 			dock,
 			[dock]() {
+				dock->playheadColor = dock->palette().color(QPalette::Highlight).lighter(130);
 				dock->updateToolbarIcons();
 				dock->updateLayout();
 			},
@@ -265,27 +266,16 @@ void TimelineDock::load()
 
 void TimelineDock::setupUi()
 {
-	blog(LOG_INFO, "setupUi: entered");
 	QVBoxLayout *mainLayout = new QVBoxLayout(this);
-	blog(LOG_INFO, "setupUi: created mainLayout");
 
 	// Compute playhead color (lighter version of highlight)
 	playheadColor = palette().color(QPalette::Highlight).lighter(130);
-	blog(LOG_INFO, "setupUi: playheadColor set");
-	blog(LOG_INFO, "setupUi: skipping shortcuts for now");
-
-	blog(LOG_INFO, "setupUi: about to create controls");
 
 	// Unified Controls Row
 	controlsLayout = new QHBoxLayout();
 
-	blog(LOG_INFO, "setupUi: controlsLayout created");
-
 	settingsButton = new QPushButton(this);
 	settingsButton->setToolTip("Show timeline settings and file actions");
-	blog(LOG_INFO, "setupUi: created buttons");
-
-	blog(LOG_INFO, "setupUi: about to create separators");
 	auto createSeparator = [this]() {
 		QFrame *line = new QFrame(this);
 		line->setFrameShape(QFrame::VLine);
@@ -299,7 +289,6 @@ void TimelineDock::setupUi()
 	addSeparator = createSeparator();
 	modeSeparator = createSeparator();
 	snapSeparator = createSeparator();
-	blog(LOG_INFO, "setupUi: separators created");
 
 	// Playback Controls
 	playButton = new QPushButton("Play", this);
@@ -331,12 +320,12 @@ void TimelineDock::setupUi()
 	zoomLabel = new QLabel(this);
 	zoomLabel->setToolTip("Current zoom level");
 	zoomLabel->setStyleSheet(
-		"QLabel { background-color: rgba(0,0,0,120); color: white; padding: 2px 6px; border-radius: 3px; }");
+		"QLabel { background-color: palette(window); color: palette(text); padding: 2px 6px; border-radius: 3px; }");
 
 	// Hover time label (overlay on viewport, shows time at cursor)
 	hoverTimeLabel = new QLabel(this);
 	hoverTimeLabel->setStyleSheet(
-		"QLabel { background-color: rgba(0,0,0,120); color: white; padding: 2px 6px; border-radius: 3px; }");
+		"QLabel { background-color: palette(window); color: palette(text); padding: 2px 6px; border-radius: 3px; }");
 	QFont hoverFont = hoverTimeLabel->font();
 	hoverFont.setPointSize(11);
 	hoverFont.setBold(true);
@@ -349,7 +338,6 @@ void TimelineDock::setupUi()
 	snapCheckbox->setToolTip("Snap events to grid when dragging");
 	connect(snapCheckbox, &QPushButton::toggled, this, &TimelineDock::onSnapToggled);
 
-	snapIntervalLabel = new QLabel(this);
 	snapIntervalCombo = new QComboBox(this);
 	snapIntervalCombo->addItem("100 ms", 100);
 	snapIntervalCombo->addItem("250 ms", 250);
@@ -486,8 +474,6 @@ void TimelineDock::setupUi()
 
 	mainLayout->addLayout(controlsLayout);
 
-	blog(LOG_INFO, "setupUi: about to add view to layout");
-
 	// Timeline View
 	view = new QGraphicsView(this);
 	scene = new QGraphicsScene(this);
@@ -518,7 +504,6 @@ void TimelineDock::setupUi()
 	dragGuideItem->setVisible(false);
 
 	// Playhead handle (triangle glyph) for easier grabbing
-	blog(LOG_INFO, "setupUi: creating playhead handle");
 	playheadHandle = scene->addSimpleText(QString::fromUtf8("\xE2\x96\xB2")); // ▲ triangle
 	playheadHandle->setBrush(QBrush(playheadColor));
 	QFont handleFont = playheadHandle->font();
@@ -527,9 +512,6 @@ void TimelineDock::setupUi()
 	playheadHandle->setZValue(101);
 	playheadHandle->setFlag(QGraphicsItem::ItemIgnoresTransformations);
 	playheadHandle->setAcceptedMouseButtons(Qt::NoButton);
-	blog(LOG_INFO, "setupUi: playhead handle created");
-
-	// Initial layout
 
 	// Initial layout
 	blog(LOG_INFO, "setupUi: calling updateLayout");
@@ -558,7 +540,6 @@ void TimelineDock::updateControlsLayout()
 
 	bpmSpinbox->hide();
 	noteLengthCombo->hide();
-	snapIntervalLabel->hide();
 	snapIntervalCombo->hide();
 
 	controlsLayout->addWidget(show(settingsButton));
@@ -601,7 +582,6 @@ void TimelineDock::updateControlsLayout()
 void TimelineDock::updateDependentControlStates()
 {
 	const bool snapSettingsEnabled = snapCheckbox->isChecked();
-	snapIntervalLabel->setEnabled(snapSettingsEnabled);
 	snapIntervalCombo->setEnabled(snapSettingsEnabled);
 	noteLengthCombo->setEnabled(snapSettingsEnabled);
 
@@ -1689,7 +1669,9 @@ void TimelineDock::rebuildEventItems()
 			QColor hintColor = palette().color(QPalette::Text);
 			hintColor.setAlpha(128);
 			emptyHintItem->setBrush(QBrush(hintColor));
-			emptyHintItem->setFont(QFont("Arial", 10));
+			QFont hintFont = QApplication::font();
+		hintFont.setPointSize(10);
+		emptyHintItem->setFont(hintFont);
 			emptyHintItem->setZValue(-5);
 		}
 
@@ -1758,7 +1740,9 @@ void TimelineDock::updateToolbarIcons()
 	updateButtonIcon(loopCheckbox, ThemeIcons::PATH_REPEAT);
 	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
 	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
+	updateButtonIcon(addEventButton, ThemeIcons::PATH_ADD_EVENT);
 	addEventButton->setText("Add Event");
+	addEventButton->setFixedHeight(24);
 }
 
 void TimelineDock::updateButtonIcon(QPushButton *btn, const char *path)
