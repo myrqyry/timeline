@@ -249,17 +249,15 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
          double radius = (ITEM_SIZE / 2.0) + 4.0; // Just outside the circle border
          int len = eventLabel.length();
          if (len > 0) {
-             // Draw text along top arc (approx 120 degrees centered at top)
+             // Draw text along top arc (curved around the icon)
              double totalArc = 120.0;
-             double startAngle = -90.0 - (totalArc / 2.0); // Start from left-top
+             double startAngle = -150.0; // Start from top-left, through top, to top-right
              double step = totalArc / (double)(len - 1);  // Distribute characters evenly
 
              for (int i = 0; i < len; ++i) {
                  painter->save();
                  double angle = startAngle + (i * step);
                  painter->rotate(angle);
-                 // Position character at radius distance, centered on the radial line
-                 // Draw character with its baseline at the radial position
                  QRectF charRect(-5, -radius - 8, 10, 10);
                  painter->drawText(charRect, Qt::AlignCenter, QString(eventLabel[i]));
                  painter->restore();
