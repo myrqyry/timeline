@@ -96,7 +96,7 @@ void TimelineEventItem::setTimeMs(double timeMs) {
 
 void TimelineEventItem::refreshRenderer() {
     if (renderer) {
-        delete renderer;
+        renderer->deleteLater();
         renderer = nullptr;
     }
     int brightness = (eventColor.red() * 299 + eventColor.green() * 587 + eventColor.blue() * 114) / 1000;

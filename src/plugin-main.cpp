@@ -3,12 +3,13 @@
 #include <QMainWindow>
 #include <QDockWidget>
 #include <QAction>
+#include <QPointer>
 #include "timeline-dock.h"
 #if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
 #endif
 
-static TimelineDock *g_timelineDock = nullptr;
+static QPointer<TimelineDock> g_timelineDock;
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("timeline", "en-US")
@@ -24,8 +25,10 @@ bool obs_module_load(void)
 
 void obs_module_unload(void)
 {
-	obs_frontend_remove_dock("timeline_dock");
-
+	if (g_timelineDock) {
+		obs_frontend_remove_dock("timeline_dock");
+		g_timelineDock->deleteLater();
+	}
 	g_timelineDock = nullptr;
 	blog(LOG_INFO, "Timeline for OBS unloaded");
 }

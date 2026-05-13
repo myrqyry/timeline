@@ -84,8 +84,8 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 	hotkeyIdRestart = obs_hotkey_register_frontend("Timeline.Restart", "Timeline: Restart",
 						       TimelineDock::hotkeyRestart, this);
 
-	// Register theme change callback
-	obs_frontend_add_event_callback(themeChangedCallback, this);
+	// Register frontend event callback
+	obs_frontend_add_event_callback(frontendEventCallback, this);
 
 	// Initial Load
 	blog(LOG_INFO, "TimelineDock loading initial data");
@@ -98,7 +98,7 @@ TimelineDock::~TimelineDock()
 {
 	blog(LOG_INFO, "TimelineDock destructor started");
 	save();
-	obs_frontend_remove_event_callback(themeChangedCallback, this);
+	obs_frontend_remove_event_callback(frontendEventCallback, this);
 	obs_frontend_remove_save_callback(saveCallback, this);
 
 	obs_hotkey_unregister(hotkeyIdPlayPause);
@@ -148,10 +148,12 @@ void TimelineDock::hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hot
 	QMetaObject::invokeMethod(dock, "onRestartHotkey", Qt::QueuedConnection);
 }
 
-void TimelineDock::themeChangedCallback(enum obs_frontend_event event, void *private_data)
+void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *private_data)
 {
-	if (event == OBS_FRONTEND_EVENT_THEME_CHANGED) {
-		auto *dock = static_cast<TimelineDock *>(private_data);
+	auto *dock = static_cast<TimelineDock *>(private_data);
+
+	switch (event) {
+	case OBS_FRONTEND_EVENT_THEME_CHANGED:
 		QMetaObject::invokeMethod(
 			dock,
 			[dock]() {
@@ -160,6 +162,18 @@ void TimelineDock::themeChangedCallback(enum obs_frontend_event event, void *pri
 				dock->updateLayout();
 			},
 			Qt::QueuedConnection);
+		break;
+	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGING:
+		QMetaObject::invokeMethod(
+			dock,
+			[dock]() {
+				dock->save();
+				obs_frontend_save();
+			},
+			Qt::QueuedConnection);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -1751,8 +1765,10 @@ void TimelineDock::updateButtonIcon(QPushButton *btn, const char *path)
 {
 	QColor color = palette().color(QPalette::Text);
 	QByteArray svgData = ThemeIcons::wrapSvg(path, color.name());
-	QIcon icon(QPixmap::fromImage(QImage::fromData(svgData)));
-	btn->setIcon(icon);
+	QPixmap pixmap = QPixmap::fromImage(QImage::fromData(svgData));
+	if (!pixmap.isNull()) {
+		btn->setIcon(QIcon(pixmap));
+	}
 	btn->setText("");
 	btn->setFixedSize(24, 24);
 }

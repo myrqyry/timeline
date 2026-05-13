@@ -85,7 +85,7 @@ void TimelineScheduler::seek(double timeMs) {
         eventStartFired.clear();
         eventEndFired.clear();
         for (const auto &evt : events) {
-            if (evt.timeMs < timeMs) {
+            if (evt.timeMs <= timeMs) {
                 eventStartFired.insert(evt.id);
             }
             if (evt.hasDuration && evt.durationMs > 0) {
