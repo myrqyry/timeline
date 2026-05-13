@@ -231,22 +231,40 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
          renderer->render(painter, iconRect);
      }
 
-     // Draw label to the right, rotated 90 degrees clockwise
+     // Draw circular label (top arch) if label is set
      if (!eventLabel.isEmpty()) {
          painter->save();
          painter->setRenderHint(QPainter::TextAntialiasing);
+         // Use QApplication palette for theme-aware text color
          QColor textColor = QApplication::palette().color(QPalette::Text);
          painter->setPen(textColor);
          QFont font = painter->font();
-         font.setPointSize(7);
+         font.setPointSize(8);
          font.setBold(true);
          painter->setFont(font);
 
-         painter->translate(ITEM_SIZE + 4, ITEM_SIZE);
-         painter->rotate(90);
-         QFontMetrics fm(font);
-         int textW = fm.horizontalAdvance(eventLabel);
-         painter->drawText(QPointF(-textW / 2.0, 0), eventLabel);
+         // Translate to center of item
+         painter->translate(ITEM_SIZE / 2.0, ITEM_SIZE / 2.0);
+
+         double radius = (ITEM_SIZE / 2.0) + 4.0; // Just outside the circle border
+         int len = eventLabel.length();
+         if (len > 0) {
+             // Draw text along top arc (approx 120 degrees centered at top)
+             double totalArc = 120.0;
+             double startAngle = -90.0 - (totalArc / 2.0); // Start from left-top
+             double step = totalArc / (double)(len - 1);  // Distribute characters evenly
+
+             for (int i = 0; i < len; ++i) {
+                 painter->save();
+                 double angle = startAngle + (i * step);
+                 painter->rotate(angle);
+                 // Position character at radius distance, centered on the radial line
+                 // Draw character with its baseline at the radial position
+                 QRectF charRect(-5, -radius - 8, 10, 10);
+                 painter->drawText(charRect, Qt::AlignCenter, QString(eventLabel[i]));
+                 painter->restore();
+             }
+         }
          painter->restore();
      }
  }
