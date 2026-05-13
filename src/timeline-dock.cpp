@@ -897,6 +897,19 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					onZoomOutClicked();
 				}
 				return true;
+			} else {
+				// Horizontal scrolling with standard wheel
+				// Use Y delta for horizontal scroll if X delta is zero
+				int delta = wheelEvent->angleDelta().x();
+				if (delta == 0) {
+					delta = wheelEvent->angleDelta().y();
+				}
+
+				QScrollBar *sb = view->horizontalScrollBar();
+				if (sb) {
+					sb->setValue(sb->value() - delta);
+				}
+				return true;
 			}
 		}
 
