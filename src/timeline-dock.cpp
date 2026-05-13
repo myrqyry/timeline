@@ -1740,7 +1740,9 @@ void TimelineDock::updateToolbarIcons()
 	updateButtonIcon(loopCheckbox, ThemeIcons::PATH_REPEAT);
 	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
 	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
-	updateButtonIcon(addEventButton, ThemeIcons::PATH_ADD_EVENT);
+	QColor color = palette().color(QPalette::Text);
+	QByteArray svgData = ThemeIcons::wrapSvg(ThemeIcons::PATH_ADD_EVENT, color.name());
+	addEventButton->setIcon(QIcon(QPixmap::fromImage(QImage::fromData(svgData))));
 	addEventButton->setText("Add Event");
 	addEventButton->setFixedHeight(24);
 }
