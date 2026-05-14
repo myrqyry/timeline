@@ -123,16 +123,16 @@ void TimelineEventItem::setStackOffset(int offset) {
 void TimelineEventItem::mousePressEvent(QGraphicsSceneMouseEvent *event) {
 	isBeingDragged = true;
 	dragStartedEmitted = false;
-	setScale(0.95);
 	setCursor(Qt::ClosedHandCursor);
+	update();
 	QGraphicsEllipseItem::mousePressEvent(event);
 }
 
 void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event) {
 	isBeingDragged = false;
 	dragStartedEmitted = false;
-	setScale(isHovered ? 1.15 : 1.0);
 	setCursor(isHovered ? Qt::PointingHandCursor : Qt::OpenHandCursor);
+	update();
 	QGraphicsEllipseItem::mouseReleaseEvent(event);
 	emit eventMoved(getTimeMs());
 }
@@ -162,7 +162,6 @@ void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) 
 void TimelineEventItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 {
 	isHovered = true;
-	setScale(1.15);
 	setCursor(Qt::PointingHandCursor);
 	update();
 	QGraphicsEllipseItem::hoverEnterEvent(event);
@@ -171,7 +170,6 @@ void TimelineEventItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 void TimelineEventItem::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
 {
 	isHovered = false;
-	setScale(1.0);
 	setCursor(Qt::OpenHandCursor);
 	update();
 	QGraphicsEllipseItem::hoverLeaveEvent(event);
@@ -200,16 +198,27 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
                           QPointF(startX + lineLength, ITEM_SIZE/2.0 + 5));
     }
     
+    // Bubble adjustments (Hover grows, Press shrinks)
+    QRectF bubbleRect = r;
+    double bubbleGrowth = 0.0;
+    if (isBeingDragged) {
+        bubbleRect.adjust(1, 1, -1, -1);
+        bubbleGrowth = -1.0;
+    } else if (isHovered) {
+        bubbleRect.adjust(-3, -3, 3, 3);
+        bubbleGrowth = 3.0;
+    }
+
     if (isSelected()) {
         painter->setBrush(Qt::NoBrush);
 
         // Outer ring: background color for contrast against whatever is behind
         painter->setPen(QPen(backgroundColor, 3));
-        painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
+        painter->drawEllipse(bubbleRect.adjusted(-2, -2, 2, 2));
 
         // Inner ring: theme highlight color
         painter->setPen(QPen(selectionColor, 2));
-        painter->drawEllipse(r.adjusted(-2, -2, 2, 2));
+        painter->drawEllipse(bubbleRect.adjusted(-2, -2, 2, 2));
     }
 
 	// Hover glow
@@ -218,16 +227,16 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		glow.setAlpha(80);
 		painter->setPen(Qt::NoPen);
 		painter->setBrush(QBrush(glow));
-		painter->drawEllipse(r.adjusted(-6, -6, 6, 6));
+		painter->drawEllipse(bubbleRect.adjusted(-4, -4, 4, 4));
 	}
 
 	// Draw main circle
 	painter->setPen(QPen(borderColor, 1.5));
 	painter->setBrush(QBrush(eventColor));
-	painter->drawEllipse(r);
+	painter->drawEllipse(bubbleRect);
     
      if (renderer && renderer->isValid()) {
-         QRectF iconRect = r.adjusted(6, 6, -6, -6); // Padding
+         QRectF iconRect = bubbleRect.adjusted(6, 6, -6, -6); // Padding
          renderer->render(painter, iconRect);
      }
 
@@ -246,7 +255,7 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
          // Translate to center of item
          painter->translate(ITEM_SIZE / 2.0, ITEM_SIZE / 2.0);
 
-         double radius = (ITEM_SIZE / 2.0) + 4.0; // Just outside the circle border
+         double radius = (ITEM_SIZE / 2.0) + 4.0 + bubbleGrowth; // Keep outside bubble
          int len = eventLabel.length();
          if (len > 0) {
              // Draw text along top arc (curved around the icon)
