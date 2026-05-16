@@ -117,6 +117,7 @@ void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 			handleTriggerTimeline(evt);
 		break;
 	default:
+		blog(LOG_WARNING, "Timeline: Unhandled event type %d", static_cast<int>(evt.type));
 		break;
 	}
 }
@@ -163,8 +164,6 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 			if (transition) {
 				oldTransition = obs_frontend_get_current_transition();
 				obs_frontend_set_current_transition(transition);
-			// find_transition() returns a source with an incremented reference count,
-			// so we must release it when done. oldTransition also needs releasing.
 			} else {
 				blog(LOG_WARNING, "Timeline: Transition '%s' not found",
 				     transitionName.toUtf8().constData());
@@ -177,14 +176,11 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 			obs_frontend_set_current_scene(scene);
 		}
 
-		// Restore old transition?
-		// Typically when you switch scene, the transition is used. If we change it back immediately,
-		// it might race or apply to the *next* switch.
-		// For now, let's leave it changed (user action). Or we could assume single-shot.
-		// But OBS Studio Mode transition button sets it and leaves it.
-
-		if (transition)
+		if (transition) {
+			if (oldTransition)
+				obs_frontend_set_current_transition(oldTransition);
 			obs_source_release(transition);
+		}
 		if (oldTransition)
 			obs_source_release(oldTransition);
 
@@ -259,8 +255,9 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 	struct obs_frontend_source_list list = {};
 	obs_frontend_get_scenes(&list);
 	bool foundAny = false;
-	for (size_t i = 0; i < list.sources.num && !foundAny; i++) {
-		foundAny = trySetVisibility(list.sources.array[i]);
+	for (size_t i = 0; i < list.sources.num; i++) {
+		if (trySetVisibility(list.sources.array[i]))
+			foundAny = true;
 	}
 	obs_frontend_source_list_free(&list);
 
@@ -365,13 +362,16 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 	if (timeline->loadFromFile(filePath)) {
 		activeTimelines.push_back(timeline);
 
-		// Cleanup when done
-		connect(timeline, &HeadlessTimeline::finished, this, [this, timeline]() {
-			auto it = std::find(activeTimelines.begin(), activeTimelines.end(), timeline);
+		// Cleanup when done — use QPointer to guard against race with cancelAll()
+		QPointer<HeadlessTimeline> safeTimeline = timeline;
+		connect(timeline, &HeadlessTimeline::finished, this, [this, safeTimeline]() {
+			if (!safeTimeline)
+				return;
+			auto it = std::find(activeTimelines.begin(), activeTimelines.end(), safeTimeline.data());
 			if (it != activeTimelines.end()) {
 				activeTimelines.erase(it);
+				safeTimeline->deleteLater();
 			}
-			timeline->deleteLater();
 			blog(LOG_INFO, "Timeline: Nested timeline finished");
 		});
 

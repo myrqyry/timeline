@@ -1,4 +1,5 @@
 #include "timeline-model.h"
+#include "theme-helpers.h"
 #include <obs-module.h>
 
 TimelineModel::TimelineModel(QObject *parent) : QObject(parent) {
@@ -103,8 +104,6 @@ QJsonArray TimelineModel::toJson() const {
     return array;
 }
 
-#include "theme-helpers.h"
-
 void TimelineModel::fromJson(const QJsonArray &json) {
     events.clear();
     for (const auto& val : json) {
@@ -115,7 +114,13 @@ void TimelineModel::fromJson(const QJsonArray &json) {
             evt.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         }
         evt.timeMs = obj["time"].toDouble();
-        evt.type = static_cast<TimelineEventType>(obj["type"].toInt());
+        int typeInt = obj["type"].toInt(-1);
+        constexpr int maxTypeValue = static_cast<int>(TimelineEventType::TriggerTimeline);
+        if (typeInt < 0 || typeInt > maxTypeValue) {
+            blog(LOG_WARNING, "Timeline: Unknown event type %d, skipping", typeInt);
+            continue;
+        }
+        evt.type = static_cast<TimelineEventType>(typeInt);
         if (obj.contains("source")) {
             evt.sourceName = obj["source"].toString();
             if (obj.contains("filter")) {
@@ -159,7 +164,7 @@ void TimelineModel::fromJson(const QJsonArray &json) {
             evt.durationMs = obj["duration"].toDouble();
         }
         if (obj.contains("data")) {
-            evt.data = obj["data"].toString();
+            evt.data = obj["data"].toVariant();
         }
 
         events.push_back(evt);

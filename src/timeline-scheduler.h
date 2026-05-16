@@ -19,6 +19,7 @@ public:
 public slots:
     void start();
     void stop();
+    void restart();
     void pause();
     void resume();
     void seek(double timeMs);

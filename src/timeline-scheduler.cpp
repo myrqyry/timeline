@@ -54,10 +54,17 @@ void TimelineScheduler::start() {
 }
 
 void TimelineScheduler::stop() {
+    if (!playing) return;
+    currentOffsetMs = getCurrentTime(); // Preserve position
     playing = false;
     timer->stop();
-    currentOffsetMs = 0; // Reset to beginning
-    seek(0);
+}
+
+void TimelineScheduler::restart() {
+    playing = false;
+    timer->stop();
+    currentOffsetMs = 0.0;
+    seek(0.0);
 }
 
 void TimelineScheduler::pause() {
@@ -85,7 +92,7 @@ void TimelineScheduler::seek(double timeMs) {
         eventStartFired.clear();
         eventEndFired.clear();
         for (const auto &evt : events) {
-            if (evt.timeMs <= timeMs) {
+            if (evt.timeMs < timeMs) {
                 eventStartFired.insert(evt.id);
             }
             if (evt.hasDuration && evt.durationMs > 0) {
@@ -127,9 +134,9 @@ void TimelineScheduler::onTimerTick() {
     // Check if we've reached the end time
     if (endTimeMs > 0 && currentTime >= endTimeMs) {
         if (looping) {
-            // Loop back to start
-            seek(0);
-            // Reset all event fired states
+            // Reset state directly — avoid seek(0) which emits tick() re-entrantly
+            currentOffsetMs = 0.0;
+            startTime = std::chrono::high_resolution_clock::now();
             eventStartFired.clear();
             eventEndFired.clear();
             emit looped();

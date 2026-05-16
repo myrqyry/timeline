@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QPointer>
 #include <obs-frontend-api.h>
 #include <obs.h>
 #include "event-types.h"
