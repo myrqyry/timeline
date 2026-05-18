@@ -5,7 +5,6 @@
 #include <QAction>
 #include <QPointer>
 #include "timeline-dock.h"
-#include "plugin-support.h"
 #if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
 #endif
@@ -18,7 +17,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("timeline", "en-US")
 bool obs_module_load(void)
 {
 	blog(LOG_INFO, "[Timeline] ╔══════════════════════════════════════╗");
-	blog(LOG_INFO, "[Timeline] ║  Timeline for OBS v%s           ║", PLUGIN_VERSION);
+	blog(LOG_INFO, "[Timeline] ║  Timeline for OBS v1.0.0              ║");
 	blog(LOG_INFO, "[Timeline] ╚══════════════════════════════════════╝");
 
 	blog(LOG_INFO, "DEBUG_ACTIVE_TIMELINE_7B3E1");
@@ -28,7 +27,7 @@ bool obs_module_load(void)
 
 	blog(LOG_INFO, "[Timeline] Runtime status:");
 	blog(LOG_INFO, "[Timeline]  ├─ Dock    : registered");
-	blog(LOG_INFO, "[Timeline]  └─ Version : %s", PLUGIN_VERSION);
+	blog(LOG_INFO, "[Timeline]  └─ Version : 1.0.0");
 
 	return true;
 }
