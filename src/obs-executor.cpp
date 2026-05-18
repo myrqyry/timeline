@@ -117,7 +117,7 @@ void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 			handleTriggerTimeline(evt);
 		break;
 	default:
-		blog(LOG_WARNING, "Timeline: Unhandled event type %d", static_cast<int>(evt.type));
+		blog(LOG_WARNING, "[Timeline] └─ Unhandled event type: %d", static_cast<int>(evt.type));
 		break;
 	}
 }
@@ -165,7 +165,8 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 				oldTransition = obs_frontend_get_current_transition();
 				obs_frontend_set_current_transition(transition);
 			} else {
-				blog(LOG_WARNING, "Timeline: Transition '%s' not found",
+				blog(LOG_WARNING, "[Timeline] ┌─ Transition not found");
+				blog(LOG_WARNING, "[Timeline] └─ Name : %s",
 				     transitionName.toUtf8().constData());
 			}
 		}
@@ -184,12 +185,13 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 		if (oldTransition)
 			obs_source_release(oldTransition);
 
-		obs_source_release(scene); // FIX: Free scene pointer
-		blog(LOG_INFO, "Timeline: Switched to scene '%s' using transition '%s'",
+		obs_source_release(scene);
+		blog(LOG_INFO, "[Timeline] Scene switch → '%s' [%s]",
 		     evt.sourceName.toUtf8().constData(),
-		     transitionName.isEmpty() ? "(default)" : transitionName.toUtf8().constData());
+		     transitionName.isEmpty() ? "default" : transitionName.toUtf8().constData());
 	} else {
-		blog(LOG_WARNING, "Timeline: Scene '%s' not found", evt.sourceName.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Scene not found");
+		blog(LOG_WARNING, "[Timeline] └─ Name : %s", evt.sourceName.toUtf8().constData());
 	}
 }
 
@@ -201,10 +203,11 @@ void ObsExecutor::handleMediaStart(const TimelineEvent &evt)
 	obs_source_t *source = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
 	if (source) {
 		obs_source_media_restart(source);
-		blog(LOG_INFO, "Timeline: Started media '%s'", evt.sourceName.toUtf8().constData());
+		blog(LOG_INFO, "[Timeline] Media start → '%s'", evt.sourceName.toUtf8().constData());
 		obs_source_release(source);
 	} else {
-		blog(LOG_WARNING, "Timeline: Media source '%s' not found", evt.sourceName.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Media source not found");
+		blog(LOG_WARNING, "[Timeline] └─ Name : %s", evt.sourceName.toUtf8().constData());
 	}
 }
 
@@ -216,10 +219,11 @@ void ObsExecutor::handleMediaStop(const TimelineEvent &evt)
 	obs_source_t *source = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
 	if (source) {
 		obs_source_media_stop(source);
-		blog(LOG_INFO, "Timeline: Stopped media '%s'", evt.sourceName.toUtf8().constData());
+		blog(LOG_INFO, "[Timeline] Media stop → '%s'", evt.sourceName.toUtf8().constData());
 		obs_source_release(source);
 	} else {
-		blog(LOG_WARNING, "Timeline: Media source '%s' not found", evt.sourceName.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Media source not found");
+		blog(LOG_WARNING, "[Timeline] └─ Name : %s", evt.sourceName.toUtf8().constData());
 	}
 }
 
@@ -237,7 +241,7 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 		if (!item)
 			return false;
 		obs_sceneitem_set_visible(item, visible);
-		blog(LOG_INFO, "Timeline: Set source '%s' visibility to %s",
+		blog(LOG_INFO, "[Timeline] Source '%s' → %s",
 		     evt.sourceName.toUtf8().constData(), visible ? "visible" : "hidden");
 		return true;
 	};
@@ -262,15 +266,16 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 	obs_frontend_source_list_free(&list);
 
 	if (!foundAny) {
-		blog(LOG_WARNING, "Timeline: Source '%s' not found in any scene",
-		     evt.sourceName.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Source not found");
+		blog(LOG_WARNING, "[Timeline] └─ Name : %s", evt.sourceName.toUtf8().constData());
 	}
 }
 
 void ObsExecutor::handleFilterEnable(const TimelineEvent &evt, bool enable)
 {
 	if (evt.sourceName.isEmpty() || evt.filterName.isEmpty()) {
-		blog(LOG_WARNING, "Timeline: Filter event missing source or filter name");
+		blog(LOG_WARNING, "[Timeline] ┌─ Filter event incomplete");
+		blog(LOG_WARNING, "[Timeline] └─ Missing source or filter name");
 		return;
 	}
 
@@ -282,17 +287,19 @@ void ObsExecutor::handleFilterEnable(const TimelineEvent &evt, bool enable)
 		obs_source_t *filter = obs_source_get_filter_by_name(source, filterName.toUtf8().constData());
 		if (filter) {
 			obs_source_set_enabled(filter, enable);
-			blog(LOG_INFO, "Timeline: Set filter '%s' on '%s' to %s", filterName.toUtf8().constData(),
+			blog(LOG_INFO, "[Timeline] Filter '%s' on '%s' → %s",
+			     filterName.toUtf8().constData(),
 			     sourceName.toUtf8().constData(), enable ? "enabled" : "disabled");
 			obs_source_release(filter);
 		} else {
-			blog(LOG_WARNING, "Timeline: Filter '%s' not found on source '%s'",
-			     filterName.toUtf8().constData(), sourceName.toUtf8().constData());
+			blog(LOG_WARNING, "[Timeline] ┌─ Filter not found on source");
+			blog(LOG_WARNING, "[Timeline] ├─ Source : %s", sourceName.toUtf8().constData());
+			blog(LOG_WARNING, "[Timeline] └─ Filter : %s", filterName.toUtf8().constData());
 		}
 		obs_source_release(source);
 	} else {
-		blog(LOG_WARNING, "Timeline: Source '%s' not found for filter operation",
-		     sourceName.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Source not found for filter operation");
+		blog(LOG_WARNING, "[Timeline] └─ Name : %s", sourceName.toUtf8().constData());
 	}
 }
 
@@ -327,9 +334,9 @@ void ObsExecutor::handleHotkey(const TimelineEvent &evt)
 		&search);
 
 	if (search.foundId != OBS_INVALID_HOTKEY_ID) {
-		obs_hotkey_trigger_routed_callback(search.foundId, true);  // Press
-		obs_hotkey_trigger_routed_callback(search.foundId, false); // Release
-		blog(LOG_INFO, "Timeline: Triggered hotkey '%s'", hotkeyName.toUtf8().constData());
+		obs_hotkey_trigger_routed_callback(search.foundId, true);
+		obs_hotkey_trigger_routed_callback(search.foundId, false);
+		blog(LOG_INFO, "[Timeline] Hotkey → '%s'", hotkeyName.toUtf8().constData());
 	}
 }
 
@@ -342,7 +349,8 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 	}
 
 	if (filePath.isEmpty()) {
-		blog(LOG_WARNING, "Timeline: TriggerTimeline event has no file path");
+		blog(LOG_WARNING, "[Timeline] ┌─ TriggerTimeline failed");
+		blog(LOG_WARNING, "[Timeline] └─ No file path specified");
 		return;
 	}
 
@@ -350,8 +358,8 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 	QString canonicalPath = QFileInfo(filePath).canonicalFilePath();
 	for (auto *t : activeTimelines) {
 		if (QFileInfo(t->getFilePath()).canonicalFilePath() == canonicalPath) {
-			blog(LOG_WARNING, "Timeline: Prevented recursive timeline trigger for '%s'",
-			     canonicalPath.toUtf8().constData());
+			blog(LOG_WARNING, "[Timeline] ┌─ Recursive timeline trigger prevented");
+			blog(LOG_WARNING, "[Timeline] └─ Path : %s", canonicalPath.toUtf8().constData());
 			return;
 		}
 	}
@@ -372,13 +380,14 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 				activeTimelines.erase(it);
 				safeTimeline->deleteLater();
 			}
-			blog(LOG_INFO, "Timeline: Nested timeline finished");
+			blog(LOG_INFO, "[Timeline] Nested timeline finished");
 		});
 
 		timeline->start();
-		blog(LOG_INFO, "Timeline: Started nested timeline '%s'", filePath.toUtf8().constData());
+		blog(LOG_INFO, "[Timeline] Nested timeline → '%s'", filePath.toUtf8().constData());
 	} else {
 		delete timeline;
-		blog(LOG_WARNING, "Timeline: Failed to load nested timeline '%s'", filePath.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Failed to load nested timeline");
+		blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toUtf8().constData());
 	}
 }

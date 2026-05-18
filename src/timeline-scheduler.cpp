@@ -4,7 +4,7 @@
 TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent)
     : QObject(parent), model(model)
 {
-    blog(LOG_INFO, "TimelineScheduler created");
+    blog(LOG_INFO, "[Timeline] ├─ Scheduler : created");
     timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &TimelineScheduler::onTimerTick);
     timer->setInterval(timerIntervalMs);
@@ -120,12 +120,12 @@ double TimelineScheduler::getCurrentTime() const {
 
 void TimelineScheduler::setEndTime(double endTime) {
     endTimeMs = endTime;
-    blog(LOG_INFO, "Timeline end time set to %.1f ms", endTimeMs);
+    blog(LOG_INFO, "[Timeline] End time: %.1f ms", endTimeMs);
 }
 
 void TimelineScheduler::setLooping(bool loop) {
     looping = loop;
-    blog(LOG_INFO, "Timeline looping %s", looping ? "enabled" : "disabled");
+    blog(LOG_INFO, "[Timeline] Looping: %s", looping ? "enabled" : "disabled");
 }
 
 void TimelineScheduler::onTimerTick() {
@@ -140,13 +140,13 @@ void TimelineScheduler::onTimerTick() {
             eventStartFired.clear();
             eventEndFired.clear();
             emit looped();
-            blog(LOG_INFO, "Timeline looped back to start");
+            blog(LOG_INFO, "[Timeline] Looped back to start");
             return;
         } else {
             // Stop at end
             pause();
             emit finished();
-            blog(LOG_INFO, "Timeline reached end time");
+            blog(LOG_INFO, "[Timeline] End time reached");
             return;
         }
     }

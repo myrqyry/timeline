@@ -33,7 +33,8 @@ bool HeadlessTimeline::loadFromFile(const QString &filePath)
 {
 	QFile file(filePath);
 	if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
-		blog(LOG_WARNING, "HeadlessTimeline: Failed to open file %s", filePath.toStdString().c_str());
+		blog(LOG_WARNING, "[Timeline] ┌─ Headless timeline: file open failed");
+	blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toStdString().c_str());
 		return false;
 	}
 

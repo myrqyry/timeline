@@ -3,7 +3,7 @@
 #include <obs-module.h>
 
 TimelineModel::TimelineModel(QObject *parent) : QObject(parent) {
-    blog(LOG_INFO, "TimelineModel created");
+    blog(LOG_INFO, "[Timeline] ├─ Model     : created");
 }
 
 void TimelineModel::addEvent(const TimelineEvent &event) {
@@ -117,7 +117,8 @@ void TimelineModel::fromJson(const QJsonArray &json) {
         int typeInt = obj["type"].toInt(-1);
         constexpr int maxTypeValue = static_cast<int>(TimelineEventType::TriggerTimeline);
         if (typeInt < 0 || typeInt > maxTypeValue) {
-            blog(LOG_WARNING, "Timeline: Unknown event type %d, skipping", typeInt);
+            blog(LOG_WARNING, "[Timeline] ┌─ Unknown event type skipped");
+            blog(LOG_WARNING, "[Timeline] └─ Type : %d", typeInt);
             continue;
         }
         evt.type = static_cast<TimelineEventType>(typeInt);

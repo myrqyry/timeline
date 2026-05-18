@@ -46,16 +46,12 @@ static const std::vector<double> ZOOM_LEVELS = {5.0,   10.0,  15.0,  20.0,  30.0
 
 TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 {
-	blog(LOG_INFO, "TimelineDock constructor started");
+	blog(LOG_INFO, "[Timeline] Dock constructor started");
 	model = new TimelineModel(this);
-	blog(LOG_INFO, "TimelineDock: Model created");
 	scheduler = new TimelineScheduler(model, this);
-	blog(LOG_INFO, "TimelineDock: Scheduler created");
 	executor = new ObsExecutor(this);
-	blog(LOG_INFO, "TimelineDock: Executor created");
 
 	setupUi();
-	blog(LOG_INFO, "TimelineDock: setupUi completed");
 
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
 	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
@@ -97,15 +93,15 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 	obs_frontend_add_event_callback(frontendEventCallback, this);
 
 	// Initial Load
-	blog(LOG_INFO, "TimelineDock loading initial data");
+	blog(LOG_INFO, "[Timeline] ├─ Loading data");
 	load();
 
-	blog(LOG_INFO, "TimelineDock constructor finished");
+	blog(LOG_INFO, "[Timeline] └─ Dock ready");
 }
 
 TimelineDock::~TimelineDock()
 {
-	blog(LOG_INFO, "TimelineDock destructor started");
+	blog(LOG_INFO, "[Timeline] Cleaning up dock");
 	save();
 	obs_frontend_remove_event_callback(frontendEventCallback, this);
 	obs_frontend_remove_save_callback(saveCallback, this);
@@ -210,9 +206,11 @@ void TimelineDock::save()
 								     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
-		blog(LOG_INFO, "Saved timeline to %s", configPath);
+		blog(LOG_INFO, "[Timeline] Saved → %s", configPath);
 	} else {
-		blog(LOG_WARNING, "Failed to save timeline to %s: %s", configPath, errorMessage.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Save failed");
+		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
@@ -227,15 +225,16 @@ void TimelineDock::load()
 	QString errorMessage;
 	const QFileInfo configInfo(configPath);
 	if (TimelineSerialization::loadFromFile(configPath, doc, &errorMessage)) {
-		blog(LOG_INFO, "Loading config file: %s", configPath);
+		blog(LOG_INFO, "[Timeline] Loading config: %s", configPath);
 		TimelineDocument timelineDoc;
 		loadingTimeline = true;
 		model->blockSignals(true);
 		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
 			model->blockSignals(false);
 			loadingTimeline = false;
-			blog(LOG_WARNING, "Failed to parse timeline config %s: %s", configPath,
-			     errorMessage.toUtf8().constData());
+			blog(LOG_WARNING, "[Timeline] ┌─ Config parse failed");
+			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+			blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 			bfree(configPath);
 			return;
 		}
@@ -269,8 +268,8 @@ void TimelineDock::load()
 		// onXxx() slots are already called via the signal/slot connections above
 		// (setChecked/setValue triggers toggled/valueChanged signals)
 
-		updateLayout(); // Refresh UI with new events
-		blog(LOG_INFO, "Loaded timeline from %s", configPath);
+		updateLayout();
+		blog(LOG_INFO, "[Timeline] Loaded → %s", configPath);
 	} else if (!configInfo.exists()) {
 		QDir().mkpath(configInfo.absolutePath());
 		const QJsonObject root = TimelineSerialization::toJsonObject(
@@ -278,14 +277,16 @@ void TimelineDock::load()
 			getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls, alternatingBg,
 			scheduler->getCurrentTime(), pixelsPerSecond);
 		if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
-			blog(LOG_INFO, "Created default timeline config at %s", configPath);
+			blog(LOG_INFO, "[Timeline] Default config created: %s", configPath);
 		} else {
-			blog(LOG_WARNING, "Failed to create default timeline config %s: %s", configPath,
-			     errorMessage.toUtf8().constData());
+			blog(LOG_WARNING, "[Timeline] ┌─ Default config creation failed");
+			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+			blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 		}
 	} else {
-		blog(LOG_WARNING, "Failed to load timeline config %s: %s", configPath,
-		     errorMessage.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Config load failed");
+		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
 }
@@ -540,7 +541,7 @@ void TimelineDock::setupUi()
 	playheadHandle->setAcceptedMouseButtons(Qt::NoButton);
 
 	// Initial layout
-	blog(LOG_INFO, "setupUi: calling updateLayout");
+	blog(LOG_INFO, "[Timeline] ├─ UI layout initialized");
 	updateLayout();
 
 	mainLayout->addWidget(view);
@@ -782,9 +783,8 @@ void TimelineDock::resizeEvent(QResizeEvent *event)
 // Helper to update event items
 void TimelineDock::updateLayout()
 {
-	blog(LOG_INFO, "updateLayout: started");
 	if (!view || !view->viewport() || !scene) {
-		blog(LOG_WARNING, "updateLayout called before UI initialized");
+		blog(LOG_WARNING, "[Timeline] └─ updateLayout called before UI init");
 		return;
 	}
 
@@ -1089,7 +1089,7 @@ void TimelineDock::onEndTimeChanged(double value)
 void TimelineDock::onTimelineFinished()
 {
 	updatePlayButtonIcon();
-	blog(LOG_INFO, "Timeline playback finished");
+	blog(LOG_INFO, "[Timeline] Playback finished");
 	debounceSaveTimer->start();
 
 #if OBS_TIMELINE_HAS_WEBSOCKET
@@ -1104,7 +1104,7 @@ void TimelineDock::onTimelineFinished()
 
 void TimelineDock::onTimelineLooped()
 {
-	blog(LOG_INFO, "Timeline looped");
+	blog(LOG_INFO, "[Timeline] Looped");
 	debounceSaveTimer->start();
 }
 
@@ -1152,10 +1152,11 @@ void TimelineDock::onSaveClicked()
 								     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
-		blog(LOG_INFO, "Exported timeline to %s", fileName.toStdString().c_str());
+		blog(LOG_INFO, "[Timeline] Exported → %s", fileName.toStdString().c_str());
 	} else {
-		blog(LOG_WARNING, "Failed to export timeline to %s: %s", fileName.toStdString().c_str(),
-		     errorMessage.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Export failed");
+		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", fileName.toStdString().c_str());
+		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 	}
 }
 
@@ -1174,8 +1175,9 @@ void TimelineDock::onLoadClicked()
 		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
 			model->blockSignals(false);
 			loadingTimeline = false;
-			blog(LOG_WARNING, "Failed to import timeline from %s: %s", fileName.toStdString().c_str(),
-			     errorMessage.toUtf8().constData());
+			blog(LOG_WARNING, "[Timeline] ┌─ Import failed");
+			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", fileName.toStdString().c_str());
+			blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 			return;
 		}
 
@@ -1199,14 +1201,13 @@ void TimelineDock::onLoadClicked()
 		model->blockSignals(false);
 		loadingTimeline = false;
 
-		// onXxx() slots are already called via the signal/slot connections above
-
-		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
+		blog(LOG_INFO, "[Timeline] Imported → %s", fileName.toStdString().c_str());
 		updateLayout();
 		debounceSaveTimer->start();
 	} else {
-		blog(LOG_WARNING, "Failed to load timeline from %s: %s", fileName.toStdString().c_str(),
-		     errorMessage.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] ┌─ Load failed");
+		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", fileName.toStdString().c_str());
+		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 	}
 }
 
@@ -1289,7 +1290,7 @@ void TimelineDock::copySelectedEvents()
 	std::sort(clipboard.begin(), clipboard.end(),
 		  [](const TimelineEvent &a, const TimelineEvent &b) { return a.timeMs < b.timeMs; });
 
-	blog(LOG_INFO, "Copied %d events to clipboard", static_cast<int>(clipboard.size()));
+	blog(LOG_INFO, "[Timeline] Copied %d events", static_cast<int>(clipboard.size()));
 }
 
 void TimelineDock::pasteEvents()
@@ -1318,7 +1319,7 @@ void TimelineDock::pasteEvents()
 		model->addEvent(newEvt);
 	}
 
-	blog(LOG_INFO, "Pasted %d events at %f ms", static_cast<int>(clipboard.size()), currentPlayhead);
+	blog(LOG_INFO, "[Timeline] Pasted %d events at %.0f ms", static_cast<int>(clipboard.size()), currentPlayhead);
 	debounceSaveTimer->start();
 }
 
