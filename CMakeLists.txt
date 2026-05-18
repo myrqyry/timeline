@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(timeline VERSION 1.0.0)
 
-# Remove 'lib' prefix from shared library on Linux
+# OBS expects plugin .so without 'lib' prefix
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
 option(ENABLE_OBS_WEBSOCKET_VENDOR "Enable obs-websocket vendor integration" ON)
@@ -53,6 +53,9 @@ set(PLUGIN_HEADERS
 add_library(${PROJECT_NAME} MODULE
     ${PLUGIN_SOURCES} 
     ${PLUGIN_HEADERS}
+)
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    PREFIX ""
 )
 
 # Link libraries
