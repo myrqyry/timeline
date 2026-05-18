@@ -1,14 +1,15 @@
- #include "timeline-event-item.h"
+#include "timeline-event-item.h"
+#include <obs-module.h>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSceneHoverEvent>
 #include <QGraphicsSceneContextMenuEvent>
- #include <QMenu>
- #include <QCursor>
- #include <QPainter>
- #include <QStyleOptionGraphicsItem>
- #include <QFontMetrics>
- #include <QFile>
- #include <QApplication>
+#include <QMenu>
+#include <QCursor>
+#include <QPainter>
+#include <QStyleOptionGraphicsItem>
+#include <QFontMetrics>
+#include <QFile>
+#include <QApplication>
 
 #include "theme-helpers.h"
 
@@ -144,10 +145,10 @@ void TimelineEventItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
 
 void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
     QMenu menu;
-    QAction *editAction = menu.addAction("Edit Event");
-    QAction *colorAction = menu.addAction("Set Color...");
+    QAction *editAction = menu.addAction(obs_module_text("TimelineDock.EditEventLabel"));
+    QAction *colorAction = menu.addAction(obs_module_text("TimelineDock.SetColor"));
     menu.addSeparator();
-    QAction *deleteAction = menu.addAction("Delete Event");
+    QAction *deleteAction = menu.addAction(obs_module_text("TimelineDock.DeleteEventLabel"));
     
     QAction *selected = menu.exec(event->screenPos());
     if (selected == deleteAction) {

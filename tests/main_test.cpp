@@ -1,6 +1,7 @@
 #include <QGuiApplication>
 #include <QTest>
 #include <QSignalSpy>
+#include <QMetaObject>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QOffscreenSurface>
@@ -408,7 +409,7 @@ private slots:
 		QCOMPARE(static_cast<int>(docData.events.size()), 1);
 
 		QJsonObject root = TimelineSerialization::toJsonObject(model, true, 12.5, true, 750.0, 128.0, true, 1.0,
-									true, false);
+								       true, false);
 		QJsonDocument objectDoc(root);
 		TimelineDocument loaded;
 		QVERIFY(TimelineSerialization::fromJsonDocument(objectDoc, model, loaded));
@@ -441,6 +442,38 @@ private slots:
 		QString error;
 		QVERIFY(!TimelineSerialization::loadFromFile(file.fileName(), doc, &error));
 		QVERIFY(!error.isEmpty());
+	}
+
+	void testSchedulerRestartRewinds()
+	{
+		TimelineModel model;
+		TimelineScheduler scheduler(&model);
+
+		scheduler.seek(1234.0);
+		QCOMPARE(scheduler.getCurrentTime(), 1234.0);
+
+		scheduler.restart();
+		QCOMPARE(scheduler.getCurrentTime(), 0.0);
+	}
+
+	void testSchedulerEmitsFinishedAndLooped()
+	{
+		TimelineModel model;
+		TimelineScheduler scheduler(&model);
+		scheduler.setEndTime(1000.0);
+
+		QSignalSpy finishedSpy(&scheduler, &TimelineScheduler::finished);
+		QSignalSpy loopedSpy(&scheduler, &TimelineScheduler::looped);
+
+		scheduler.seek(1500.0);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(finishedSpy.count(), 1);
+
+		scheduler.setLooping(true);
+		scheduler.seek(1500.0);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(loopedSpy.count(), 1);
+		QCOMPARE(scheduler.getCurrentTime(), 0.0);
 	}
 };
 

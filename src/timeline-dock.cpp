@@ -60,6 +60,12 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
 	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
 	connect(scheduler, &TimelineScheduler::eventEnded, executor, &ObsExecutor::executeEventEnd);
+	connect(scheduler, &TimelineScheduler::finished, this, &TimelineDock::onTimelineFinished);
+	connect(scheduler, &TimelineScheduler::looped, this, &TimelineDock::onTimelineLooped);
+	debounceSaveTimer = new QTimer(this);
+	debounceSaveTimer->setSingleShot(true);
+	debounceSaveTimer->setInterval(250);
+	connect(debounceSaveTimer, &QTimer::timeout, this, &TimelineDock::save);
 	connect(model, &TimelineModel::modelChanged, this, [this]() {
 		if (!rebuildScheduled) {
 			rebuildScheduled = true;
@@ -67,10 +73,13 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 		}
 		if (!loadingTimeline && !savePending) {
 			savePending = true;
-			QMetaObject::invokeMethod(this, [this]() {
-				savePending = false;
-				save();
-			}, Qt::QueuedConnection);
+			QMetaObject::invokeMethod(
+				this,
+				[this]() {
+					savePending = false;
+					save();
+				},
+				Qt::QueuedConnection);
 		}
 	});
 
@@ -221,7 +230,9 @@ void TimelineDock::load()
 		blog(LOG_INFO, "Loading config file: %s", configPath);
 		TimelineDocument timelineDoc;
 		loadingTimeline = true;
+		model->blockSignals(true);
 		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			model->blockSignals(false);
 			loadingTimeline = false;
 			blog(LOG_WARNING, "Failed to parse timeline config %s: %s", configPath,
 			     errorMessage.toUtf8().constData());
@@ -252,6 +263,7 @@ void TimelineDock::load()
 		alternatingBgCheckbox->blockSignals(false);
 		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
 		scheduler->seek(timelineDoc.currentTimeMs);
+		model->blockSignals(false);
 		loadingTimeline = false;
 
 		// onXxx() slots are already called via the signal/slot connections above
@@ -289,7 +301,7 @@ void TimelineDock::setupUi()
 	controlsLayout = new QHBoxLayout();
 
 	settingsButton = new QPushButton(this);
-	settingsButton->setToolTip("Show timeline settings and file actions");
+	settingsButton->setToolTip(obs_module_text("TimelineDock.Settings"));
 	auto createSeparator = [this]() {
 		QFrame *line = new QFrame(this);
 		line->setFrameShape(QFrame::VLine);
@@ -305,16 +317,16 @@ void TimelineDock::setupUi()
 	snapSeparator = createSeparator();
 
 	// Playback Controls
-	playButton = new QPushButton("Play", this);
-	playButton->setToolTip("Start/pause timeline playback");
-	stopButton = new QPushButton("Stop", this);
-	stopButton->setToolTip("Stop and reset to beginning");
+	playButton = new QPushButton(obs_module_text("TimelineDock.Play"), this);
+	playButton->setToolTip(obs_module_text("TimelineDock.StartPlayback"));
+	stopButton = new QPushButton(obs_module_text("TimelineDock.Stop"), this);
+	stopButton->setToolTip(obs_module_text("TimelineDock.StopPlayback"));
 	zoomOutButton = new QPushButton("-", this);
-	zoomOutButton->setToolTip("Zoom out (Ctrl+Scroll)");
+	zoomOutButton->setToolTip(obs_module_text("TimelineDock.ZoomOut"));
 	zoomInButton = new QPushButton("+", this);
-	zoomInButton->setToolTip("Zoom in (Ctrl+Scroll)");
-	addEventButton = new QPushButton("Add Event", this);
-	addEventButton->setToolTip("Add a new event at the current playhead position");
+	zoomInButton->setToolTip(obs_module_text("TimelineDock.ZoomIn"));
+	addEventButton = new QPushButton(obs_module_text("TimelineDock.AddEvent"), this);
+	addEventButton->setToolTip(obs_module_text("TimelineDock.AddEventTooltip"));
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
 	connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
@@ -349,7 +361,7 @@ void TimelineDock::setupUi()
 	// Options
 	snapCheckbox = new QPushButton(this);
 	snapCheckbox->setCheckable(true);
-	snapCheckbox->setToolTip("Snap events to grid when dragging");
+	snapCheckbox->setToolTip(obs_module_text("TimelineDock.SnapTooltip"));
 	connect(snapCheckbox, &QPushButton::toggled, this, &TimelineDock::onSnapToggled);
 
 	snapIntervalCombo = new QComboBox(this);
@@ -364,7 +376,7 @@ void TimelineDock::setupUi()
 
 	loopCheckbox = new QPushButton(this);
 	loopCheckbox->setCheckable(true);
-	loopCheckbox->setToolTip("Loop playback when end time is reached");
+	loopCheckbox->setToolTip(obs_module_text("TimelineDock.LoopTooltip"));
 	connect(loopCheckbox, &QPushButton::toggled, this, &TimelineDock::onLoopToggled);
 
 	QString iconToggleStyle = "QPushButton { padding: 4px; }"
@@ -373,7 +385,7 @@ void TimelineDock::setupUi()
 	snapCheckbox->setStyleSheet(iconToggleStyle);
 	loopCheckbox->setStyleSheet(iconToggleStyle);
 
-	centerControlsCheckbox = new QCheckBox("Center", this);
+	centerControlsCheckbox = new QCheckBox(obs_module_text("TimelineDock.CenterControls"), this);
 	centerControlsCheckbox->setToolTip("Center controls in the interface");
 	connect(centerControlsCheckbox, &QCheckBox::toggled, this, &TimelineDock::onCenterControlsToggled);
 
@@ -390,25 +402,25 @@ void TimelineDock::setupUi()
 	endTimeSpinbox->setDecimals(1);
 	endTimeSpinbox->setSingleStep(1.0);
 	endTimeSpinbox->setSuffix(" sec");
-	endTimeSpinbox->setToolTip("Set timeline end time (0 = no limit)");
+	endTimeSpinbox->setToolTip(obs_module_text("TimelineDock.EndTimeTooltip"));
 	connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
 		&TimelineDock::onEndTimeChanged);
 
-	saveButton = new QPushButton("Save", this);
-	saveButton->setToolTip("Export timeline to JSON file");
+	saveButton = new QPushButton(obs_module_text("TimelineDock.Save"), this);
+	saveButton->setToolTip(obs_module_text("TimelineDock.SaveTooltip"));
 	saveButton->hide();
 	connect(saveButton, &QPushButton::clicked, this, &TimelineDock::onSaveClicked);
 
-	loadButton = new QPushButton("Load", this);
-	loadButton->setToolTip("Import timeline from JSON file");
+	loadButton = new QPushButton(obs_module_text("TimelineDock.Load"), this);
+	loadButton->setToolTip(obs_module_text("TimelineDock.LoadTooltip"));
 	loadButton->hide();
 	connect(loadButton, &QPushButton::clicked, this, &TimelineDock::onLoadClicked);
 
-	endLabel = new QLabel("End:", this);
+	endLabel = new QLabel(obs_module_text("TimelineDock.EndTime"), this);
 
 	settingsMenu = new QMenu(settingsButton);
-	settingsMenu->addAction("Save Timeline", this, &TimelineDock::onSaveClicked);
-	settingsMenu->addAction("Load Timeline", this, &TimelineDock::onLoadClicked);
+	settingsMenu->addAction(obs_module_text("TimelineDock.SaveTimeline"), this, &TimelineDock::onSaveClicked);
+	settingsMenu->addAction(obs_module_text("TimelineDock.LoadTimeline"), this, &TimelineDock::onLoadClicked);
 	settingsMenu->addSeparator();
 
 	// Embed centerControlsCheckbox in the menu
@@ -417,12 +429,12 @@ void TimelineDock::setupUi()
 	settingsMenu->addAction(centerAction);
 
 	// Alternating background checkbox
-	alternatingBgCheckbox = new QCheckBox("Alt. Background", this);
-	alternatingBgCheckbox->setToolTip("Alternate background colors between time sections");
+	alternatingBgCheckbox = new QCheckBox(obs_module_text("TimelineDock.AltBackground"), this);
+	alternatingBgCheckbox->setToolTip(obs_module_text("TimelineDock.AltBackgroundTooltip"));
 	connect(alternatingBgCheckbox, &QCheckBox::toggled, this, [this](bool checked) {
 		alternatingBg = checked;
 		drawGrid();
-		save();
+		debounceSaveTimer->start();
 	});
 	QWidgetAction *altBgAction = new QWidgetAction(settingsMenu);
 	altBgAction->setDefaultWidget(alternatingBgCheckbox);
@@ -430,9 +442,9 @@ void TimelineDock::setupUi()
 
 	// Grid mode selector (Time vs BPM)
 	gridTypeCombo = new QComboBox(this);
-	gridTypeCombo->addItem("Time", 0);
-	gridTypeCombo->addItem("BPM", 1);
-	gridTypeCombo->setToolTip("Grid snapping mode: Time (seconds) or BPM (musical)");
+	gridTypeCombo->addItem(obs_module_text("TimelineDock.GridTime"), 0);
+	gridTypeCombo->addItem(obs_module_text("TimelineDock.GridBPM"), 1);
+	gridTypeCombo->setToolTip(obs_module_text("TimelineDock.GridTooltip"));
 	connect(gridTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		&TimelineDock::onGridModeChanged);
 
@@ -442,13 +454,13 @@ void TimelineDock::setupUi()
 
 	// Note length selector (for BPM mode)
 	noteLengthCombo = new QComboBox(this);
-	noteLengthCombo->addItem("Whole", 4.0);
-	noteLengthCombo->addItem("Half", 2.0);
-	noteLengthCombo->addItem("Quarter", 1.0);
-	noteLengthCombo->addItem("Eighth", 0.5);
-	noteLengthCombo->addItem("Sixteenth", 0.25);
-	noteLengthCombo->addItem("32nd", 0.125);
-	noteLengthCombo->setToolTip("Note duration for BPM snapping");
+	noteLengthCombo->addItem(obs_module_text("TimelineDock.NoteWhole"), 4.0);
+	noteLengthCombo->addItem(obs_module_text("TimelineDock.NoteHalf"), 2.0);
+	noteLengthCombo->addItem(obs_module_text("TimelineDock.NoteQuarter"), 1.0);
+	noteLengthCombo->addItem(obs_module_text("TimelineDock.NoteEighth"), 0.5);
+	noteLengthCombo->addItem(obs_module_text("TimelineDock.NoteSixteenth"), 0.25);
+	noteLengthCombo->addItem(obs_module_text("TimelineDock.Note32nd"), 0.125);
+	noteLengthCombo->setToolTip(obs_module_text("TimelineDock.NoteTooltip"));
 	noteLengthCombo->setCurrentIndex(2); // Default: quarter note
 	connect(noteLengthCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 		&TimelineDock::onNoteLengthChanged);
@@ -639,7 +651,7 @@ void TimelineDock::onZoomInClicked()
 		pixelsPerSecond = *it;
 		updateLayout();
 		updateZoomLabel();
-		save();
+		debounceSaveTimer->start();
 	}
 }
 
@@ -652,7 +664,7 @@ void TimelineDock::onZoomOutClicked()
 		pixelsPerSecond = *it;
 		updateLayout();
 		updateZoomLabel();
-		save();
+		debounceSaveTimer->start();
 	}
 }
 
@@ -670,7 +682,7 @@ void TimelineDock::onSnapIntervalChanged(int index)
 			}
 		}
 	}
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::onGridModeChanged(int index)
@@ -705,7 +717,7 @@ void TimelineDock::onGridModeChanged(int index)
 		timeModeBtn->blockSignals(false);
 		bpmModeBtn->blockSignals(false);
 	}
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::onBpmChanged(double value)
@@ -715,7 +727,7 @@ void TimelineDock::onBpmChanged(double value)
 		applySnapIntervalToItems();
 		drawGrid();
 	}
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::onNoteLengthChanged(int index)
@@ -729,7 +741,7 @@ void TimelineDock::onNoteLengthChanged(int index)
 			applySnapIntervalToItems();
 			drawGrid();
 		}
-		save();
+		debounceSaveTimer->start();
 	}
 }
 
@@ -737,7 +749,7 @@ void TimelineDock::onCenterControlsToggled(bool checked)
 {
 	centerControls = checked;
 	updateControlsLayout();
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::resizeEvent(QResizeEvent *event)
@@ -943,15 +955,10 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				}
 
 				if (scheduler->isPlaying()) {
-					scheduler->pause();
-					if (executor) {
-						executor->cancelAll();
-					}
-					updatePlayButtonIcon();
 				}
 
 				seekToSceneX(scenePos.x());
-				save();
+				debounceSaveTimer->start();
 				return true;
 			}
 		}
@@ -1006,7 +1013,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				draggingPlayhead = false;
 				view->viewport()->unsetCursor();
 				seekToSceneX(view->mapToScene(mouseEvent->pos()).x());
-				save();
+				debounceSaveTimer->start();
 				return true;
 			}
 		}
@@ -1022,7 +1029,7 @@ void TimelineDock::onPlayClicked()
 			executor->cancelAll();
 		}
 		updatePlayButtonIcon();
-		save();
+		debounceSaveTimer->start();
 #if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
@@ -1034,7 +1041,7 @@ void TimelineDock::onPlayClicked()
 	} else {
 		scheduler->start();
 		updatePlayButtonIcon();
-		save();
+		debounceSaveTimer->start();
 #if OBS_TIMELINE_HAS_WEBSOCKET
 		if (obsWebSocketVendor) {
 			obs_data_t *d = obs_data_create();
@@ -1048,12 +1055,12 @@ void TimelineDock::onPlayClicked()
 
 void TimelineDock::onStopClicked()
 {
-	scheduler->stop();
+	scheduler->restart();
 	if (executor) {
 		executor->cancelAll();
 	}
 	updatePlayButtonIcon();
-	save();
+	debounceSaveTimer->start();
 
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
@@ -1068,7 +1075,7 @@ void TimelineDock::onStopClicked()
 void TimelineDock::onLoopToggled(bool checked)
 {
 	scheduler->setLooping(checked);
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::onEndTimeChanged(double value)
@@ -1076,14 +1083,14 @@ void TimelineDock::onEndTimeChanged(double value)
 	scheduler->setEndTime(value * 1000.0); // Convert seconds to ms
 	updateDependentControlStates();
 	updateEndMarker();
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::onTimelineFinished()
 {
 	updatePlayButtonIcon();
 	blog(LOG_INFO, "Timeline playback finished");
-	save();
+	debounceSaveTimer->start();
 
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
@@ -1098,7 +1105,7 @@ void TimelineDock::onTimelineFinished()
 void TimelineDock::onTimelineLooped()
 {
 	blog(LOG_INFO, "Timeline looped");
-	save();
+	debounceSaveTimer->start();
 }
 
 double TimelineDock::getSnapIntervalMs() const
@@ -1125,7 +1132,7 @@ void TimelineDock::onSnapToggled(bool checked)
 	snapEnabled = checked;
 	updateDependentControlStates();
 	applySnapIntervalToItems();
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::onSaveClicked()
@@ -1163,7 +1170,9 @@ void TimelineDock::onLoadClicked()
 	if (TimelineSerialization::loadFromFile(fileName, doc, &errorMessage)) {
 		TimelineDocument timelineDoc;
 		loadingTimeline = true;
+		model->blockSignals(true);
 		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
+			model->blockSignals(false);
 			loadingTimeline = false;
 			blog(LOG_WARNING, "Failed to import timeline from %s: %s", fileName.toStdString().c_str(),
 			     errorMessage.toUtf8().constData());
@@ -1187,13 +1196,14 @@ void TimelineDock::onLoadClicked()
 		alternatingBgCheckbox->blockSignals(false);
 		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
 		scheduler->seek(timelineDoc.currentTimeMs);
+		model->blockSignals(false);
 		loadingTimeline = false;
 
 		// onXxx() slots are already called via the signal/slot connections above
 
 		blog(LOG_INFO, "Imported timeline from %s", fileName.toStdString().c_str());
 		updateLayout();
-		save();
+		debounceSaveTimer->start();
 	} else {
 		blog(LOG_WARNING, "Failed to load timeline from %s: %s", fileName.toStdString().c_str(),
 		     errorMessage.toUtf8().constData());
@@ -1309,7 +1319,7 @@ void TimelineDock::pasteEvents()
 	}
 
 	blog(LOG_INFO, "Pasted %d events at %f ms", static_cast<int>(clipboard.size()), currentPlayhead);
-	save();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::deleteSelectedEvents()
@@ -1387,8 +1397,8 @@ void TimelineDock::drawGrid()
 				rectW = sceneWidth - x;
 			if (rectW < 0.1)
 				break;
-			QGraphicsRectItem *rect = scene->addRect(x, 20, rectW, sceneHeight - 20, QPen(Qt::NoPen),
-								   QBrush(altColor));
+			QGraphicsRectItem *rect =
+				scene->addRect(x, 20, rectW, sceneHeight - 20, QPen(Qt::NoPen), QBrush(altColor));
 			rect->setZValue(-2);
 			gridItems.append(rect);
 		}
@@ -1560,9 +1570,7 @@ void TimelineDock::rebuildEventItems()
 {
 	rebuildScheduled = false;
 	if (isDragging) {
-		// Re-queue for after drag ends
 		rebuildScheduled = true;
-		QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
 		return;
 	}
 
@@ -1697,8 +1705,8 @@ void TimelineDock::rebuildEventItems()
 			hintColor.setAlpha(128);
 			emptyHintItem->setBrush(QBrush(hintColor));
 			QFont hintFont = QApplication::font();
-		hintFont.setPointSize(10);
-		emptyHintItem->setFont(hintFont);
+			hintFont.setPointSize(10);
+			emptyHintItem->setFont(hintFont);
 			emptyHintItem->setZValue(-5);
 		}
 
@@ -1736,7 +1744,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &
 		evt.id = eventId;              // Preserve ID
 		evt.timeMs = original->timeMs; // Preserve time
 		model->replaceEventById(eventId, evt);
-		save();
+		debounceSaveTimer->start();
 	}
 }
 

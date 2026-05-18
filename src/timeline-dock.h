@@ -154,7 +154,6 @@ private:
 	QLabel *hoverTimeLabel = nullptr;
 	QLabel *endLabel = nullptr;
 
-
 	// Settings
 	bool centerControls = false;
 	bool alternatingBg = false;
@@ -192,6 +191,7 @@ private:
 	qint64 lastTickTime = 0;
 	bool rebuildScheduled = false;
 	bool savePending = false;
+	QTimer *debounceSaveTimer = nullptr;
 	bool isDragging = false;
 	QString zoomLabelCache;
 };
