@@ -95,7 +95,7 @@ void EventEditor::buildUi()
     connect(colorButton, &QPushButton::clicked, this, &EventEditor::pickColor);
 
     iconPathEdit = new QLineEdit(this);
-    auto *browseIconBtn = new QPushButton("Browse...", this);
+	auto *browseIconBtn = new QPushButton(obs_module_text("EventEditor.Browse"), this);
     connect(browseIconBtn, &QPushButton::clicked, this, [this]() {
         QString path = QFileDialog::getOpenFileName(this, obs_module_text("EventEditor.SelectIcon"), "",
                                                     "SVG Files (*.svg)");
