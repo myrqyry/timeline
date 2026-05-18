@@ -50,7 +50,7 @@ set(PLUGIN_HEADERS
 )
 
 # Create library
-add_library(${PROJECT_NAME} SHARED 
+add_library(${PROJECT_NAME} MODULE
     ${PLUGIN_SOURCES} 
     ${PLUGIN_HEADERS}
 )

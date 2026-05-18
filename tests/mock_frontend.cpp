@@ -78,4 +78,10 @@ bool obs_frontend_add_dock_by_id(const char *id, const char *title, void *dock) 
     return true;
 }
 
+// Mock obs_module_text for test builds (returns the key as-is)
+const char *obs_module_text(const char *text)
+{
+    return text;
+}
+
 } // extern "C"

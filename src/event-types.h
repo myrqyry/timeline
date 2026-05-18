@@ -9,7 +9,7 @@ enum class TimelineEventType {
     SceneSwitch,
     MediaStart,
     MediaStop,
-    MediaSeek, // TODO: Planned future feature (seek to position in media source)
+    MediaSeek, // Reserved for future use (seek to position in media source)
     SourceShow,
     SourceHide,
     FilterEnable,

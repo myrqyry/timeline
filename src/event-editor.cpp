@@ -42,18 +42,18 @@ void EventEditor::buildUi()
     setMinimumWidth(400);
 
     typeCombo = new QComboBox(this);
-    typeCombo->addItem("Scene Switch", static_cast<int>(TimelineEventType::SceneSwitch));
-    typeCombo->addItem("Source Show", static_cast<int>(TimelineEventType::SourceShow));
-    typeCombo->addItem("Source Hide", static_cast<int>(TimelineEventType::SourceHide));
-    typeCombo->addItem("Media Start", static_cast<int>(TimelineEventType::MediaStart));
-    typeCombo->addItem("Media Stop", static_cast<int>(TimelineEventType::MediaStop));
-    typeCombo->addItem("Filter Enable", static_cast<int>(TimelineEventType::FilterEnable));
-    typeCombo->addItem("Filter Disable", static_cast<int>(TimelineEventType::FilterDisable));
-    typeCombo->addItem("Trigger Hotkey", static_cast<int>(TimelineEventType::HotkeyTrigger));
-    typeCombo->addItem("Trigger Timeline", static_cast<int>(TimelineEventType::TriggerTimeline));
-    layout->addRow("Event Type:", typeCombo);
+    typeCombo->addItem(obs_module_text("EventType.SceneSwitch"), static_cast<int>(TimelineEventType::SceneSwitch));
+    typeCombo->addItem(obs_module_text("EventType.SourceShow"), static_cast<int>(TimelineEventType::SourceShow));
+    typeCombo->addItem(obs_module_text("EventType.SourceHide"), static_cast<int>(TimelineEventType::SourceHide));
+    typeCombo->addItem(obs_module_text("EventType.MediaStart"), static_cast<int>(TimelineEventType::MediaStart));
+    typeCombo->addItem(obs_module_text("EventType.MediaStop"), static_cast<int>(TimelineEventType::MediaStop));
+    typeCombo->addItem(obs_module_text("EventType.FilterEnable"), static_cast<int>(TimelineEventType::FilterEnable));
+    typeCombo->addItem(obs_module_text("EventType.FilterDisable"), static_cast<int>(TimelineEventType::FilterDisable));
+    typeCombo->addItem(obs_module_text("EventType.HotkeyTrigger"), static_cast<int>(TimelineEventType::HotkeyTrigger));
+    typeCombo->addItem(obs_module_text("EventType.TriggerTimeline"), static_cast<int>(TimelineEventType::TriggerTimeline));
+    layout->addRow(obs_module_text("EventEditor.EventType"), typeCombo);
 
-    targetLabel = new QLabel("Target Scene:", this);
+    targetLabel = new QLabel(obs_module_text("EventEditor.TargetScene"), this);
     targetCombo = new QComboBox(this);
     layout->addRow(targetLabel, targetCombo);
 
@@ -62,15 +62,15 @@ void EventEditor::buildUi()
     auto *fileLayout = new QHBoxLayout(fileWidget);
     fileLayout->setContentsMargins(0, 0, 0, 0);
     fileEdit = new QLineEdit(this);
-    auto *browseFileBtn = new QPushButton("Browse...", this);
+    auto *browseFileBtn = new QPushButton(obs_module_text("EventEditor.Browse"), this);
     fileLayout->addWidget(fileEdit);
     fileLayout->addWidget(browseFileBtn);
-    layout->addRow("Timeline File:", fileWidget);
+    layout->addRow(obs_module_text("EventEditor.TimelineFile"), fileWidget);
     fileWidget->hide();
 
     connect(browseFileBtn, &QPushButton::clicked, this, [this]() {
         QString path =
-            QFileDialog::getOpenFileName(this, "Select Timeline", "", "JSON Files (*.json)");
+            QFileDialog::getOpenFileName(this, obs_module_text("EventEditor.SelectTimeline"), "", "JSON Files (*.json)");
         if (!path.isEmpty())
             fileEdit->setText(path);
     });
@@ -79,7 +79,7 @@ void EventEditor::buildUi()
     transitionWidget = new QWidget(this);
     auto *transitionLayout = new QHBoxLayout(transitionWidget);
     transitionLayout->setContentsMargins(0, 0, 0, 0);
-    auto *transitionLabel = new QLabel("Transition:", this);
+    auto *transitionLabel = new QLabel(obs_module_text("EventEditor.Transition"), this);
     transitionCombo = new QComboBox(this);
     transitionLayout->addWidget(transitionLabel);
     transitionLayout->addWidget(transitionCombo);
@@ -91,30 +91,30 @@ void EventEditor::buildUi()
     colorButton->setFixedSize(60, 24);
     colorButton->setStyleSheet(
         QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
-    colorButton->setToolTip("Click to change event color");
+    colorButton->setToolTip(obs_module_text("EventEditor.ClickColor"));
     connect(colorButton, &QPushButton::clicked, this, &EventEditor::pickColor);
 
     iconPathEdit = new QLineEdit(this);
     auto *browseIconBtn = new QPushButton("Browse...", this);
     connect(browseIconBtn, &QPushButton::clicked, this, [this]() {
-        QString path = QFileDialog::getOpenFileName(this, "Select Custom Icon", "",
+        QString path = QFileDialog::getOpenFileName(this, obs_module_text("EventEditor.SelectIcon"), "",
                                                     "SVG Files (*.svg)");
         if (!path.isEmpty())
             iconPathEdit->setText(path);
     });
 
     auto *colorIconLayout = new QHBoxLayout();
-    colorIconLayout->addWidget(new QLabel("Color:", this));
+    colorIconLayout->addWidget(new QLabel(obs_module_text("EventEditor.Color"), this));
     colorIconLayout->addWidget(colorButton);
     colorIconLayout->addSpacing(20);
-    colorIconLayout->addWidget(new QLabel("Custom Icon:", this));
+    colorIconLayout->addWidget(new QLabel(obs_module_text("EventEditor.CustomIcon"), this));
     colorIconLayout->addWidget(iconPathEdit);
     colorIconLayout->addWidget(browseIconBtn);
     colorIconLayout->addStretch();
     layout->addRow(colorIconLayout);
 
     // Duration controls
-    durationCheck = new QCheckBox("Has Duration", this);
+    durationCheck = new QCheckBox(obs_module_text("EventEditor.HasDuration"), this);
     durationSpin = new QDoubleSpinBox(this);
     durationSpin->setRange(0.0, 3600.0);
     durationSpin->setSuffix(" sec");
@@ -135,8 +135,8 @@ void EventEditor::buildUi()
      timeSpin->setDecimals(3);
      timeSpin->setSuffix(" sec");
      timeSpin->setSingleStep(0.1);
-     timeSpin->setValue(eventTimeMs / 1000.0);
-     layout->addRow("Exact Time:", timeSpin);
+    timeSpin->setValue(eventTimeMs / 1000.0);
+    layout->addRow(obs_module_text("EventEditor.ExactTime"), timeSpin);
 
      // Time info label (updates as user changes timeSpin)
      int minutes = static_cast<int>(eventTimeMs / 1000.0) / 60;
@@ -165,9 +165,9 @@ void EventEditor::buildUi()
 
      // Optional display label
      labelEdit = new QLineEdit(this);
-     labelEdit->setPlaceholderText("Optional display label (max 12 chars)");
-     labelEdit->setMaxLength(12);
-     layout->addRow("Timeline Label:", labelEdit);
+    labelEdit->setPlaceholderText("Optional display label (max 12 chars)");
+    labelEdit->setMaxLength(12);
+    layout->addRow(obs_module_text("EventEditor.TimelineLabel"), labelEdit);
 
      // Buttons
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -185,7 +185,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
     targetCombo->setEnabled(true);
 
     if (evtType == TimelineEventType::TriggerTimeline) {
-        targetLabel->setText("Timeline File:");
+        targetLabel->setText(obs_module_text("EventEditor.TimelineFile"));
         targetCombo->hide();
         fileWidget->show();
         transitionWidget->hide();
@@ -213,7 +213,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
     }
 
     if (evtType == TimelineEventType::SceneSwitch) {
-        targetLabel->setText("Target Scene:");
+        targetLabel->setText(obs_module_text("EventEditor.TargetScene"));
         struct obs_frontend_source_list scenes = {};
         obs_frontend_get_scenes(&scenes);
         for (size_t i = 0; i < scenes.sources.num; i++) {
@@ -229,7 +229,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
         }
     } else if (evtType == TimelineEventType::SourceShow ||
                evtType == TimelineEventType::SourceHide) {
-        targetLabel->setText("Target Source:");
+        targetLabel->setText(obs_module_text("EventEditor.TargetSource"));
         obs_source_t *currentScene = obs_frontend_get_current_scene();
         if (currentScene) {
             obs_scene_t *scene = obs_scene_from_source(currentScene);
@@ -253,7 +253,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
         }
     } else if (evtType == TimelineEventType::MediaStart ||
                evtType == TimelineEventType::MediaStop) {
-        targetLabel->setText("Target Media Source:");
+        targetLabel->setText(obs_module_text("EventEditor.TargetMedia"));
         obs_source_t *currentScene = obs_frontend_get_current_scene();
         if (currentScene) {
             obs_scene_t *scene = obs_scene_from_source(currentScene);
@@ -280,7 +280,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
         }
     } else if (evtType == TimelineEventType::FilterEnable ||
                evtType == TimelineEventType::FilterDisable) {
-        targetLabel->setText("Target Filter (Source::Filter):");
+        targetLabel->setText(obs_module_text("EventEditor.TargetFilter"));
         obs_source_t *currentScene = obs_frontend_get_current_scene();
         if (currentScene) {
             obs_scene_t *scene = obs_scene_from_source(currentScene);
@@ -320,7 +320,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
             targetCombo->setEnabled(false);
         }
     } else if (evtType == TimelineEventType::HotkeyTrigger) {
-        targetLabel->setText("Target Hotkey:");
+        targetLabel->setText(obs_module_text("EventEditor.TargetHotkey"));
         obs_enum_hotkeys(
             [](void *data, obs_hotkey_id id, obs_hotkey_t *hotkey) {
                 Q_UNUSED(id);
@@ -399,41 +399,41 @@ void EventEditor::validateAndAccept()
     const QString sourceText = targetCombo->currentText().trimmed();
 
     auto warn = [this](const QString &message) {
-        QMessageBox::warning(this, "Invalid Event", message);
+        QMessageBox::warning(this, obs_module_text("EventEditor.InvalidEvent"), message);
     };
 
     if (type == TimelineEventType::TriggerTimeline) {
         if (fileEdit->text().isEmpty()) {
-            warn("Please select a timeline file.");
+            warn(obs_module_text("EventEditor.WarnSelectFile"));
             return;
         }
     } else if (type == TimelineEventType::SceneSwitch || type == TimelineEventType::SourceShow ||
                type == TimelineEventType::SourceHide || type == TimelineEventType::MediaStart ||
                type == TimelineEventType::MediaStop) {
         if (sourceText.isEmpty() || sourceText.startsWith("(")) {
-            warn("Please select a valid target source/scene.");
+            warn(obs_module_text("EventEditor.WarnSelectTarget"));
             return;
         }
     } else if (type == TimelineEventType::FilterEnable ||
                type == TimelineEventType::FilterDisable) {
         if (sourceText.isEmpty() || sourceText.startsWith("(")) {
-            warn("Filter events require a valid source and filter.");
+            warn(obs_module_text("EventEditor.WarnFilterSource"));
             return;
         }
         QVariantList data = targetCombo->currentData().toList();
         if (data.size() < 2 || data[0].toString().isEmpty() || data[1].toString().isEmpty()) {
-            warn("Filter events require both source and filter names.");
+            warn(obs_module_text("EventEditor.WarnFilterNames"));
             return;
         }
     } else if (type == TimelineEventType::HotkeyTrigger) {
         if (targetCombo->currentData().toString().isEmpty() && sourceText.isEmpty()) {
-            warn("Hotkey events require a hotkey name.");
+            warn(obs_module_text("EventEditor.WarnHotkeyName"));
             return;
         }
     }
 
     if (durationCheck->isChecked() && durationSpin->value() < 0.0) {
-        warn("Duration must be zero or greater.");
+        warn(obs_module_text("EventEditor.WarnDuration"));
         return;
     }
 
