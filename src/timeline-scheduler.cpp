@@ -51,6 +51,7 @@ void TimelineScheduler::start() {
     // Reset start time to now, preserving currentOffsetMs
     startTime = std::chrono::high_resolution_clock::now();
     timer->start();
+    blog(LOG_INFO, "[Timeline] Playback started");
 }
 
 void TimelineScheduler::stop() {
@@ -58,6 +59,7 @@ void TimelineScheduler::stop() {
     currentOffsetMs = getCurrentTime(); // Preserve position
     playing = false;
     timer->stop();
+    blog(LOG_INFO, "[Timeline] Playback stopped at %.1f ms", currentOffsetMs);
 }
 
 void TimelineScheduler::restart() {
@@ -65,6 +67,7 @@ void TimelineScheduler::restart() {
     timer->stop();
     currentOffsetMs = 0.0;
     seek(0.0);
+    blog(LOG_INFO, "[Timeline] Playback restarted");
 }
 
 void TimelineScheduler::pause() {
@@ -75,11 +78,13 @@ void TimelineScheduler::pause() {
     
     playing = false;
     timer->stop();
+    blog(LOG_INFO, "[Timeline] Playback paused at %.1f ms", currentOffsetMs);
 }
 
 void TimelineScheduler::resume() {
     // start() will continue from currentOffsetMs
     start();
+    blog(LOG_INFO, "[Timeline] Playback resumed");
 }
 
 void TimelineScheduler::seek(double timeMs) {
@@ -108,6 +113,7 @@ void TimelineScheduler::seek(double timeMs) {
     if (!playing) {
         emit tick(currentOffsetMs);
     }
+    blog(LOG_DEBUG, "[Timeline] Seeked to %.1f ms (fired sets reset)", timeMs);
 }
 
 double TimelineScheduler::getCurrentTime() const {
@@ -120,7 +126,7 @@ double TimelineScheduler::getCurrentTime() const {
 
 void TimelineScheduler::setEndTime(double endTime) {
     endTimeMs = endTime;
-    blog(LOG_INFO, "[Timeline] End time: %.1f ms", endTimeMs);
+    blog(LOG_INFO, "[Timeline] End time set: %.1f ms", endTimeMs);
 }
 
 void TimelineScheduler::setLooping(bool loop) {
@@ -146,7 +152,7 @@ void TimelineScheduler::onTimerTick() {
             // Stop at end
             pause();
             emit finished();
-            blog(LOG_INFO, "[Timeline] End time reached");
+            blog(LOG_INFO, "[Timeline] End time reached - playback finished");
             return;
         }
     }
