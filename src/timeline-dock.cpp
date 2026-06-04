@@ -73,7 +73,7 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 				this,
 				[this]() {
 					savePending = false;
-					save();
+				save();
 				},
 				Qt::QueuedConnection);
 		}
@@ -325,7 +325,6 @@ void TimelineDock::setupUi()
 	zoomOutButton = new QPushButton("-", this);
 	zoomOutButton->setToolTip(obs_module_text("TimelineDock.ZoomOut"));
 	zoomInButton = new QPushButton("+", this);
-	zoomInButton->setToolTip(obs_module_text("TimelineDock.ZoomIn"));
 	addEventButton = new QPushButton(obs_module_text("TimelineDock.AddEvent"), this);
 	addEventButton->setToolTip(obs_module_text("TimelineDock.AddEventTooltip"));
 
@@ -369,7 +368,6 @@ void TimelineDock::setupUi()
 	snapIntervalCombo->addItem("100 ms", 100);
 	snapIntervalCombo->addItem("250 ms", 250);
 	snapIntervalCombo->addItem("500 ms", 500);
-	snapIntervalCombo->addItem("1 s", 1000);
 	snapIntervalCombo->setCurrentIndex(2); // default: 500 ms
 	snapIntervalCombo->setToolTip("Snap interval");
 	connect(snapIntervalCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -819,7 +817,7 @@ void TimelineDock::clearRuler()
 {
 	for (QGraphicsItem *item : rulerItems) {
 		scene->removeItem(item);
-		delete item;
+		item->deleteLater();
 	}
 	rulerItems.clear();
 }
@@ -907,8 +905,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					onZoomInClicked();
 				} else {
 					onZoomOutClicked();
+					return true;
 				}
-				return true;
 			} else {
 				// Horizontal scrolling with standard wheel
 				// Use Y delta for horizontal scroll if X delta is zero
@@ -1065,9 +1063,9 @@ void TimelineDock::onStopClicked()
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *d = obs_data_create();
-		obs_data_set_string(d, "event", "stopped");
-		obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
-		obs_data_release(d);
+			obs_data_set_string(d, "event", "stopped");
+			obs_websocket_vendor_emit_event(obsWebSocketVendor, "PlaybackStatus", d);
+			obs_data_release(d);
 	}
 #endif
 }
@@ -1218,7 +1216,7 @@ void TimelineDock::updateEndMarker()
 	// Remove existing marker if any
 	if (endMarkerItem) {
 		scene->removeItem(endMarkerItem);
-		delete endMarkerItem;
+		endMarkerItem->deleteLater();
 		endMarkerItem = nullptr;
 	}
 
@@ -1358,7 +1356,7 @@ void TimelineDock::drawGrid()
 	// Clear existing grid
 	for (QGraphicsItem *item : gridItems) {
 		scene->removeItem(item);
-		delete item;
+		item->deleteLater();
 	}
 	gridItems.clear();
 
@@ -1687,9 +1685,10 @@ void TimelineDock::rebuildEventItems()
 	auto it = eventItemMap.begin();
 	while (it != eventItemMap.end()) {
 		if (!currentIds.contains(it.key())) {
-			if (it.value()) {
-				scene->removeItem(it.value());
-				delete it.value();
+			TimelineEventItem *item = it.value();
+			if (item) {
+				scene->removeItem(item);
+				item->deleteLater();   // Safer Qt ownership - respects event loop
 			}
 			it = eventItemMap.erase(it);
 		} else {
@@ -1724,7 +1723,7 @@ void TimelineDock::clearEventItems()
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item) {
 			scene->removeItem(item);
-			delete item;
+			item->deleteLater();   // Safer - respects Qt event loop
 		}
 	}
 	eventItemMap.clear();
