@@ -9,10 +9,12 @@
 
 ObsExecutor::ObsExecutor(QObject *parent) : QObject(parent)
 {
+	blog(LOG_INFO, "[Timeline] ├─ Executor created");
 }
 
 ObsExecutor::~ObsExecutor()
 {
+	blog(LOG_INFO, "[Timeline] Executor destroyed");
 }
 
 void ObsExecutor::setObsWebSocketVendor(void *vendor)
@@ -22,6 +24,7 @@ void ObsExecutor::setObsWebSocketVendor(void *vendor)
 
 void ObsExecutor::cancelAll()
 {
+	blog(LOG_INFO, "[Timeline] cancelAll() called - stopping %d active nested timelines", static_cast<int>(activeTimelines.size()));
 	for (HeadlessTimeline *t : activeTimelines) {
 		t->stop();
 		t->deleteLater();
@@ -62,6 +65,7 @@ void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 		obs_data_set_int(event_data, "type", static_cast<int>(evt.type));
 		obs_data_set_string(event_data, "sourceName", evt.sourceName.toUtf8().constData());
 		obs_data_set_double(event_data, "timeMs", evt.timeMs);
+
 		obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
 		obs_data_release(event_data);
 	}
@@ -255,7 +259,7 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 			return;
 	}
 
-	// Fallback: search all scenes
+	// Fallback: search all scenes (can be expensive on large collections)
 	struct obs_frontend_source_list list = {};
 	obs_frontend_get_scenes(&list);
 	bool foundAny = false;
@@ -386,7 +390,7 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 		timeline->start();
 		blog(LOG_INFO, "[Timeline] Nested timeline → '%s'", filePath.toUtf8().constData());
 	} else {
-		delete timeline;
+		timeline->deleteLater();  // Consistent with cancelAll() ownership model
 		blog(LOG_WARNING, "[Timeline] ┌─ Failed to load nested timeline");
 		blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toUtf8().constData());
 	}
