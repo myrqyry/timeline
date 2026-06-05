@@ -47,7 +47,8 @@ bool HeadlessTimeline::loadFromFile(const QString &filePath)
 	file.close();
 
 	if (doc.isArray()) {
-		model->fromJson(doc.array());n	} else if (doc.isObject()) {
+		model->fromJson(doc.array());
+	} else if (doc.isObject()) {
 		QJsonObject root = doc.object();
 		model->fromJson(root["events"].toArray());
 
