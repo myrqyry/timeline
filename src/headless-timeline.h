@@ -8,6 +8,17 @@
 // Forward declaration
 class ObsExecutor;
 
+/**
+ * HeadlessTimeline
+ *
+ * A lightweight, non-UI controller for running timelines in the background.
+ * Primarily used by ObsExecutor when a TriggerTimeline event fires.
+ *
+ * Ownership notes:
+ * - Owns its own Model, Scheduler, and Executor.
+ * - Destructor calls stop() to ensure any nested timelines it spawned are cleaned up.
+ * - Should normally be managed via QPointer or parent ownership in the executor.
+ */
 class HeadlessTimeline : public QObject {
 	Q_OBJECT
 

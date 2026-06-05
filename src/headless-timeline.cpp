@@ -7,6 +7,7 @@
 
 HeadlessTimeline::HeadlessTimeline(QObject *parent) : QObject(parent)
 {
+	blog(LOG_INFO, "[Timeline] HeadlessTimeline created");
 	model = new TimelineModel(this);
 	scheduler = new TimelineScheduler(model, this);
 	executor = new ObsExecutor(this);
@@ -21,7 +22,9 @@ HeadlessTimeline::HeadlessTimeline(QObject *parent) : QObject(parent)
 
 HeadlessTimeline::~HeadlessTimeline()
 {
-	// scheduler->stop() is redundant: TimelineScheduler's destructor calls stop()
+	blog(LOG_INFO, "[Timeline] HeadlessTimeline destroyed (path: %s)", currentPath.toUtf8().constData());
+	// Ensure we clean up any nested timelines we may have spawned
+	stop();
 }
 
 void HeadlessTimeline::load(const QJsonArray &json)
@@ -31,10 +34,12 @@ void HeadlessTimeline::load(const QJsonArray &json)
 
 bool HeadlessTimeline::loadFromFile(const QString &filePath)
 {
+	currentPath = filePath;
+
 	QFile file(filePath);
 	if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
 		blog(LOG_WARNING, "[Timeline] ┌─ Headless timeline: file open failed");
-	blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toStdString().c_str());
+		blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toUtf8().constData());
 		return false;
 	}
 
@@ -56,9 +61,12 @@ bool HeadlessTimeline::loadFromFile(const QString &filePath)
 			scheduler->setEndTime(settings["endTime"].toDouble() * 1000.0);
 		}
 	} else {
+		blog(LOG_WARNING, "[Timeline] ┌─ Headless timeline: invalid JSON format");
+		blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toUtf8().constData());
 		return false;
 	}
 
+	blog(LOG_INFO, "[Timeline] Headless timeline loaded: %s", filePath.toUtf8().constData());
 	return true;
 }
 
@@ -66,6 +74,7 @@ void HeadlessTimeline::start()
 {
 	if (scheduler) {
 		scheduler->start();
+		blog(LOG_INFO, "[Timeline] Headless timeline started: %s", currentPath.toUtf8().constData());
 	}
 }
 
@@ -77,4 +86,5 @@ void HeadlessTimeline::stop()
 	if (executor) {
 		executor->cancelAll();
 	}
+	blog(LOG_INFO, "[Timeline] Headless timeline stopped: %s", currentPath.toUtf8().constData());
 }
