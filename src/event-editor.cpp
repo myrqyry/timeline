@@ -158,10 +158,15 @@ void EventEditor::buildUi()
          int seconds = (totalMs / 1000) % 60;
          int ms = totalMs % 1000;
          timeInfoLabel->setText(QString("Event time: %1:%2.%3")
-                                    .arg(minutes, 2, 10, QChar('0'))
-                                    .arg(seconds, 2, 10, QChar('0'))
-                                    .arg(ms / 10, 2, 10, QChar('0')));
+                                     .arg(minutes, 2, 10, QChar('0'))
+                                     .arg(seconds, 2, 10, QChar('0'))
+                                     .arg(ms / 10, 2, 10, QChar('0')));
      });
+
+     // Time controls are display-only when creating a new event (position determined by context)
+     if (isNewMode) {
+         timeSpin->setEnabled(false);
+     }
 
      // Optional display label
      labelEdit = new QLineEdit(this);

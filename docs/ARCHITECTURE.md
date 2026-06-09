@@ -647,7 +647,7 @@ enum class TimelineEventType {
     SceneSwitch,    // 0
     MediaStart,     // 1
     MediaStop,      // 2
-    MediaSeek,      // 3 (Reserved)
+    MediaSeek,      // 3 (Deprecated — not exposed in UI)
     SourceShow,     // 4
     SourceHide,     // 5
     FilterEnable,   // 6

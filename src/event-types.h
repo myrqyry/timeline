@@ -9,7 +9,7 @@ enum class TimelineEventType {
     SceneSwitch,
     MediaStart,
     MediaStop,
-    MediaSeek, // Reserved for future use (seek to position in media source)
+    MediaSeek, // Deprecated — reserved, not exposed in UI
     SourceShow,
     SourceHide,
     FilterEnable,
