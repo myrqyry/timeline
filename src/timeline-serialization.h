@@ -17,6 +17,7 @@ struct TimelineDocument {
 	double noteLengthBeats = 1.0; // Quarter note = 1 beat
 	bool centerControls = false;
 	bool alternatingBg = false;
+	bool compactMode = false;
 	double currentTimeMs = 0.0;
 	double zoomPixelsPerSecond = 100.0;
 };
@@ -25,8 +26,8 @@ class TimelineSerialization {
 public:
 	static QJsonObject toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds, bool snap,
 					double snapIntervalMs, double bpm, bool gridToBpm, double noteLengthBeats,
-					bool centerControls, bool alternatingBg, double currentTimeMs = 0.0,
-					double zoomPixelsPerSecond = 100.0);
+					bool centerControls, bool alternatingBg, bool compactMode = false,
+					double currentTimeMs = 0.0, double zoomPixelsPerSecond = 100.0);
 
 	static bool fromJsonDocument(const QJsonDocument &doc, TimelineModel &model, TimelineDocument &outDocument,
 				     QString *errorMessage = nullptr);

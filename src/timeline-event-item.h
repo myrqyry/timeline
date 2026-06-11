@@ -50,10 +50,17 @@ public:
     // Suppress drag signals during programmatic moves
     void setSuppressDragSignals(bool suppress) { suppressDragSignals = suppress; }
 
+    // Compact mode: shrink the bubble to match toolbar button size
+    void setCompactMode(bool enabled);
+    bool isCompactMode() const { return compactMode; }
+
     // Theme colors
     void setBorderColor(const QColor &color);
     void setSelectionColor(const QColor &color);
     void setBackgroundColor(const QColor &color);
+
+    // Label pill colors (pushed from dock so labels follow OBS theme text/base)
+    void setLabelColors(const QColor &textColor, const QColor &bgColor);
 
 private:
     void refreshRenderer();
@@ -89,6 +96,9 @@ private:
     int stackOffset = 0;
     double baseY = 30.0;
     static constexpr double ITEM_SIZE = 32.0;
+    static constexpr double COMPACT_SIZE = 22.0;
+    double mItemSize = ITEM_SIZE;
+    bool compactMode = false;
     
     // Snap settings
     bool snapEnabled = false;
@@ -110,6 +120,10 @@ private:
     QColor borderColor = Qt::black;
     QColor selectionColor = QColor(255, 200, 0);
     QColor backgroundColor = Qt::white;
+
+    // Label pill theme colors (pushed from dock to follow OBS palette)
+    QColor labelTextColor;
+    QColor labelBgColor;
 
     QSvgRenderer *renderer = nullptr;
 };

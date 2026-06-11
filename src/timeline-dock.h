@@ -21,6 +21,7 @@
 class TimelineEventItem;
 class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
+class TimecodeDisplay;
 
 class TimelineDock : public QWidget {
 	Q_OBJECT
@@ -49,6 +50,7 @@ protected:
 	bool eventFilter(QObject *obj, QEvent *event) override;
 	void resizeEvent(QResizeEvent *event) override;
 	void keyPressEvent(QKeyEvent *event) override;
+	void changeEvent(QEvent *event) override;
 
 private slots:
 	void onPlayClicked();
@@ -96,9 +98,11 @@ private:
 	void applySnapIntervalToItems();
 	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
 	void updateButtonIcon(QPushButton *btn, const char *path);
+	void updateMoonButtonIcon(QPushButton *btn, const char *inner);
 	void updateDependentControlStates();
 	void updateZoomLabelPosition();
 	void seekToSceneX(double x);
+	void applyThemeColorsToItems();
 
 	QList<TimelineEvent> clipboard;
 
@@ -144,6 +148,7 @@ private:
 	QPushButton *snapCheckbox = nullptr;
 	QCheckBox *centerControlsCheckbox = nullptr;
 	QCheckBox *alternatingBgCheckbox = nullptr;
+	QCheckBox *compactModeCheckbox = nullptr;
 	QDoubleSpinBox *endTimeSpinbox = nullptr;
 	QDoubleSpinBox *bpmSpinbox = nullptr;
 	QComboBox *snapIntervalCombo = nullptr;
@@ -153,10 +158,12 @@ private:
 	QLabel *zoomLabel = nullptr;
 	QLabel *hoverTimeLabel = nullptr;
 	QLabel *endLabel = nullptr;
+	TimecodeDisplay *timecodeDisplay = nullptr;
 
 	// Settings
 	bool centerControls = false;
 	bool alternatingBg = false;
+	bool compactMode = false;
 	double bpm = 120.0;
 	bool gridToBpm = false;
 	double noteLengthBeats = 1.0; // Quarter note (1 beat)

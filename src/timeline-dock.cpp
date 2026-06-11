@@ -18,6 +18,7 @@
 
 #include "timeline-event-item.h"
 #include "theme-helpers.h"
+#include "timecode-display.h"
 #include <QMouseEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSimpleTextItem>
@@ -162,9 +163,13 @@ void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *pr
 		QMetaObject::invokeMethod(
 			dock,
 			[dock]() {
+				dock->ensurePolished();
 				dock->playheadColor = dock->palette().color(QPalette::Highlight).lighter(130);
+				dock->applyThemeColorsToItems();
 				dock->updateToolbarIcons();
 				dock->updateLayout();
+				if (dock->view && dock->view->viewport()) dock->view->viewport()->update();
+				if (dock->timecodeDisplay) dock->timecodeDisplay->update();
 			},
 			Qt::QueuedConnection);
 		break;
@@ -222,10 +227,10 @@ void TimelineDock::save()
 								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
 								     getSnapIntervalMs(), bpm, gridToBpm,
 								     noteLengthBeats, centerControls, alternatingBg,
-								     scheduler->getCurrentTime(), pixelsPerSecond);
+								     compactMode, scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
-		blog(LOG_INFO, "[Timeline] Saved → %s", configPath);
+		blog(LOG_DEBUG, "[Timeline] Saved → %s", configPath);
 	} else {
 		blog(LOG_WARNING, "[Timeline] ┌─ Save failed");
 		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
@@ -279,6 +284,10 @@ void TimelineDock::load()
 		alternatingBgCheckbox->blockSignals(true);
 		alternatingBgCheckbox->setChecked(alternatingBg);
 		alternatingBgCheckbox->blockSignals(false);
+		compactMode = timelineDoc.compactMode;
+		compactModeCheckbox->blockSignals(true);
+		compactModeCheckbox->setChecked(compactMode);
+		compactModeCheckbox->blockSignals(false);
 		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
 		scheduler->seek(timelineDoc.currentTimeMs);
 		model->blockSignals(false);
@@ -295,7 +304,7 @@ void TimelineDock::load()
 		const QJsonObject root = TimelineSerialization::toJsonObject(
 			*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
 			getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls, alternatingBg,
-			scheduler->getCurrentTime(), pixelsPerSecond);
+			compactMode, scheduler->getCurrentTime(), pixelsPerSecond);
 		if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 			blog(LOG_INFO, "[Timeline] Default config created: %s", configPath);
 		} else {
@@ -355,13 +364,9 @@ void TimelineDock::setupUi()
 	connect(zoomInButton, &QPushButton::clicked, this, &TimelineDock::onZoomInClicked);
 	connect(addEventButton, &QPushButton::clicked, this, &TimelineDock::onAddEventClicked);
 
-	// Time Display
-	timeLabel = new QLabel("00:00:00", this);
-	timeLabel->setToolTip("Current timeline position | Zoom level");
-	QFont timeFont = timeLabel->font();
-	timeFont.setPointSize(28);
-	timeFont.setBold(true);
-	timeLabel->setFont(timeFont);
+	// Time Display — custom monospace timecode widget
+	timecodeDisplay = new TimecodeDisplay(this);
+	timecodeDisplay->setToolTip("Current timeline position");
 
 	// Zoom label (overlay on viewport)
 	zoomLabel = new QLabel(this);
@@ -405,6 +410,14 @@ void TimelineDock::setupUi()
 				  "color: palette(highlighted-text); }";
 	snapCheckbox->setStyleSheet(iconToggleStyle);
 	loopCheckbox->setStyleSheet(iconToggleStyle);
+
+	// Refresh icon colors when checkable toolbar buttons change state
+	// (so the baked SVG color matches the new background + uses the right palette role for readability)
+	auto refreshIconColors = [this]() { updateToolbarIcons(); };
+	connect(snapCheckbox, &QPushButton::toggled, this, refreshIconColors);
+	connect(loopCheckbox, &QPushButton::toggled, this, refreshIconColors);
+	connect(timeModeBtn, &QPushButton::toggled, this, refreshIconColors);
+	connect(bpmModeBtn, &QPushButton::toggled, this, refreshIconColors);
 
 	centerControlsCheckbox = new QCheckBox(obs_module_text("TimelineDock.CenterControls"), this);
 	centerControlsCheckbox->setToolTip("Center controls in the interface");
@@ -460,6 +473,23 @@ void TimelineDock::setupUi()
 	QWidgetAction *altBgAction = new QWidgetAction(settingsMenu);
 	altBgAction->setDefaultWidget(alternatingBgCheckbox);
 	settingsMenu->addAction(altBgAction);
+
+	// Compact mode checkbox (shrinks event icons to toolbar button size)
+	compactModeCheckbox = new QCheckBox(obs_module_text("TimelineDock.CompactMode"), this);
+	compactModeCheckbox->setToolTip(obs_module_text("TimelineDock.CompactModeTooltip"));
+	compactModeCheckbox->setChecked(compactMode);
+	connect(compactModeCheckbox, &QCheckBox::toggled, this, [this](bool checked) {
+		compactMode = checked;
+		for (TimelineEventItem *item : eventItemMap) {
+			if (item)
+				item->setCompactMode(compactMode);
+		}
+		updateLayout();
+		debounceSaveTimer->start();
+	});
+	QWidgetAction *compactAction = new QWidgetAction(settingsMenu);
+	compactAction->setDefaultWidget(compactModeCheckbox);
+	settingsMenu->addAction(compactAction);
 
 	// Grid mode selector (Time vs BPM)
 	gridTypeCombo = new QComboBox(this);
@@ -541,20 +571,25 @@ void TimelineDock::setupUi()
 	view->viewport()->setMouseTracking(true);
 	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() { updateZoomLabelPosition(); });
 
-	// Playhead
-	playheadItem = scene->addLine(0, 0, 0, view->height(), QPen(playheadColor, 2));
+	// Playhead — main line, slightly thicker and crisp
+	QPen playheadPen(playheadColor, 2);
+	playheadPen.setCosmetic(true);
+	playheadItem = scene->addLine(0, 0, 0, view->height(), playheadPen);
 	playheadItem->setZValue(100);
 
 	// Drag Guide (hidden by default)
-	dragGuideItem = scene->addLine(0, 0, 0, view->height(), QPen(QColor(0, 255, 0), 1, Qt::DashLine));
+	QPen dragPen(QColor(0, 200, 0), 1, Qt::DashLine);
+	dragPen.setCosmetic(true);
+	dragGuideItem = scene->addLine(0, 0, 0, view->height(), dragPen);
 	dragGuideItem->setZValue(110);
 	dragGuideItem->setVisible(false);
 
 	// Playhead handle (triangle glyph) for easier grabbing
-	playheadHandle = scene->addSimpleText(QString::fromUtf8("\xE2\x96\xB2")); // ▲ triangle
+	playheadHandle = scene->addSimpleText(QString::fromUtf8("\xE2\x96\xBC")); // ▼ down triangle
 	playheadHandle->setBrush(QBrush(playheadColor));
 	QFont handleFont = playheadHandle->font();
 	handleFont.setPointSize(10);
+	handleFont.setBold(true);
 	playheadHandle->setFont(handleFont);
 	playheadHandle->setZValue(101);
 	playheadHandle->setFlag(QGraphicsItem::ItemIgnoresTransformations);
@@ -606,8 +641,10 @@ void TimelineDock::updateControlsLayout()
 	controlsLayout->addWidget(show(playButton));
 	controlsLayout->addWidget(show(stopButton));
 	controlsLayout->addWidget(show(playbackSeparator));
-	controlsLayout->addWidget(show(timeLabel));
-	controlsLayout->addWidget(show(timeSeparator));
+
+	// Time display sits close to playback controls (no large stretches)
+	controlsLayout->addWidget(show(timecodeDisplay));
+
 	controlsLayout->addWidget(show(zoomToggleContainer));
 	controlsLayout->addWidget(show(zoomSeparator));
 	controlsLayout->addStretch();
@@ -867,28 +904,41 @@ void TimelineDock::drawRuler()
 		step = 10;
 
 	QColor rulerColor = palette().color(QPalette::Mid);
+	rulerColor.setAlpha(180);
 	QColor textColor = palette().color(QPalette::Text);
 	QColor minorColor = palette().color(QPalette::Dark);
+	minorColor.setAlpha(140);
 
 	for (int i = 0; i <= durationSec; i += step) {
 		double x = i * pixelsPerSecond;
 
-		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, QPen(rulerColor));
+		// Major tick — full height with subtle gradient look via two stacked lines
+		QPen majorPen(rulerColor, 1);
+		majorPen.setCosmetic(true);
+		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, majorPen);
 		rulerItems.append(line);
 
+		// Highlight stroke for first/last pixel to soften edge
+		QColor hi = rulerColor.lighter(140);
+		hi.setAlpha(120);
+		QGraphicsLineItem *cap = scene->addLine(x, 0, x, 2, QPen(hi, 1));
+		rulerItems.append(cap);
+
 		QGraphicsSimpleTextItem *text = scene->addSimpleText(QString::number(i) + "s");
-		text->setPos(x + 2, 0);
+		text->setPos(x + 3, 1);
 		text->setBrush(QBrush(textColor));
 		QFont markerFont = text->font();
-		markerFont.setPointSize(9);
-		markerFont.setBold(false);
+		markerFont.setPointSize(8);
+		markerFont.setWeight(QFont::DemiBold);
 		text->setFont(markerFont);
 		rulerItems.append(text);
 
 		if (pixelsPerSecond > 50) {
 			for (int j = 1; j < 10; j++) {
 				double xm = x + (j * pixelsPerSecond / 10.0);
-				QGraphicsLineItem *minor = scene->addLine(xm, 10, xm, 20, QPen(minorColor));
+				// Alternate minor tick heights to add rhythm
+				int tickH = (j == 5) ? 14 : 8;
+				QGraphicsLineItem *minor = scene->addLine(xm, 20 - tickH, xm, 20, QPen(minorColor, 1));
 				rulerItems.append(minor);
 			}
 		}
@@ -1131,7 +1181,7 @@ void TimelineDock::onTimelineFinished()
 
 void TimelineDock::onTimelineLooped()
 {
-	blog(LOG_INFO, "[Timeline] Looped");
+	blog(LOG_DEBUG, "[Timeline] Looped");
 	debounceSaveTimer->start();
 }
 
@@ -1176,7 +1226,7 @@ void TimelineDock::onSaveClicked()
 								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
 								     getSnapIntervalMs(), bpm, gridToBpm,
 								     noteLengthBeats, centerControls, alternatingBg,
-								     scheduler->getCurrentTime(), pixelsPerSecond);
+								     compactMode, scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "[Timeline] Exported → %s", fileName.toStdString().c_str());
@@ -1223,6 +1273,10 @@ void TimelineDock::onLoadClicked()
 		alternatingBgCheckbox->blockSignals(true);
 		alternatingBgCheckbox->setChecked(alternatingBg);
 		alternatingBgCheckbox->blockSignals(false);
+		compactMode = timelineDoc.compactMode;
+		compactModeCheckbox->blockSignals(true);
+		compactModeCheckbox->setChecked(compactMode);
+		compactModeCheckbox->blockSignals(false);
 		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
 		scheduler->seek(timelineDoc.currentTimeMs);
 		model->blockSignals(false);
@@ -1253,8 +1307,11 @@ void TimelineDock::updateEndMarker()
 	if (endTimeMs > 0 && view) {
 		double x = (endTimeMs / 1000.0) * pixelsPerSecond;
 		double h = view->viewport()->height();
-		endMarkerItem = scene->addLine(
-			x, 0, x, h, QPen(palette().color(QPalette::Link), 2, Qt::DashLine)); // Accent dashed line
+		QColor link = palette().color(QPalette::Link);
+		link.setAlpha(180);
+		QPen endPen(link, 1, Qt::DashLine);
+		endPen.setCosmetic(true);
+		endMarkerItem = scene->addLine(x, 0, x, h, endPen);
 		endMarkerItem->setZValue(99);
 		endMarkerItem->setToolTip(QString("End time: %1 sec").arg(endTimeMs / 1000.0, 0, 'f', 1));
 	}
@@ -1287,6 +1344,21 @@ void TimelineDock::keyPressEvent(QKeyEvent *event)
 	default:
 		QWidget::keyPressEvent(event);
 		break;
+	}
+}
+
+void TimelineDock::changeEvent(QEvent *event)
+{
+	QWidget::changeEvent(event);
+	if (event->type() == QEvent::PaletteChange) {
+		playheadColor = palette().color(QPalette::Highlight).lighter(130);
+		applyThemeColorsToItems();
+		updateToolbarIcons();
+		if (view && view->viewport())
+			view->viewport()->update();
+		if (timecodeDisplay)
+			timecodeDisplay->update();
+		update();
 	}
 }
 
@@ -1434,8 +1506,9 @@ void TimelineDock::drawGrid()
 
 	// Draw visible vertical grid lines above the scene background but below event items.
 	QColor gridColor = palette().color(QPalette::Text);
-	gridColor.setAlpha(85);
-	QPen gridPen(gridColor, 1, Qt::DashLine);
+	gridColor.setAlpha(55);
+	QPen gridPen(gridColor, 1, Qt::DotLine);
+	gridPen.setCosmetic(true);
 	for (double x = 0; x < sceneWidth; x += stepPx) {
 		// Skip x=0 (optional, but usually 0 is implied)
 		if (x < 0.1)
@@ -1470,17 +1543,12 @@ void TimelineDock::onTick(double currentTimeMs)
 	int minutes = totalSeconds / 60;
 	int seconds = totalSeconds % 60;
 
-	QString baseText = QString("%1:%2.%3")
-				   .arg(minutes, 2, 10, QChar('0'))
-				   .arg(seconds, 2, 10, QChar('0'))
-				   .arg(ms / 10, 2, 10, QChar('0'));
-
-	QString newText = baseText;
-
-	// Optimization: Only update if text actually changed
-	if (timeLabel->text() != newText) {
-		timeLabel->setText(newText);
+	if (timecodeDisplay) {
+		timecodeDisplay->setTimeMs(currentTimeMs);
 	}
+	(void)minutes;
+	(void)seconds;
+	(void)ms;
 }
 
 void TimelineDock::updatePlayhead(double timeMs)
@@ -1490,12 +1558,14 @@ void TimelineDock::updatePlayhead(double timeMs)
 	double x = (timeMs / 1000.0) * pixelsPerSecond;
 	double h = view->viewport()->height();
 	playheadItem->setLine(x, 0, x, h);
-	playheadItem->setPen(QPen(playheadColor, 2));
+	QPen pen(playheadColor, 2);
+	pen.setCosmetic(true);
+	playheadItem->setPen(pen);
 
 	if (playheadHandle) {
-		// Center handle on playhead and position above the line
+		// Center handle on playhead and position at the top of the ruler
 		QRectF br = playheadHandle->boundingRect();
-		playheadHandle->setPos(x - br.width() / 2.0, -br.height());
+		playheadHandle->setPos(x - br.width() / 2.0, -br.height() + 2);
 	}
 
 	// Only auto-scroll when playhead is near an edge
@@ -1622,19 +1692,23 @@ void TimelineDock::rebuildEventItems()
 		QColor borderColor = palette().color(QPalette::Text);
 		QColor selectionColor = palette().color(QPalette::Highlight);
 		QColor bgColor = palette().color(QPalette::Base);
+		QColor labelText = palette().color(QPalette::Text);
+		QColor labelBg = palette().color(QPalette::Base);
 
 		TimelineEventItem *item = eventItemMap.value(evt.id, nullptr);
 		if (!item) {
 			// Create new item
-			item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color,
-						     evt.customIconPath);
-			item->setEventId(evt.id);
-			item->setBorderColor(borderColor);
-			item->setSelectionColor(selectionColor);
-			item->setBackgroundColor(bgColor);
-			scene->addItem(item);
-			connectItemSignals(item, evt.id);
-			eventItemMap[evt.id] = item;
+		item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color,
+					     evt.customIconPath);
+		item->setEventId(evt.id);
+		item->setBorderColor(borderColor);
+		item->setSelectionColor(selectionColor);
+		item->setBackgroundColor(bgColor);
+		item->setLabelColors(labelText, labelBg);
+		item->setCompactMode(compactMode);
+		scene->addItem(item);
+		connectItemSignals(item, evt.id);
+		eventItemMap[evt.id] = item;
 		} else {
 			// Update existing item properties
 			item->setSuppressDragSignals(true);
@@ -1648,6 +1722,7 @@ void TimelineDock::rebuildEventItems()
 			item->setBorderColor(borderColor);
 			item->setSelectionColor(selectionColor);
 			item->setBackgroundColor(bgColor);
+			item->setLabelColors(labelText, labelBg);
 		}
 		item->setStackOffset(stackIndex);
 
@@ -1789,31 +1864,74 @@ void TimelineDock::updateZoomLabel()
 
 void TimelineDock::updatePlayButtonIcon()
 {
-	updateButtonIcon(playButton, scheduler->isPlaying() ? ThemeIcons::PATH_PAUSE : ThemeIcons::PATH_PLAY);
+	updateMoonButtonIcon(playButton, scheduler->isPlaying() ? ThemeIcons::MOON_PAUSE : ThemeIcons::MOON_PLAY);
+	if (timecodeDisplay)
+		timecodeDisplay->setPlaying(scheduler->isPlaying());
 }
 
 void TimelineDock::updateToolbarIcons()
 {
-	updateButtonIcon(settingsButton, ThemeIcons::PATH_MENU);
+	updateMoonButtonIcon(settingsButton, ThemeIcons::MOON_MENU);
 	updatePlayButtonIcon();
-	updateButtonIcon(stopButton, ThemeIcons::PATH_STOP);
-	updateButtonIcon(zoomOutButton, ThemeIcons::PATH_MINUS);
-	updateButtonIcon(zoomInButton, ThemeIcons::PATH_PLUS);
-	updateButtonIcon(snapCheckbox, ThemeIcons::PATH_MAGNET);
-	updateButtonIcon(loopCheckbox, ThemeIcons::PATH_REPEAT);
-	updateButtonIcon(timeModeBtn, ThemeIcons::PATH_CLOCK);
-	updateButtonIcon(bpmModeBtn, ThemeIcons::PATH_MUSIC_NOTE);
-	QColor color = palette().color(QPalette::Text);
-	QByteArray svgData = ThemeIcons::wrapSvg(ThemeIcons::PATH_ADD_EVENT, color.name());
+	updateMoonButtonIcon(stopButton, ThemeIcons::MOON_STOP);
+	updateMoonButtonIcon(zoomOutButton, ThemeIcons::MOON_MINUS);
+	updateMoonButtonIcon(zoomInButton, ThemeIcons::MOON_PLUS);
+	updateMoonButtonIcon(snapCheckbox, ThemeIcons::MOON_MENU); // three horizontal dots for snap toggle (temporary)
+	updateMoonButtonIcon(loopCheckbox, ThemeIcons::MOON_RELOAD);
+	updateMoonButtonIcon(timeModeBtn, ThemeIcons::MOON_CLOCK);
+	updateMoonButtonIcon(bpmModeBtn, ThemeIcons::MOON_MUSIC);
+
+	// Add Event button (taller, with label). Use the centralized icon color resolver for OBS theme match.
+	addEventButton->ensurePolished();
+	QColor addColor = ThemeIcons::iconColorFor(addEventButton);
+	QByteArray svgData = ThemeIcons::wrapIconMoon(ThemeIcons::MOON_PLUS, addColor.name());
 	addEventButton->setIcon(QIcon(QPixmap::fromImage(QImage::fromData(svgData))));
 	addEventButton->setText("Add Event");
 	addEventButton->setFixedHeight(24);
 }
 
+void TimelineDock::applyThemeColorsToItems()
+{
+	// Make sure our widget palette reflects the current OBS theme before we read colors.
+	ensurePolished();
+
+	QColor borderColor = palette().color(QPalette::Text);
+	QColor selectionColor = palette().color(QPalette::Highlight);
+	QColor bgColor = palette().color(QPalette::Base);
+	QColor labelText = palette().color(QPalette::Text);
+	QColor labelBg = palette().color(QPalette::Base);
+
+	for (TimelineEventItem *item : eventItemMap) {
+		if (!item) continue;
+		item->setBorderColor(borderColor);
+		item->setSelectionColor(selectionColor);
+		item->setBackgroundColor(bgColor);
+		item->setLabelColors(labelText, labelBg);
+	}
+}
+
 void TimelineDock::updateButtonIcon(QPushButton *btn, const char *path)
 {
-	QColor color = palette().color(QPalette::Text);
+	btn->ensurePolished();
+	bool onHighlight = btn->isCheckable() && btn->isChecked();
+	QColor color = ThemeIcons::iconColorFor(btn, onHighlight);
+
 	QByteArray svgData = ThemeIcons::wrapSvg(path, color.name());
+	QPixmap pixmap = QPixmap::fromImage(QImage::fromData(svgData));
+	if (!pixmap.isNull()) {
+		btn->setIcon(QIcon(pixmap));
+	}
+	btn->setText("");
+	btn->setFixedSize(24, 24);
+}
+
+void TimelineDock::updateMoonButtonIcon(QPushButton *btn, const char *inner)
+{
+	btn->ensurePolished();
+	bool onHighlight = btn->isCheckable() && btn->isChecked();
+	QColor color = ThemeIcons::iconColorFor(btn, onHighlight);
+
+	QByteArray svgData = ThemeIcons::wrapIconMoon(inner, color.name());
 	QPixmap pixmap = QPixmap::fromImage(QImage::fromData(svgData));
 	if (!pixmap.isNull()) {
 		btn->setIcon(QIcon(pixmap));

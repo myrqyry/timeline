@@ -146,7 +146,7 @@ void TimelineScheduler::onTimerTick() {
             eventStartFired.clear();
             eventEndFired.clear();
             emit looped();
-            blog(LOG_INFO, "[Timeline] Looped back to start");
+            blog(LOG_DEBUG, "[Timeline] Looped back to start");
             return;
         } else {
             // Stop at end

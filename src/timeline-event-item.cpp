@@ -18,15 +18,15 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
     : QObject(nullptr), QGraphicsEllipseItem(parent), pixelsPerSecond(pixelsPerSecond),
       eventColor(color), customIconPath(customIconPath), eventType(type)
 {
-	setRect(0, 0, ITEM_SIZE, ITEM_SIZE);
+	setRect(0, 0, mItemSize, mItemSize);
 	// Center the item horizontally on the time
-	setPos((timeMs / 1000.0 * pixelsPerSecond) - (ITEM_SIZE / 2.0), baseY);
+	setPos((timeMs / 1000.0 * pixelsPerSecond) - (mItemSize / 2.0), baseY);
 	setBrush(QBrush(eventColor));
 	setPen(QPen(borderColor));
 
 	setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
 	setAcceptHoverEvents(true);
-	setTransformOriginPoint(ITEM_SIZE / 2.0, ITEM_SIZE / 2.0);
+	setTransformOriginPoint(mItemSize / 2.0, mItemSize / 2.0);
 	setCursor(Qt::OpenHandCursor);
 
 	refreshRenderer();
@@ -34,26 +34,38 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
 
 double TimelineEventItem::getTimeMs() const {
     // Add half item width to get center X, then convert to time
-    return (x() + ITEM_SIZE / 2.0) / pixelsPerSecond * 1000.0;
+    return (x() + mItemSize / 2.0) / pixelsPerSecond * 1000.0;
 }
 
 QRectF TimelineEventItem::boundingRect() const {
     double padding = 6.0; // Enough for selection ring
-    QRectF baseRect(0, 0, ITEM_SIZE, ITEM_SIZE);
+    QRectF baseRect(0, 0, mItemSize, mItemSize);
     QRectF totalRect = baseRect.adjusted(-padding, -padding, padding, padding);
-    
+
     if (hasDuration && durationMs > 0) {
         double lineLength = (durationMs / 1000.0) * pixelsPerSecond;
-        double startX = ITEM_SIZE / 2.0;
-        
+        double startX = mItemSize / 2.0;
+
         // Rect coverage for the duration line + end cap
         // Line goes from center to center + length
         // We need coverage from center (part of baseRect already) to end
         // Add vertical padding for the line thickness/cap
-        QRectF lineRect(startX, ITEM_SIZE/2.0 - 10, lineLength + 10, 20);
+        QRectF lineRect(startX, mItemSize/2.0 - 10, lineLength + 10, 20);
         totalRect = totalRect.united(lineRect);
     }
-    
+
+    // Account for label pill above the bubble
+    if (!eventLabel.isEmpty()) {
+        QFont f;
+        f.setPointSize(8);
+        f.setBold(true);
+        QFontMetrics fm(f);
+        int boxW = fm.horizontalAdvance(eventLabel) + 8;
+        int boxH = fm.ascent() + fm.descent() + 2;
+        QRectF labelRect(mItemSize/2.0 - boxW/2.0, -boxH - 3.0, boxW, boxH);
+        totalRect = totalRect.united(labelRect);
+    }
+
     return totalRect;
 }
 
@@ -65,7 +77,7 @@ void TimelineEventItem::setPixelsPerSecond(double pxPerSec) {
     double currentTime = getTimeMs();
     pixelsPerSecond = pxPerSec;
     // Recalculate position (center aligned)
-    setPos(((currentTime / 1000.0) * pixelsPerSecond) - (ITEM_SIZE / 2.0), y());
+    setPos(((currentTime / 1000.0) * pixelsPerSecond) - (mItemSize / 2.0), y());
 }
 
 void TimelineEventItem::setEventColor(const QColor &color) {
@@ -92,7 +104,7 @@ void TimelineEventItem::setCustomIconPath(const QString &path) {
 }
 
 void TimelineEventItem::setTimeMs(double timeMs) {
-    setPos(((timeMs / 1000.0) * pixelsPerSecond) - (ITEM_SIZE / 2.0), y());
+    setPos(((timeMs / 1000.0) * pixelsPerSecond) - (mItemSize / 2.0), y());
 }
 
 void TimelineEventItem::refreshRenderer() {
@@ -116,7 +128,22 @@ void TimelineEventItem::setEventLabel(const QString &label) {
 
 void TimelineEventItem::setStackOffset(int offset) {
     stackOffset = offset;
-    setPos(x(), baseY + (stackOffset * (ITEM_SIZE + 4)));
+    setPos(x(), baseY + (stackOffset * (mItemSize + 4)));
+}
+
+void TimelineEventItem::setCompactMode(bool enabled) {
+    if (compactMode == enabled)
+        return;
+    compactMode = enabled;
+    mItemSize = enabled ? COMPACT_SIZE : ITEM_SIZE;
+
+    // Re-anchor the bubble so its center stays at the same time position
+    double currentTime = getTimeMs();
+    prepareGeometryChange();
+    setRect(0, 0, mItemSize, mItemSize);
+    setTransformOriginPoint(mItemSize / 2.0, mItemSize / 2.0);
+    setPos(((currentTime / 1000.0) * pixelsPerSecond) - (mItemSize / 2.0), y());
+    update();
 }
 
 
@@ -188,15 +215,15 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
     if (hasDuration && durationMs > 0) {
         double lineLength = (durationMs / 1000.0) * pixelsPerSecond;
         // Start from center
-        double startX = ITEM_SIZE / 2.0;
+        double startX = mItemSize / 2.0;
         
         QPen linePen(eventColor, 4, Qt::SolidLine, Qt::RoundCap);
         painter->setPen(linePen);
-        painter->drawLine(QPointF(startX, ITEM_SIZE/2.0), QPointF(startX + lineLength, ITEM_SIZE/2.0));
+        painter->drawLine(QPointF(startX, mItemSize/2.0), QPointF(startX + lineLength, mItemSize/2.0));
         
         // Draw end cap marker
-        painter->drawLine(QPointF(startX + lineLength, ITEM_SIZE/2.0 - 5), 
-                          QPointF(startX + lineLength, ITEM_SIZE/2.0 + 5));
+        painter->drawLine(QPointF(startX + lineLength, mItemSize/2.0 - 5), 
+                          QPointF(startX + lineLength, mItemSize/2.0 + 5));
     }
     
     // Bubble adjustments (Hover grows, Press shrinks)
@@ -237,44 +264,63 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 	painter->drawEllipse(bubbleRect);
     
      if (renderer && renderer->isValid()) {
-         QRectF iconRect = bubbleRect.adjusted(6, 6, -6, -6); // Padding
+         // Scale icon padding with item size so icons stay centered
+         double pad = compactMode ? 4.0 : 6.0;
+         QRectF iconRect = bubbleRect.adjusted(pad, pad, -pad, -pad);
          renderer->render(painter, iconRect);
      }
 
-     // Draw circular label (top arch) if label is set
-     if (!eventLabel.isEmpty()) {
-         painter->save();
-         painter->setRenderHint(QPainter::TextAntialiasing);
-         // Use QApplication palette for theme-aware text color
-         QColor textColor = QApplication::palette().color(QPalette::Text);
-         painter->setPen(textColor);
-         QFont font = painter->font();
-         font.setPointSize(8);
-         font.setBold(true);
-         painter->setFont(font);
+      // Draw event label centered above the bubble
+      if (!eventLabel.isEmpty()) {
+          painter->save();
+          painter->setRenderHint(QPainter::TextAntialiasing);
 
-         // Translate to center of item
-         painter->translate(ITEM_SIZE / 2.0, ITEM_SIZE / 2.0);
+          // Prefer colors pushed from the dock (OBS palette at creation/refresh time).
+          // Fall back to QApplication (global) then a safe light-on-dark default.
+          QColor textColor = labelTextColor.isValid()
+              ? labelTextColor
+              : QApplication::palette().color(QPalette::Text);
+          QColor bgColor = labelBgColor.isValid()
+              ? labelBgColor
+              : QApplication::palette().color(QPalette::Base);
+          if (!textColor.isValid() || textColor.lightness() < 40) {
+              textColor = QColor(235, 235, 235);
+          }
+          if (!bgColor.isValid()) {
+              bgColor = QColor(40, 40, 40);
+          }
 
-         double radius = (ITEM_SIZE / 2.0) + 4.0 + bubbleGrowth; // Keep outside bubble
-         int len = eventLabel.length();
-         if (len > 0) {
-             // Draw text along top arc (curved around the icon)
-             double totalArc = 120.0;
-             double startAngle = -150.0; // Start from top-left, through top, to top-right
-             double step = totalArc / (double)(len - 1);  // Distribute characters evenly
+          QFont font = painter->font();
+          font.setPointSize(8);
+          font.setBold(true);
+          painter->setFont(font);
 
-             for (int i = 0; i < len; ++i) {
-                 painter->save();
-                 double angle = startAngle + (i * step);
-                 painter->rotate(angle);
-                 QRectF charRect(-5, -radius - 8, 10, 10);
-                 painter->drawText(charRect, Qt::AlignCenter, QString(eventLabel[i]));
-                 painter->restore();
-             }
-         }
-         painter->restore();
-     }
+          QFontMetrics fm(font);
+          const int padX = 4;
+          const int padY = 1;
+          int textW = fm.horizontalAdvance(eventLabel);
+          int textH = fm.ascent() + fm.descent();
+          int boxW = textW + padX * 2;
+          int boxH = textH + padY * 2;
+          int boxX = (int)(mItemSize / 2.0 - boxW / 2.0);
+          int boxY = (int)(-boxH - 3.0 + bubbleGrowth);
+
+          // Background pill for legibility against any color
+          QRectF box(boxX, boxY, boxW, boxH);
+          QColor pillBg = bgColor;
+          pillBg.setAlpha(200);
+          painter->setPen(Qt::NoPen);
+          painter->setBrush(QBrush(pillBg));
+          painter->setRenderHint(QPainter::Antialiasing);
+          painter->drawRoundedRect(box, 3.0, 3.0);
+
+          // Text
+          painter->setRenderHint(QPainter::TextAntialiasing);
+          painter->setPen(textColor);
+          painter->drawText(box, Qt::AlignCenter, eventLabel);
+
+          painter->restore();
+      }
  }
 
 void TimelineEventItem::setDuration(double duration) {
@@ -315,6 +361,12 @@ void TimelineEventItem::setBackgroundColor(const QColor &color) {
     update();
 }
 
+void TimelineEventItem::setLabelColors(const QColor &textColor, const QColor &bgColor) {
+    labelTextColor = textColor;
+    labelBgColor = bgColor;
+    update();
+}
+
 QString TimelineEventItem::getEventId() const {
     return eventId;
 }
@@ -323,28 +375,28 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
     if (change == ItemPositionChange && scene()) {
         QPointF newPos = value.toPointF();
         // Keep Y at stacked position
-        newPos.setY(baseY + (stackOffset * (ITEM_SIZE + 4)));
+        newPos.setY(baseY + (stackOffset * (mItemSize + 4)));
         
-        double minX = -ITEM_SIZE / 2.0; // Allow moving slightly left so center can be at 0
+        double minX = -mItemSize / 2.0; // Allow moving slightly left so center can be at 0
         if (newPos.x() < minX) newPos.setX(minX);
 
         // Clamp to max time if set
         if (maxTimeMs >= 0) {
-            double maxX = (maxTimeMs / 1000.0) * pixelsPerSecond - ITEM_SIZE / 2.0;
+            double maxX = (maxTimeMs / 1000.0) * pixelsPerSecond - mItemSize / 2.0;
             if (newPos.x() > maxX) newPos.setX(maxX);
         }
 
         // Snap to grid if enabled
         if (snapEnabled && snapIntervalMs > 0) {
             // Calculate current time at center
-            double centerX = newPos.x() + ITEM_SIZE / 2.0;
+            double centerX = newPos.x() + mItemSize / 2.0;
             double timeMs = centerX / pixelsPerSecond * 1000.0;
 
             double snappedTimeMs = std::round(timeMs / snapIntervalMs) * snapIntervalMs;
 
             // Convert back to top-left position
             double snappedCenterX = snappedTimeMs / 1000.0 * pixelsPerSecond;
-            newPos.setX(snappedCenterX - ITEM_SIZE / 2.0);
+            newPos.setX(snappedCenterX - mItemSize / 2.0);
 
             // Emit drag signals only during actual user drag
             if (isBeingDragged && !suppressDragSignals) {
@@ -356,7 +408,7 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
             }
         } else {
             // Calculate time for current pos
-            double centerX = newPos.x() + ITEM_SIZE / 2.0;
+            double centerX = newPos.x() + mItemSize / 2.0;
             double timeMs = centerX / pixelsPerSecond * 1000.0;
             if (timeMs < 0) timeMs = 0;
             if (isBeingDragged && !suppressDragSignals) {
