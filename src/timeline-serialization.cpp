@@ -4,7 +4,8 @@
 QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds, bool snap,
 						double snapIntervalMs, double bpm, bool gridToBpm,
 						double noteLengthBeats, bool centerControls, bool alternatingBg,
-						bool compactMode, double currentTimeMs, double zoomPixelsPerSecond)
+						bool compactMode, bool showEndTimeOnDock, double currentTimeMs,
+						double zoomPixelsPerSecond)
 {
 	QJsonObject root;
 	root["events"] = model.toJson();
@@ -20,6 +21,7 @@ QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool
 	settings["centerControls"] = centerControls;
 	settings["alternatingBg"] = alternatingBg;
 	settings["compactMode"] = compactMode;
+	settings["showEndTimeOnDock"] = showEndTimeOnDock;
 	settings["currentTimeMs"] = currentTimeMs;
 	settings["zoomPixelsPerSecond"] = zoomPixelsPerSecond;
 	root["settings"] = settings;
@@ -59,6 +61,7 @@ bool TimelineSerialization::fromJsonDocument(const QJsonDocument &doc, TimelineM
 	outDocument.centerControls = settings["centerControls"].toBool(false);
 	outDocument.alternatingBg = settings["alternatingBg"].toBool(false);
 	outDocument.compactMode = settings["compactMode"].toBool(false);
+	outDocument.showEndTimeOnDock = settings["showEndTimeOnDock"].toBool(true);
 	outDocument.currentTimeMs = settings["currentTimeMs"].toDouble(0.0);
 	outDocument.zoomPixelsPerSecond = settings["zoomPixelsPerSecond"].toDouble(100.0);
 	return true;

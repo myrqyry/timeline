@@ -10,16 +10,17 @@
 #include <QSvgRenderer>
 
 namespace {
-constexpr int kHeight = 36;
-constexpr int kPaddingX = 10;
-constexpr int kPaddingY = 4;
+constexpr int kHeight = 32;
+constexpr int kPaddingX = 8;
+constexpr int kPaddingY = 2;
 }
 
 TimecodeDisplay::TimecodeDisplay(QWidget *parent) : QWidget(parent)
 {
-	setMinimumHeight(kHeight);
-	setMinimumWidth(160);
-	setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+	setObjectName("OBSAudioMeter");
+	setMinimumHeight(28);
+	setMinimumWidth(100);
+	setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
 	// Prefer a real monospace; fall back to default
 	QFont mono;
@@ -40,17 +41,26 @@ TimecodeDisplay::TimecodeDisplay(QWidget *parent) : QWidget(parent)
 	setFont(mono);
 }
 
+void TimecodeDisplay::setCompactMode(bool compact)
+{
+	if (mCompact == compact)
+		return;
+	mCompact = compact;
+	updateGeometry();
+	update();
+}
+
 QSize TimecodeDisplay::sizeHint() const
 {
 	// Compute width based on the actual digit rendering logic so the box is wide enough
 	// and doesn't clip the numbers.
-	int h = kHeight;
+	int h = mCompact ? 28 : 32;
 	double dh = h * 0.80;
 	double dw = dh;
 	double da = dw * 0.82;
 	double sw = dw * 0.28;
 	int content = da * 7 + sw * 2;
-	int w = content + 50; // room for status dot, margins, padding, and the box itself
+	int w = content + 8; // ultra-tight, dot area removed
 	return QSize(w, h);
 }
 
@@ -75,6 +85,14 @@ void TimecodeDisplay::setPlaying(bool playing)
 	update();
 }
 
+void TimecodeDisplay::setStatusColor(const QColor &color)
+{
+	if (mStatusColor == color)
+		return;
+	mStatusColor = color;
+	update();
+}
+
 void TimecodeDisplay::paintEvent(QPaintEvent *event)
 {
 	Q_UNUSED(event);
@@ -95,14 +113,21 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 	grad.setColorAt(1.0, bottom);
 	p.setPen(Qt::NoPen);
 	p.setBrush(QBrush(grad));
-	p.drawRoundedRect(r, 9.0, 9.0);
+	p.drawRoundedRect(r, 6.0, 6.0);
 
-	// More prominent border
-	QColor border = mid;
-	border.setAlpha(200);
+	// Indicate playing status via the thematic status color (e.g. meter green) or standard mid border
+	QColor border = mPlaying ? mStatusColor : mid;
+	if (mPlaying) {
+		// Add a subtle glow for the status border
+		QColor glow = border;
+		glow.setAlpha(60);
+		p.setPen(QPen(glow, 3.0));
+		p.drawRoundedRect(r.adjusted(1.0, 1.0, -1.0, -1.0), 6.0, 6.0);
+	}
+	
 	p.setPen(QPen(border, 1.5));
 	p.setBrush(Qt::NoBrush);
-	p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 9.0, 9.0);
+	p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 6.0, 6.0);
 
 	// Current color for the numbers - use the centralized OBS-theme-aware resolver
 	QColor textColor = ThemeIcons::iconColorFor(this);
@@ -137,24 +162,6 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 	double startX = (r.width() - totalW) / 2.0;
 	double y = r.center().y() - digitH / 2.0;
 
-	// Status dot on the left (fixed, doesn't affect centering of the big numbers)
-	const int dotR = 4;
-	const int dotLeft = 11;
-	const int dotX = dotLeft + dotR;
-	const int dotY = r.center().y();
-
-	QColor dotColor = mPlaying ? QColor(72, 210, 100) : mid;
-	if (mPlaying) {
-		QColor glow = dotColor;
-		glow.setAlpha(85);
-		p.setPen(Qt::NoPen);
-		p.setBrush(QBrush(glow));
-		p.drawEllipse(QPointF(dotX, dotY), dotR + 5, dotR + 5);
-	}
-	p.setPen(Qt::NoPen);
-	p.setBrush(QBrush(dotColor));
-	p.drawEllipse(QPointF(dotX, dotY), dotR, dotR);
-
 	// Draw the 7 digits using the moon bold number SVGs
 	double x = startX;
 	for (int i = 0; i < 7; ++i) {
@@ -168,7 +175,9 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 		// Draw separators after the 2nd and 4th digit
 		if (i == 1 || i == 3) {
 			// Draw a nice small vertical colon or dot separator in accent/dim color
-			p.setPen(QPen( (i==1 ? textColor : accent) , 2.0, Qt::SolidLine, Qt::RoundCap));
+			// If playing, we can also make the separators thematic for high visibility
+			QColor sepColor = mPlaying ? mStatusColor : (i==1 ? textColor : accent);
+			p.setPen(QPen(sepColor, 2.0, Qt::SolidLine, Qt::RoundCap));
 			double cy = r.center().y();
 			if (i == 1) {
 				// colon ":"
@@ -177,7 +186,7 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 				p.drawPoint(QPointF(x + sepW*0.5, cy + off));
 			} else {
 				// dot "."
-				p.setPen(QPen(accent, 2.5, Qt::SolidLine, Qt::RoundCap));
+				p.setPen(QPen(sepColor, 2.5, Qt::SolidLine, Qt::RoundCap));
 				p.drawPoint(QPointF(x + sepW*0.5, cy));
 			}
 			x += sepW + 1;

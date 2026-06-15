@@ -4,6 +4,7 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QPushButton>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -97,8 +98,8 @@ private:
 	double getSnapIntervalMs() const;
 	void applySnapIntervalToItems();
 	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
-	void updateButtonIcon(QPushButton *btn, const char *path);
-	void updateMoonButtonIcon(QPushButton *btn, const char *inner);
+	void updateButtonIcon(QAbstractButton *btn, const char *path, int size = 24, const QString &label = QString(), int iconSizeOffset = 6);
+	void updateMoonButtonIcon(QAbstractButton *btn, const char *inner, int size = 24, const QString &label = QString(), int iconSizeOffset = 6);
 	void updateDependentControlStates();
 	void updateZoomLabelPosition();
 	void seekToSceneX(double x);
@@ -149,6 +150,7 @@ private:
 	QCheckBox *centerControlsCheckbox = nullptr;
 	QCheckBox *alternatingBgCheckbox = nullptr;
 	QCheckBox *compactModeCheckbox = nullptr;
+	QCheckBox *showEndTimeCheckbox = nullptr;
 	QDoubleSpinBox *endTimeSpinbox = nullptr;
 	QDoubleSpinBox *bpmSpinbox = nullptr;
 	QComboBox *snapIntervalCombo = nullptr;
@@ -164,14 +166,18 @@ private:
 	bool centerControls = false;
 	bool alternatingBg = false;
 	bool compactMode = false;
+	bool showEndTimeOnDock = true;
 	double bpm = 120.0;
 	bool gridToBpm = false;
 	double noteLengthBeats = 1.0; // Quarter note (1 beat)
 
 	QGraphicsLineItem *playheadItem = nullptr;
 	QGraphicsSimpleTextItem *playheadHandle = nullptr;
+	QGraphicsPixmapItem *playheadGrabHandle = nullptr;
 
 	QGraphicsLineItem *endMarkerItem = nullptr;
+	QGraphicsPixmapItem *endMarkerGrabHandle = nullptr;
+	QGraphicsRectItem *postEndOverlay = nullptr;
 	QGraphicsLineItem *dragGuideItem = nullptr;
 	QGraphicsSimpleTextItem *emptyHintItem = nullptr;
 
@@ -186,6 +192,7 @@ private:
 	double pixelsPerSecond = 99.0;
 	bool snapEnabled = false;
 	bool draggingPlayhead = false;
+	bool draggingEndMarker = false;
 	double manualSnapIntervalMs = 500.0;
 	bool loadingTimeline = false;
 

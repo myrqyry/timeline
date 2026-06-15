@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(OBS REQUIRED libobs)
+pkg_check_modules(OBS REQUIRED libobs obs-frontend-api)
 
 # Auto-generate Qt MOC files
 set(CMAKE_AUTOMOC ON)

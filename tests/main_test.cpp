@@ -10,6 +10,7 @@
 #include <obs.h>
 #include <util/bmem.h>
 #include "obs-executor.h"
+#include "theme-helpers.h"
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "timeline-serialization.h"
@@ -292,6 +293,53 @@ private slots:
 		model.addEvent(a);
 		model.addEvent(b);
 		QCOMPARE(static_cast<int>(model.getEvents().size()), 2);
+	}
+
+	void testTimecodeNineGlyphUsesOfficialIconMoonPath()
+	{
+		const QString svg = QString::fromUtf8(ThemeIcons::getMoonNumberSvg(9, "#ffffff"));
+
+		QVERIFY2(svg.contains("M9.94126 19.3355"),
+			 "Number 9 glyph should use the official IconaMoon filled path");
+		QVERIFY2(svg.contains("L17.2856 12.3366"),
+			 "Number 9 glyph should include the official diagonal stem path");
+		QVERIFY2(!svg.contains("M7 8a5"), "Number 9 glyph should not use the incomplete open arc");
+	}
+
+	void testBpmModeIconUsesMusicTwoGlyph()
+	{
+		const QString svg = QString::fromUtf8(ThemeIcons::wrapIconMoon(ThemeIcons::MOON_MUSIC, "#ffffff"));
+
+		QVERIFY2(svg.contains("cx=\"6\" cy=\"18\" r=\"3\""),
+			 "BPM mode icon should use the left note head from Music 2.svg");
+		QVERIFY2(svg.contains("cx=\"18\" cy=\"16\" r=\"3\""),
+			 "BPM mode icon should use the right note head from Music 2.svg");
+		QVERIFY2(svg.contains("M21 3L9 5"),
+			 "BPM mode icon should include the upper Music 2.svg beam");
+		QVERIFY2(svg.contains("M21 7L9 9"),
+			 "BPM mode icon should include the lower Music 2.svg beam");
+		QVERIFY2(!svg.contains("M12 3L18 4V8L12 7V3"),
+			 "BPM mode icon should not use the old Music 1.svg flag");
+	}
+
+	void testSnapIconsUseLockGlyphs()
+	{
+		const QString lockSvg = QString::fromUtf8(ThemeIcons::wrapIconMoon(ThemeIcons::MOON_LOCK, "#ffffff"));
+		const QString lockOffSvg =
+			QString::fromUtf8(ThemeIcons::wrapIconMoon(ThemeIcons::MOON_LOCK_OFF, "#ffffff"));
+
+		QVERIFY2(lockSvg.contains("M8 10V7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7V10"),
+			 "Snap enabled icon should use Lock.svg shackle path");
+		QVERIFY2(lockSvg.contains("M5 10H19V19C19 20.1046 18.1046 21 17 21H7"),
+			 "Snap enabled icon should use Lock.svg body path");
+		QVERIFY2(lockOffSvg.contains("C13.8638 3 15.4299 4.27477 15.874 6"),
+			 "Snap disabled icon should use Lock Off.svg open shackle path");
+		QVERIFY2(lockOffSvg.contains("M5 10H19V19C19 20.1046 18.1046 21 17 21H7"),
+			 "Snap disabled icon should use Lock Off.svg body path");
+		QVERIFY2(!lockSvg.contains("M3 6.00092H21"),
+			 "Snap enabled icon should not use the old menu placeholder");
+		QVERIFY2(!lockOffSvg.contains("M3 6.00092H21"),
+			 "Snap disabled icon should not use the old menu placeholder");
 	}
 
 	void testModelLegacyJsonWithoutId()

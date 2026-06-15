@@ -15,8 +15,10 @@ Main plugin source code. Contains the dock widget (`TimelineDock`), timeline mod
 | `obs-executor.cpp/.h` | OBS action executor — scene switch, source visibility, media, filters, hotkeys |
 | `timeline-event-item.cpp/.h` | QGraphicsItem for rendering draggable timeline event bubbles |
 | `headless-timeline.cpp/.h` | Standalone timeline runner for nested timeline triggers |
+| `timecode-display.cpp/.h` | Custom theme-aware clock widget displaying playback time and status |
+| `timeline-serialization.cpp/.h` | JSON import/export logic for events and timeline settings |
 | `event-types.h` | Shared enums and structs (`TimelineEvent`, `TimelineEventType`) |
-| `theme-helpers.h` | SVG icon helpers and default event colors |
+| `theme-helpers.h` | IconaMoon Bold SVG helpers, dynamic color retrieval, and theme integration |
 
 ## Deviations from Root
 

@@ -65,6 +65,16 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
     ```
     This will install the plugin to `~/.config/obs-studio/plugins/timeline/`.
 
+## Planned Features (TODO)
+
+- **Copy/Paste**: Implement clipboard support for duplicating events.
+
+- **Undo/Redo**: Add a history stack for reverting timeline changes.
+
+- **Multi-Selection**: Support box selection and shift-clicking for moving multiple events at once.
+
+- **Unified Visibility Events**: Merge `Source Show/Hide` and `Filter Enable/Disable` into unified `Source Visibility` and `Filter Visibility` event types with an internal toggle state.
+
 ## Usage
 
 1.  **Open the Dock**: Go to **View** > **Docks** and select **Timeline**.
