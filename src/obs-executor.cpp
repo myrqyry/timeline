@@ -264,8 +264,10 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 	obs_frontend_get_scenes(&list);
 	bool foundAny = false;
 	for (size_t i = 0; i < list.sources.num; i++) {
-		if (trySetVisibility(list.sources.array[i]))
+		if (trySetVisibility(list.sources.array[i])) {
 			foundAny = true;
+			break;
+		}
 	}
 	obs_frontend_source_list_free(&list);
 

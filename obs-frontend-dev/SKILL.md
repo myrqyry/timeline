@@ -359,6 +359,54 @@ if (gridToBpm && bpm > 0.0) {
 
 ---
 
+## Robust UI Logic
+
+### Re-queuing UI Rebuilds during User Interaction
+
+Complex UI rebuilds (e.g., clearing and recreating many `QGraphicsItem`s) can cause crashes or visual glitches if they fire while the user is still interacting with an item (like dragging). Use a re-queuing guard:
+
+```cpp
+void MyDock::rebuildUI() {
+    rebuildScheduled = false;
+
+    // If user is dragging, defer the rebuild until they release
+    if (isDragging) {
+        rebuildScheduled = true;
+        QMetaObject::invokeMethod(this, &MyDock::rebuildUI, Qt::QueuedConnection);
+        return;
+    }
+
+    // Perform actual heavy lifting here...
+}
+```
+
+### Unified Theme Handling
+
+OBS triggers both `OBS_FRONTEND_EVENT_THEME_CHANGED` and a standard Qt `PaletteChange` event. To avoid double-repaints and redundant icon reconstruction:
+
+1.  Handle business logic (colors, icons) in the **frontend event callback**.
+2.  Handle viewport/widget updates in `changeEvent`.
+
+```cpp
+// In changeEvent:
+void MyDock::changeEvent(QEvent *event) {
+    QWidget::changeEvent(event);
+    if (event->type() == QEvent::PaletteChange) {
+        // Only update standard widget drawing; leave icons/logic to THEME_CHANGED
+        if (view && view->viewport()) view->viewport()->update();
+        update();
+    }
+}
+
+// In THEME_CHANGED callback:
+dock->ensurePolished();
+dock->refreshCustomColors();
+dock->reconstructIcons();
+dock->updateLayout();
+```
+
+---
+
 ## Common Mistakes
 
 | Symptom | Likely Cause | Fix |

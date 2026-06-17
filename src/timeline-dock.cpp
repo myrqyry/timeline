@@ -479,7 +479,7 @@ void TimelineDock::setupUi()
 
 	endLabel = new QLabel(obs_module_text("TimelineDock.EndTime"), this);
 
-	settingsMenu = new QMenu(settingsButton);
+	settingsMenu = new QMenu(this);
 	settingsMenu->addAction(obs_module_text("TimelineDock.SaveTimeline"), this, &TimelineDock::onSaveClicked);
 	settingsMenu->addAction(obs_module_text("TimelineDock.LoadTimeline"), this, &TimelineDock::onLoadClicked);
 	settingsMenu->addSeparator();
@@ -588,8 +588,6 @@ void TimelineDock::setupUi()
 	// Initially hidden; shown when BPM mode is active
 	noteLengthCombo->setVisible(false);
 
-	settingsButton->setMenu(settingsMenu);
-
 	// Create mode toggle (Time/BPM) buttons
 	setupModeToggle();
 
@@ -637,13 +635,13 @@ void TimelineDock::setupUi()
 	// Playhead — main line, slightly thicker and crisp
 	QPen playheadPen(playheadColor, 2);
 	playheadPen.setCosmetic(true);
-	playheadItem = scene->addLine(0, 0, 0, view->height(), playheadPen);
+	playheadItem = scene->addLine(0, 20, 0, view->height(), playheadPen);
 	playheadItem->setZValue(100);
 
 	// Drag Guide (hidden by default)
 	QPen dragPen(QColor(0, 200, 0), 1, Qt::DashLine);
 	dragPen.setCosmetic(true);
-	dragGuideItem = scene->addLine(0, 0, 0, view->height(), dragPen);
+	dragGuideItem = scene->addLine(0, 20, 0, view->height(), dragPen);
 	dragGuideItem->setZValue(110);
 	dragGuideItem->setVisible(false);
 
@@ -674,6 +672,8 @@ void TimelineDock::setupUi()
 
 void TimelineDock::updateControlsLayout()
 {
+	if (!controlsLayout)
+		return;
 	setUpdatesEnabled(false); // Prevent flicker from hide/show cycle
 
 	// Clear layout (but don't delete widgets!)
@@ -1426,7 +1426,7 @@ void TimelineDock::updateEndMarker()
 		link.setAlpha(180);
 		QPen endPen(link, 1, Qt::DashLine);
 		endPen.setCosmetic(true);
-		endMarkerItem = scene->addLine(x, 0, x, h, endPen);
+		endMarkerItem = scene->addLine(x, 20, x, h, endPen);
 		endMarkerItem->setZValue(99);
 		endMarkerItem->setToolTip(QString("End time: %1 sec").arg(endTimeMs / 1000.0, 0, 'f', 1));
 
@@ -1598,6 +1598,9 @@ void TimelineDock::nudgeSelectedEvents(double deltaMs)
 
 void TimelineDock::drawGrid()
 {
+	if (!scene || !view)
+		return;
+
 	// Clear existing grid
 	for (QGraphicsItem *item : gridItems) {
 		scene->removeItem(item);

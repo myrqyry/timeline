@@ -133,12 +133,47 @@ if (scene_src) {
         const char *name = obs_source_get_name(src);
         return true;  // Continue enumeration
     }, nullptr);
-    obs_source_release(scene_src);  // REQUIRED
+    obs_source_release(source_src);  // REQUIRED
 }
 
 // Get filters on a source
 obs_source_enum_filters(source, [](obs_source_t*, obs_source_t *filter, void *data) {
-    // ... process filter ...
+    /* Handle filter logic here */
     // Note: callback returns void, not bool
 }, userData);
+```
+
+---
+
+## Performance & Optimization
+
+### Debounced Persistence
+
+Frequent UI actions (like dragging an item or typing a label) should not trigger immediate disk writes. Use a single-shot `QTimer` to debounce saves:
+
+```cpp
+// In constructor:
+m_saveTimer = new QTimer(this);
+m_saveTimer->setSingleShot(true);
+m_saveTimer->setInterval(250); // Coalesce changes within 250ms
+connect(m_saveTimer, &QTimer::timeout, this, &MyDock::save);
+
+// In model change handler:
+m_saveTimer->start();
+```
+
+### Scene/Source Search Efficiency
+
+When searching for a source in multiple scenes, stop searching as soon as the first match is found and acted upon to avoid unintended side-effects in other scenes.
+
+```cpp
+bool found = false;
+obs_frontend_get_scenes(&list);
+for (size_t i = 0; i < list.sources.num; i++) {
+    if (tryActionOnSource(list.sources.array[i])) {
+        found = true;
+        break; // Stop at first match
+    }
+}
+obs_frontend_source_list_free(&list);
 ```

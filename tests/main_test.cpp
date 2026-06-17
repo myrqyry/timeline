@@ -11,6 +11,7 @@
 #include <util/bmem.h>
 #include "obs-executor.h"
 #include "theme-helpers.h"
+#include "timeline-hit-testing.h"
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "timeline-serialization.h"
@@ -340,6 +341,26 @@ private slots:
 			 "Snap enabled icon should not use the old menu placeholder");
 		QVERIFY2(!lockOffSvg.contains("M3 6.00092H21"),
 			 "Snap disabled icon should not use the old menu placeholder");
+	}
+
+	void testTimelineMarkerGrabAreaIsComfortable()
+	{
+		QVERIFY(TimelineHitTesting::isOnTimelineMarker(123.0, 100.0));
+		QVERIFY(TimelineHitTesting::isOnTimelineMarker(77.0, 100.0));
+		QVERIFY(!TimelineHitTesting::isOnTimelineMarker(125.0, 100.0));
+		QVERIFY(!TimelineHitTesting::isOnTimelineMarker(75.0, 100.0));
+	}
+
+	void testTimelineMarkerGrabAreaRequiresActiveMarker()
+	{
+		QVERIFY(TimelineHitTesting::isOnActiveTimelineMarker(117.0, 100.0, true));
+		QVERIFY(!TimelineHitTesting::isOnActiveTimelineMarker(100.0, 100.0, false));
+	}
+
+	void testTimelineMarkerVisibleHandleMatchesGrabArea()
+	{
+		QCOMPARE(TimelineHitTesting::kMarkerHandleSizePx,
+			 static_cast<int>(TimelineHitTesting::kMarkerGrabRadiusPx * 2.0));
 	}
 
 	void testModelLegacyJsonWithoutId()
