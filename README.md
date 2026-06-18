@@ -65,7 +65,7 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
     ```
     This will install the plugin to `~/.config/obs-studio/plugins/timeline/`.
 
-## Planned Features (TODO)
+## Planned Features
 
 - **Undo/Redo**: Add a history stack for reverting timeline changes.
 
