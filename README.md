@@ -67,8 +67,6 @@ A timeline-based sequencer plugin for OBS Studio. Schedule and automate your str
 
 ## Planned Features (TODO)
 
-- **Copy/Paste**: Implement clipboard support for duplicating events.
-
 - **Undo/Redo**: Add a history stack for reverting timeline changes.
 
 - **Multi-Selection**: Support box selection and shift-clicking for moving multiple events at once.

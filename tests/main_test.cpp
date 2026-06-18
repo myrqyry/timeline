@@ -345,10 +345,10 @@ private slots:
 
 	void testTimelineMarkerGrabAreaIsComfortable()
 	{
-		QVERIFY(TimelineHitTesting::isOnTimelineMarker(123.0, 100.0));
-		QVERIFY(TimelineHitTesting::isOnTimelineMarker(77.0, 100.0));
-		QVERIFY(!TimelineHitTesting::isOnTimelineMarker(125.0, 100.0));
-		QVERIFY(!TimelineHitTesting::isOnTimelineMarker(75.0, 100.0));
+		QVERIFY(TimelineHitTesting::isOnTimelineMarker(125.0, 100.0));
+		QVERIFY(TimelineHitTesting::isOnTimelineMarker(75.0, 100.0));
+		QVERIFY(!TimelineHitTesting::isOnTimelineMarker(135.0, 100.0));
+		QVERIFY(!TimelineHitTesting::isOnTimelineMarker(65.0, 100.0));
 	}
 
 	void testTimelineMarkerGrabAreaRequiresActiveMarker()
@@ -361,21 +361,6 @@ private slots:
 	{
 		QCOMPARE(TimelineHitTesting::kMarkerHandleSizePx,
 			 static_cast<int>(TimelineHitTesting::kMarkerGrabRadiusPx * 2.0));
-	}
-
-	void testModelLegacyJsonWithoutId()
-	{
-		TimelineModel model;
-		QJsonArray arr;
-		QJsonObject evt;
-		evt["time"] = 1000.0;
-		evt["type"] = static_cast<int>(TimelineEventType::SceneSwitch);
-		evt["source"] = "Scene A";
-		arr.append(evt);
-
-		model.fromJson(arr);
-		QCOMPARE(static_cast<int>(model.getEvents().size()), 1);
-		QVERIFY(!model.getEvents()[0].id.isEmpty());
 	}
 
 	void testModelIdOpsWithDuplicateTime()

@@ -334,8 +334,18 @@ void TimelineDock::setupUi()
 {
 	QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
-	// Compute playhead color (using Link role for high visibility)
+	// Compute playhead color
 	playheadColor = palette().color(QPalette::Link);
+
+	// Instantiate critical infrastructure early
+	view = new QGraphicsView(this);
+	scene = new QGraphicsScene(this);
+	view->setScene(scene);
+
+	timeModeBtn = new QPushButton(this);
+	timeModeBtn->setObjectName("timeline-time-mode-btn");
+	bpmModeBtn = new QPushButton(this);
+	bpmModeBtn->setObjectName("timeline-bpm-mode-btn");
 
 	// Unified Controls Row
 	controlsLayout = new QHBoxLayout();
@@ -344,11 +354,8 @@ void TimelineDock::setupUi()
 
 	settingsButton = new QPushButton(this);
 	settingsButton->setObjectName("timeline-settings-btn");
-	settingsButton->setStyleSheet("QPushButton::menu-indicator { image: none; }");
 	settingsButton->setToolTip(obs_module_text("TimelineDock.Settings"));
-	connect(settingsButton, &QPushButton::clicked, this, [this]() {
-		settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
-	});
+	settingsButton->installEventFilter(this);
 	auto createSeparator = [this]() {
 		QFrame *line = new QFrame(this);
 		line->setFrameShape(QFrame::VLine);
@@ -612,10 +619,6 @@ void TimelineDock::setupUi()
 
 	mainLayout->addLayout(controlsLayout);
 
-	// Timeline View
-	view = new QGraphicsView(this);
-	scene = new QGraphicsScene(this);
-	view->setScene(scene);
 	zoomLabel->setParent(view->viewport());
 	zoomLabel->raise();
 	hoverTimeLabel->setParent(view->viewport());
@@ -672,7 +675,7 @@ void TimelineDock::setupUi()
 
 void TimelineDock::updateControlsLayout()
 {
-	if (!controlsLayout)
+	if (!controlsLayout || !scene || !view)
 		return;
 	setUpdatesEnabled(false); // Prevent flicker from hide/show cycle
 
@@ -1015,6 +1018,11 @@ void TimelineDock::drawRuler()
 
 bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 {
+	if (obj == settingsButton && event->type() == QEvent::MouseButtonPress) {
+		settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+		return true;
+	}
+
 	if (obj == view->viewport()) {
 		// Right-click on empty area to add event
 		if (event->type() == QEvent::ContextMenu) {
@@ -2129,11 +2137,6 @@ void TimelineDock::updateMoonButtonIcon(QAbstractButton *btn, const char *inner,
 
 void TimelineDock::setupModeToggle()
 {
-	timeModeBtn = new QPushButton(this);
-	timeModeBtn->setObjectName("timeline-time-mode-btn");
-	bpmModeBtn = new QPushButton(this);
-	bpmModeBtn->setObjectName("timeline-bpm-mode-btn");
-
 	timeModeBtn->setCheckable(true);
 	bpmModeBtn->setCheckable(true);
 	timeModeBtn->setAutoExclusive(true);

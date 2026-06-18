@@ -4,7 +4,7 @@
 
 namespace TimelineHitTesting {
 
-constexpr double kMarkerGrabRadiusPx = 24.0;
+constexpr double kMarkerGrabRadiusPx = 30.0;
 constexpr int kMarkerHandleSizePx = static_cast<int>(kMarkerGrabRadiusPx * 2.0);
 
 inline bool isOnTimelineMarker(double sceneX, double markerX)
