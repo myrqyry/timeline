@@ -37,6 +37,7 @@
 #include <QShortcut>
 #include <QScrollBar>
 #include <QMenu>
+#include <QTimer>
 #include <QWidgetAction>
 #include "event-editor.h"
 #include "timeline-serialization.h"
@@ -70,15 +71,8 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 			rebuildScheduled = true;
 			QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
 		}
-		if (!loadingTimeline && !savePending) {
-			savePending = true;
-			QMetaObject::invokeMethod(
-				this,
-				[this]() {
-					savePending = false;
-					save();
-				},
-				Qt::QueuedConnection);
+		if (!loadingTimeline) {
+			debounceSaveTimer->start();
 		}
 	});
 
@@ -229,11 +223,11 @@ void TimelineDock::save()
 	}
 
 	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
-								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
-								     getSnapIntervalMs(), bpm, gridToBpm,
-								     noteLengthBeats, centerControls, alternatingBg,
-								     compactMode, showEndTimeOnDock, 
-								     scheduler->getCurrentTime(), pixelsPerSecond);
+							     endTimeSpinbox->value(), snapCheckbox->isChecked(),
+							     getSnapIntervalMs(), bpm, gridToBpm,
+							     noteLengthBeats, centerControls, alternatingBg,
+							     compactMode, showEndTimeOnDock, 
+							     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 		blog(LOG_DEBUG, "[Timeline] Saved → %s", configPath);
@@ -355,7 +349,12 @@ void TimelineDock::setupUi()
 	settingsButton = new QPushButton(this);
 	settingsButton->setObjectName("timeline-settings-btn");
 	settingsButton->setToolTip(obs_module_text("TimelineDock.Settings"));
-	settingsButton->installEventFilter(this);
+	connect(settingsButton, &QPushButton::clicked, this, [this]() {
+		blog(LOG_INFO, "[Timeline] DEBUG_ACTIVE_SETTINGS_CLICK_20260618");
+		QTimer::singleShot(0, this, [this]() {
+			settingsMenu->popup(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+		});
+	});
 	auto createSeparator = [this]() {
 		QFrame *line = new QFrame(this);
 		line->setFrameShape(QFrame::VLine);
@@ -1018,11 +1017,6 @@ void TimelineDock::drawRuler()
 
 bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 {
-	if (obj == settingsButton && event->type() == QEvent::MouseButtonPress) {
-		settingsMenu->exec(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
-		return true;
-	}
-
 	if (obj == view->viewport()) {
 		// Right-click on empty area to add event
 		if (event->type() == QEvent::ContextMenu) {
@@ -1329,11 +1323,11 @@ void TimelineDock::onSaveClicked()
 	}
 
 	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
-								     endTimeSpinbox->value(), snapCheckbox->isChecked(),
-								     getSnapIntervalMs(), bpm, gridToBpm,
-								     noteLengthBeats, centerControls, alternatingBg,
-								     compactMode, showEndTimeOnDock, 
-								     scheduler->getCurrentTime(), pixelsPerSecond);
+							     endTimeSpinbox->value(), snapCheckbox->isChecked(),
+							     getSnapIntervalMs(), bpm, gridToBpm,
+							     noteLengthBeats, centerControls, alternatingBg,
+							     compactMode, showEndTimeOnDock, 
+							     scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "[Timeline] Exported → %s", fileName.toStdString().c_str());
@@ -1369,6 +1363,12 @@ void TimelineDock::onLoadClicked()
 		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
 		snapCheckbox->setChecked(timelineDoc.snap);
 		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
+		for (int i = 0; i < snapIntervalCombo->count(); i++) {
+			if (snapIntervalCombo->itemData(i).toDouble() == manualSnapIntervalMs) {
+				snapIntervalCombo->setCurrentIndex(i);
+				break;
+			}
+		}
 		bpmSpinbox->setValue(timelineDoc.bpm);
 		gridTypeCombo->setCurrentIndex(timelineDoc.gridToBpm ? 1 : 0);
 		noteLengthBeats = timelineDoc.noteLengthBeats;
@@ -1394,6 +1394,7 @@ void TimelineDock::onLoadClicked()
 		loadingTimeline = false;
 
 		blog(LOG_INFO, "[Timeline] Imported → %s", fileName.toStdString().c_str());
+		rebuildEventItems();
 		updateLayout();
 		debounceSaveTimer->start();
 	} else {
@@ -1445,15 +1446,8 @@ void TimelineDock::updateEndMarker()
 			endMarkerGrabHandle->setCursor(Qt::SizeHorCursor);
 		}
 
-		QByteArray endSvg = ThemeIcons::wrapSvg(ThemeIcons::MOON_ARROW_DOWN, link.name());
-		QPixmap endPix(20, 20);
-		endPix.fill(Qt::transparent);
-		{
-			QPainter p(&endPix);
-			QSvgRenderer sel(endSvg);
-			sel.render(&p);
-		}
-		endMarkerGrabHandle->setPixmap(endPix);
+		refreshEndMarkerHandlePixmap(link);
+		endMarkerGrabHandle->setPixmap(endMarkerHandlePixmap);
 		endMarkerGrabHandle->setPos(x - 10, 0);
 
 		// Dimming overlay for out-of-bounds area
@@ -1616,9 +1610,6 @@ void TimelineDock::drawGrid()
 	}
 	gridItems.clear();
 
-	if (!scene || !view)
-		return;
-
 	double sceneWidth = scene->width();
 	double sceneHeight = view->viewport()->height();
 
@@ -1693,17 +1684,9 @@ void TimelineDock::onTick(double currentTimeMs)
 	}
 #endif
 
-	int totalSeconds = static_cast<int>(currentTimeMs / 1000.0);
-	int ms = static_cast<int>(currentTimeMs) % 1000;
-	int minutes = totalSeconds / 60;
-	int seconds = totalSeconds % 60;
-
 	if (timecodeDisplay) {
 		timecodeDisplay->setTimeMs(currentTimeMs);
 	}
-	(void)minutes;
-	(void)seconds;
-	(void)ms;
 }
 
 void TimelineDock::updatePlayhead(double timeMs)
@@ -1730,15 +1713,8 @@ void TimelineDock::updatePlayhead(double timeMs)
 		playheadGrabHandle->setCursor(Qt::SizeHorCursor);
 	}
 
-	QByteArray svg = ThemeIcons::wrapSvg(ThemeIcons::MOON_ARROW_DOWN, playheadColor.name());
-	QPixmap pix(20, 20);
-	pix.fill(Qt::transparent);
-	{
-		QPainter p(&pix);
-		QSvgRenderer sel(svg);
-		sel.render(&p);
-	}
-	playheadGrabHandle->setPixmap(pix);
+	refreshPlayheadHandlePixmap();
+	playheadGrabHandle->setPixmap(playheadHandlePixmap);
 	playheadGrabHandle->setPos(x - 10, 0);
 
 	// Only auto-scroll when playhead is near an edge
@@ -1746,6 +1722,34 @@ void TimelineDock::updatePlayhead(double timeMs)
 	if (x < visible.left() + 20.0 || x > visible.right() - 20.0) {
 		view->ensureVisible(QRectF(x, 0, 10, h), 50, 0);
 	}
+}
+
+void TimelineDock::refreshPlayheadHandlePixmap()
+{
+	if (!playheadHandlePixmap.isNull() && cachedPlayheadHandleColor == playheadColor)
+		return;
+
+	cachedPlayheadHandleColor = playheadColor;
+	QByteArray svg = ThemeIcons::wrapSvg(ThemeIcons::MOON_ARROW_DOWN, playheadColor.name());
+	playheadHandlePixmap = QPixmap(20, 20);
+	playheadHandlePixmap.fill(Qt::transparent);
+	QPainter p(&playheadHandlePixmap);
+	QSvgRenderer sel(svg);
+	sel.render(&p);
+}
+
+void TimelineDock::refreshEndMarkerHandlePixmap(const QColor &color)
+{
+	if (!endMarkerHandlePixmap.isNull() && cachedEndMarkerHandleColor == color)
+		return;
+
+	cachedEndMarkerHandleColor = color;
+	QByteArray svg = ThemeIcons::wrapSvg(ThemeIcons::MOON_ARROW_DOWN, color.name());
+	endMarkerHandlePixmap = QPixmap(20, 20);
+	endMarkerHandlePixmap.fill(Qt::transparent);
+	QPainter p(&endMarkerHandlePixmap);
+	QSvgRenderer sel(svg);
+	sel.render(&p);
 }
 
 void TimelineDock::onAddEventClicked()
@@ -1871,23 +1875,22 @@ void TimelineDock::rebuildEventItems()
 		TimelineEventItem *item = eventItemMap.value(evt.id, nullptr);
 		if (!item) {
 			// Create new item
-		item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color,
-					     evt.customIconPath);
-		item->setEventId(evt.id);
-		item->setBorderColor(borderColor);
-		item->setSelectionColor(selectionColor);
-		item->setBackgroundColor(bgColor);
-		item->setLabelColors(labelText, labelBg);
-		item->setCompactMode(compactMode);
-		scene->addItem(item);
-		connectItemSignals(item, evt.id);
-		eventItemMap[evt.id] = item;
+			item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color,
+						     evt.customIconPath);
+			item->setEventId(evt.id);
+			item->setBorderColor(borderColor);
+			item->setSelectionColor(selectionColor);
+			item->setBackgroundColor(bgColor);
+			item->setLabelColors(labelText, labelBg);
+			item->setCompactMode(compactMode);
+			scene->addItem(item);
+			connectItemSignals(item, evt.id);
+			eventItemMap[evt.id] = item;
 		} else {
 			// Update existing item properties
 			item->setSuppressDragSignals(true);
 			item->setPixelsPerSecond(pixelsPerSecond);
 			item->setTimeMs(evt.timeMs);
-			item->setStackOffset(stackIndex);
 			item->setSuppressDragSignals(false);
 			item->setEventType(evt.type);
 			item->setEventColor(evt.color);

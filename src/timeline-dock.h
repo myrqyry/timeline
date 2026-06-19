@@ -14,6 +14,7 @@
 #include <QHash>
 #include <QSet>
 #include <QFrame>
+#include <QPixmap>
 #include <map>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
@@ -104,6 +105,8 @@ private:
 	void updateZoomLabelPosition();
 	void seekToSceneX(double x);
 	void applyThemeColorsToItems();
+	void refreshPlayheadHandlePixmap();
+	void refreshEndMarkerHandlePixmap(const QColor &color);
 
 	QList<TimelineEvent> clipboard;
 
@@ -182,6 +185,10 @@ private:
 	QGraphicsSimpleTextItem *emptyHintItem = nullptr;
 
 	QColor playheadColor;
+	QPixmap playheadHandlePixmap;
+	QPixmap endMarkerHandlePixmap;
+	QColor cachedPlayheadHandleColor;
+	QColor cachedEndMarkerHandleColor;
 
 	QList<QGraphicsItem *> rulerItems;
 	QList<QGraphicsItem *> gridItems;
@@ -204,7 +211,6 @@ private:
 	void *obsWebSocketVendor = nullptr;
 	qint64 lastTickTime = 0;
 	bool rebuildScheduled = false;
-	bool savePending = false;
 	QTimer *debounceSaveTimer = nullptr;
 	bool isDragging = false;
 	QString zoomLabelCache;

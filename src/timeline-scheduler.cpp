@@ -89,7 +89,9 @@ void TimelineScheduler::resume() {
 
 void TimelineScheduler::seek(double timeMs) {
     currentOffsetMs = timeMs;
-    startTime = std::chrono::high_resolution_clock::now();
+    if (playing) {
+        startTime = std::chrono::high_resolution_clock::now();
+    }
 
     // Reset fired status for events
     if (model) {

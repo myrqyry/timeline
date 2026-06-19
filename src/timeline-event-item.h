@@ -104,7 +104,7 @@ private:
     bool snapEnabled = false;
     double snapIntervalMs = 1000.0; // Default 1 second
 
-	// Drag tracking
+	// Drag tracking. isBeingDragged means the mouse button is down and a drag may start.
 	bool isBeingDragged = false;
 	bool dragStartedEmitted = false;
 	bool suppressDragSignals = false;
