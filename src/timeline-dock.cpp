@@ -350,9 +350,10 @@ void TimelineDock::setupUi()
 	settingsButton->setObjectName("timeline-settings-btn");
 	settingsButton->setToolTip(obs_module_text("TimelineDock.Settings"));
 	connect(settingsButton, &QPushButton::clicked, this, [this]() {
-		blog(LOG_INFO, "[Timeline] DEBUG_ACTIVE_SETTINGS_CLICK_20260618");
 		QTimer::singleShot(0, this, [this]() {
-			settingsMenu->popup(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+			if (settingsMenu) {
+				settingsMenu->popup(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+			}
 		});
 	});
 	auto createSeparator = [this]() {

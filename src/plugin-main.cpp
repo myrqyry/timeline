@@ -20,8 +20,6 @@ bool obs_module_load(void)
 	blog(LOG_INFO, "[Timeline] ║  Timeline for OBS v1.0.0              ║");
 	blog(LOG_INFO, "[Timeline] ╚══════════════════════════════════════╝");
 
-	blog(LOG_INFO, "DEBUG_ACTIVE_TIMELINE_7B3E1");
-
 	g_timelineDock = new TimelineDock();
 	obs_frontend_add_dock_by_id("timeline_dock", "Timeline", g_timelineDock);
 
