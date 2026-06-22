@@ -99,12 +99,13 @@ private:
 	double getSnapIntervalMs() const;
 	void applySnapIntervalToItems();
 	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
-	void updateButtonIcon(QAbstractButton *btn, const char *path, int size = 24, const QString &label = QString(), int iconSizeOffset = 6);
-	void updateMoonButtonIcon(QAbstractButton *btn, const char *inner, int size = 24, const QString &label = QString(), int iconSizeOffset = 6);
+	void updateMoonButtonIcon(QAbstractButton *btn, const char *inner, int size = 24,
+				  const QString &label = QString(), int iconSizeOffset = 6);
 	void updateDependentControlStates();
 	void updateZoomLabelPosition();
 	void seekToSceneX(double x);
 	void applyThemeColorsToItems();
+	QColor computePlayheadColor() const;
 	void refreshPlayheadHandlePixmap();
 	void refreshEndMarkerHandlePixmap(const QColor &color);
 

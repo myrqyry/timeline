@@ -160,15 +160,16 @@ void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *pr
 			dock,
 			[dock]() {
 				dock->ensurePolished();
-				// Use Link color for playhead - usually a very bright/saturated blue or cyan in OBS themes
-				dock->playheadColor = dock->palette().color(QPalette::Link);
+				dock->playheadColor = dock->computePlayheadColor();
 				if (dock->timecodeDisplay)
 					dock->timecodeDisplay->setStatusColor(ThemeIcons::getThemeStatusColor(dock));
 				dock->applyThemeColorsToItems();
 				dock->updateToolbarIcons();
 				dock->updateLayout();
-				if (dock->view && dock->view->viewport()) dock->view->viewport()->update();
-				if (dock->timecodeDisplay) dock->timecodeDisplay->update();
+				if (dock->view && dock->view->viewport())
+					dock->view->viewport()->update();
+				if (dock->timecodeDisplay)
+					dock->timecodeDisplay->update();
 			},
 			Qt::QueuedConnection);
 		break;
@@ -222,12 +223,10 @@ void TimelineDock::save()
 		return;
 	}
 
-	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
-							     endTimeSpinbox->value(), snapCheckbox->isChecked(),
-							     getSnapIntervalMs(), bpm, gridToBpm,
-							     noteLengthBeats, centerControls, alternatingBg,
-							     compactMode, showEndTimeOnDock, 
-							     scheduler->getCurrentTime(), pixelsPerSecond);
+	const QJsonObject root = TimelineSerialization::toJsonObject(
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
+		getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls, alternatingBg, compactMode,
+		showEndTimeOnDock, scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
 		blog(LOG_DEBUG, "[Timeline] Saved → %s", configPath);
@@ -329,7 +328,7 @@ void TimelineDock::setupUi()
 	QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
 	// Compute playhead color
-	playheadColor = palette().color(QPalette::Link);
+	playheadColor = computePlayheadColor();
 
 	// Instantiate critical infrastructure early
 	view = new QGraphicsView(this);
@@ -445,7 +444,9 @@ void TimelineDock::setupUi()
 
 	// Refresh icon colors when checkable toolbar buttons change state
 	// (so the baked SVG color matches the new background + uses the right palette role for readability)
-	auto refreshIconColors = [this]() { updateToolbarIcons(); };
+	auto refreshIconColors = [this]() {
+		updateToolbarIcons();
+	};
 	connect(snapCheckbox, &QPushButton::toggled, this, refreshIconColors);
 	connect(loopCheckbox, &QPushButton::toggled, this, refreshIconColors);
 	connect(timeModeBtn, &QPushButton::toggled, this, refreshIconColors);
@@ -530,10 +531,10 @@ void TimelineDock::setupUi()
 	QHBoxLayout *endLayout = new QHBoxLayout(endContainer);
 	endLayout->setContentsMargins(13, 2, 13, 2);
 	endLayout->setSpacing(10);
-	
+
 	QLabel *menuEndLabel = new QLabel(obs_module_text("TimelineDock.EndTime"), endContainer);
 	endLayout->addWidget(menuEndLabel);
-	
+
 	QDoubleSpinBox *menuEndTimeSpinbox = new QDoubleSpinBox(endContainer);
 	menuEndTimeSpinbox->setRange(0, 3600);
 	menuEndTimeSpinbox->setDecimals(1);
@@ -541,13 +542,13 @@ void TimelineDock::setupUi()
 	menuEndTimeSpinbox->setButtonSymbols(QAbstractSpinBox::NoButtons);
 	menuEndTimeSpinbox->setFixedWidth(50);
 	menuEndTimeSpinbox->setValue(endTimeSpinbox->value());
-	
+
 	// Sync both spinboxes
-	connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-		menuEndTimeSpinbox, &QDoubleSpinBox::setValue);
-	connect(menuEndTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
-		endTimeSpinbox, &QDoubleSpinBox::setValue);
-	
+	connect(endTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), menuEndTimeSpinbox,
+		&QDoubleSpinBox::setValue);
+	connect(menuEndTimeSpinbox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), endTimeSpinbox,
+		&QDoubleSpinBox::setValue);
+
 	endLayout->addWidget(menuEndTimeSpinbox);
 
 	showEndTimeCheckbox = new QCheckBox(obs_module_text("TimelineDock.ShowOnDock"), endContainer);
@@ -1110,7 +1111,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					view->viewport()->setCursor(Qt::SizeHorCursor);
 					return true;
 				}
-				
+
 				if (onEndMarker) {
 					draggingEndMarker = true;
 					view->viewport()->setCursor(Qt::SizeHorCursor);
@@ -1137,7 +1138,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				seekToSceneX(scenePos.x());
 				return true;
 			}
-			
+
 			if (draggingEndMarker) {
 				double newTime = std::max(0.0, scenePos.x() / pixelsPerSecond);
 				endTimeSpinbox->setValue(newTime); // This triggers onEndTimeChanged automatically
@@ -1323,12 +1324,10 @@ void TimelineDock::onSaveClicked()
 		fileName += ".json";
 	}
 
-	const QJsonObject root = TimelineSerialization::toJsonObject(*model, loopCheckbox->isChecked(),
-							     endTimeSpinbox->value(), snapCheckbox->isChecked(),
-							     getSnapIntervalMs(), bpm, gridToBpm,
-							     noteLengthBeats, centerControls, alternatingBg,
-							     compactMode, showEndTimeOnDock, 
-							     scheduler->getCurrentTime(), pixelsPerSecond);
+	const QJsonObject root = TimelineSerialization::toJsonObject(
+		*model, loopCheckbox->isChecked(), endTimeSpinbox->value(), snapCheckbox->isChecked(),
+		getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls, alternatingBg, compactMode,
+		showEndTimeOnDock, scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(fileName, root, &errorMessage)) {
 		blog(LOG_INFO, "[Timeline] Exported → %s", fileName.toStdString().c_str());
@@ -1430,7 +1429,7 @@ void TimelineDock::updateEndMarker()
 	if (endTimeMs > 0 && view) {
 		double x = (endTimeMs / 1000.0) * pixelsPerSecond;
 		double h = view->viewport()->height();
-		
+
 		// End line marker
 		QColor link = palette().color(QPalette::Link);
 		link.setAlpha(180);
@@ -1454,7 +1453,7 @@ void TimelineDock::updateEndMarker()
 		// Dimming overlay for out-of-bounds area
 		QColor dimColor = Qt::black;
 		dimColor.setAlpha(120); // semi-transparent black
-		
+
 		// Large width to cover scrollable area
 		double sceneW = std::max(scene->width(), x + 20000.0);
 		postEndOverlay = scene->addRect(x, 0, sceneW - x, h, Qt::NoPen, QBrush(dimColor));
@@ -1498,7 +1497,7 @@ void TimelineDock::changeEvent(QEvent *event)
 {
 	QWidget::changeEvent(event);
 	if (event->type() == QEvent::PaletteChange) {
-		playheadColor = palette().color(QPalette::Highlight).lighter(130);
+		playheadColor = computePlayheadColor();
 		applyThemeColorsToItems();
 		updateToolbarIcons();
 		if (view && view->viewport())
@@ -1624,6 +1623,8 @@ void TimelineDock::drawGrid()
 		double stepSec = getSnapIntervalMs() / 1000.0;
 		stepPx = stepSec * pixelsPerSecond;
 	}
+	if (stepPx < 1.0)
+		return;
 
 	// Alternating background sections
 	if (alternatingBg) {
@@ -1766,7 +1767,7 @@ void TimelineDock::onAddEventClicked()
 
 	editor.getUpdatedEvent(evt);
 
-	// Protect against editor regressions.
+	// New-event time is placement-controlled; the editor time field is disabled here.
 	evt.timeMs = currentTimeMs;
 
 	if (evt.color == QColor(0, 200, 255)) {
@@ -1787,7 +1788,7 @@ void TimelineDock::addEventAtTime(double timeMs)
 
 	editor.getUpdatedEvent(evt);
 
-	// Ensure the event time matches the requested position
+	// New-event time is placement-controlled; the editor time field is disabled here.
 	evt.timeMs = timeMs;
 
 	if (evt.color == QColor(0, 200, 255)) {
@@ -1856,16 +1857,24 @@ void TimelineDock::rebuildEventItems()
 	QSet<QString> currentIds;
 	currentIds.reserve(static_cast<int>(events.size()));
 
-	// Track stacking - count events at same time (within 50ms tolerance)
-	std::map<int, int> timeSlotCount;
+	// Track stacked lanes for events that are close enough to visually overlap.
 	const double STACK_TOLERANCE_MS = 50.0;
+	std::vector<double> stackLaneLastTimes;
 
 	for (size_t i = 0; i < events.size(); i++) {
 		const auto &evt = events[i];
 		currentIds.insert(evt.id);
 
-		int timeBucket = static_cast<int>(evt.timeMs / STACK_TOLERANCE_MS);
-		int stackIndex = timeSlotCount[timeBucket]++;
+		int stackIndex = 0;
+		for (; stackIndex < static_cast<int>(stackLaneLastTimes.size()); ++stackIndex) {
+			if (evt.timeMs - stackLaneLastTimes[stackIndex] >= STACK_TOLERANCE_MS)
+				break;
+		}
+		if (stackIndex == static_cast<int>(stackLaneLastTimes.size())) {
+			stackLaneLastTimes.push_back(evt.timeMs);
+		} else {
+			stackLaneLastTimes[stackIndex] = evt.timeMs;
+		}
 
 		QColor borderColor = palette().color(QPalette::Text);
 		QColor selectionColor = palette().color(QPalette::Highlight);
@@ -2042,8 +2051,8 @@ void TimelineDock::updateZoomLabel()
 void TimelineDock::updatePlayButtonIcon()
 {
 	int size = compactMode ? 28 : 32;
-	updateMoonButtonIcon(playButton, scheduler->isPlaying() ? ThemeIcons::MOON_PAUSE : ThemeIcons::MOON_PLAY,
-			     size, QString(), 6);
+	updateMoonButtonIcon(playButton, scheduler->isPlaying() ? ThemeIcons::MOON_PAUSE : ThemeIcons::MOON_PLAY, size,
+			     QString(), 6);
 	if (timecodeDisplay) {
 		timecodeDisplay->setPlaying(scheduler->isPlaying());
 		timecodeDisplay->setCompactMode(compactMode);
@@ -2062,7 +2071,8 @@ void TimelineDock::updateToolbarIcons()
 	updateMoonButtonIcon(zoomOutButton, ThemeIcons::MOON_MINUS, zoomSize, QString(), 6);
 	updateMoonButtonIcon(zoomInButton, ThemeIcons::MOON_PLUS, zoomSize, QString(), 6);
 	updateMoonButtonIcon(snapCheckbox,
-			     snapCheckbox->isChecked() ? ThemeIcons::MOON_LOCK : ThemeIcons::MOON_LOCK_OFF, secondarySize, QString(), 8);
+			     snapCheckbox->isChecked() ? ThemeIcons::MOON_LOCK : ThemeIcons::MOON_LOCK_OFF,
+			     secondarySize, QString(), 8);
 	updateMoonButtonIcon(loopCheckbox, ThemeIcons::MOON_RELOAD, secondarySize, QString(), 8);
 	updateMoonButtonIcon(timeModeBtn, ThemeIcons::MOON_CLOCK, secondarySize, QString(), 8);
 	updateMoonButtonIcon(bpmModeBtn, ThemeIcons::MOON_MUSIC, secondarySize, QString(), 8);
@@ -2083,7 +2093,8 @@ void TimelineDock::applyThemeColorsToItems()
 	QColor labelBg = palette().color(QPalette::Base);
 
 	for (TimelineEventItem *item : eventItemMap) {
-		if (!item) continue;
+		if (!item)
+			continue;
 		item->setBorderColor(borderColor);
 		item->setSelectionColor(selectionColor);
 		item->setBackgroundColor(bgColor);
@@ -2091,33 +2102,16 @@ void TimelineDock::applyThemeColorsToItems()
 	}
 }
 
-void TimelineDock::updateButtonIcon(QAbstractButton *btn, const char *path, int size, const QString &label, int iconSizeOffset)
+QColor TimelineDock::computePlayheadColor() const
 {
-	if (!btn) return;
-	btn->ensurePolished();
-	bool onHighlight = btn->isCheckable() && btn->isChecked();
-	QColor color = ThemeIcons::iconColorFor(btn, onHighlight);
-
-	QByteArray svgData = ThemeIcons::wrapSvg(path, color.name());
-	QPixmap pixmap = QPixmap::fromImage(QImage::fromData(svgData));
-	if (!pixmap.isNull()) {
-		btn->setIcon(QIcon(pixmap));
-		btn->setIconSize(QSize(size - iconSizeOffset, size - iconSizeOffset));
-	}
-	
-	btn->setText(label);
-	if (label.isEmpty()) {
-		btn->setFixedSize(size, size);
-	} else {
-		btn->setFixedHeight(size);
-		btn->setMinimumWidth(size);
-		btn->setMaximumWidth(16777215); // QWIDGETSIZE_MAX
-	}
+	return palette().color(QPalette::Link);
 }
 
-void TimelineDock::updateMoonButtonIcon(QAbstractButton *btn, const char *inner, int size, const QString &label, int iconSizeOffset)
+void TimelineDock::updateMoonButtonIcon(QAbstractButton *btn, const char *inner, int size, const QString &label,
+					int iconSizeOffset)
 {
-	if (!btn) return;
+	if (!btn)
+		return;
 	btn->ensurePolished();
 	bool onHighlight = btn->isCheckable() && btn->isChecked();
 	QColor color = ThemeIcons::iconColorFor(btn, onHighlight);
@@ -2128,7 +2122,7 @@ void TimelineDock::updateMoonButtonIcon(QAbstractButton *btn, const char *inner,
 		btn->setIcon(QIcon(pixmap));
 		btn->setIconSize(QSize(size - iconSizeOffset, size - iconSizeOffset));
 	}
-	
+
 	btn->setText(label);
 	if (label.isEmpty()) {
 		btn->setFixedSize(size, size);

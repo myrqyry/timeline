@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QGraphicsSceneMouseEvent>
 #include <QTest>
 #include <QSignalSpy>
 #include <QMetaObject>
@@ -12,6 +13,7 @@
 #include "obs-executor.h"
 #include "theme-helpers.h"
 #include "timeline-hit-testing.h"
+#include "timeline-event-item.h"
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "timeline-serialization.h"
@@ -20,6 +22,13 @@
 extern obs_source_t *g_current_scene;
 extern obs_source_t *g_current_transition;
 extern std::vector<obs_source_t *> g_transitions;
+
+class ExposedTimelineEventItem : public TimelineEventItem {
+public:
+	using TimelineEventItem::TimelineEventItem;
+	using TimelineEventItem::mousePressEvent;
+	using TimelineEventItem::mouseReleaseEvent;
+};
 
 // Helper to set QT_QPA_PLATFORM to offscreen
 void setOffscreenPlatform()
@@ -315,12 +324,9 @@ private slots:
 			 "BPM mode icon should use the left note head from Music 2.svg");
 		QVERIFY2(svg.contains("cx=\"18\" cy=\"16\" r=\"3\""),
 			 "BPM mode icon should use the right note head from Music 2.svg");
-		QVERIFY2(svg.contains("M21 3L9 5"),
-			 "BPM mode icon should include the upper Music 2.svg beam");
-		QVERIFY2(svg.contains("M21 7L9 9"),
-			 "BPM mode icon should include the lower Music 2.svg beam");
-		QVERIFY2(!svg.contains("M12 3L18 4V8L12 7V3"),
-			 "BPM mode icon should not use the old Music 1.svg flag");
+		QVERIFY2(svg.contains("M21 3L9 5"), "BPM mode icon should include the upper Music 2.svg beam");
+		QVERIFY2(svg.contains("M21 7L9 9"), "BPM mode icon should include the lower Music 2.svg beam");
+		QVERIFY2(!svg.contains("M12 3L18 4V8L12 7V3"), "BPM mode icon should not use the old Music 1.svg flag");
 	}
 
 	void testSnapIconsUseLockGlyphs()
@@ -518,6 +524,7 @@ private slots:
 
 		QSignalSpy finishedSpy(&scheduler, &TimelineScheduler::finished);
 		QSignalSpy loopedSpy(&scheduler, &TimelineScheduler::looped);
+		QSignalSpy tickSpy(&scheduler, &TimelineScheduler::tick);
 
 		scheduler.seek(1500.0);
 		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
@@ -525,9 +532,30 @@ private slots:
 
 		scheduler.setLooping(true);
 		scheduler.seek(1500.0);
+		tickSpy.clear();
 		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
 		QCOMPARE(loopedSpy.count(), 1);
+		QCOMPARE(tickSpy.count(), 1);
+		QCOMPARE(tickSpy.takeFirst().at(0).toDouble(), 0.0);
 		QCOMPARE(scheduler.getCurrentTime(), 0.0);
+	}
+
+	void testEventItemClickReleaseDoesNotEmitMove()
+	{
+		ExposedTimelineEventItem item(1000.0, 100.0, TimelineEventType::SceneSwitch);
+		QSignalSpy movedSpy(&item, &TimelineEventItem::eventMoved);
+
+		QGraphicsSceneMouseEvent pressEvent(QEvent::GraphicsSceneMousePress);
+		pressEvent.setButton(Qt::LeftButton);
+		pressEvent.setButtons(Qt::LeftButton);
+		item.mousePressEvent(&pressEvent);
+
+		QGraphicsSceneMouseEvent releaseEvent(QEvent::GraphicsSceneMouseRelease);
+		releaseEvent.setButton(Qt::LeftButton);
+		releaseEvent.setButtons(Qt::NoButton);
+		item.mouseReleaseEvent(&releaseEvent);
+
+		QCOMPARE(movedSpy.count(), 0);
 	}
 };
 
