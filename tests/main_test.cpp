@@ -557,6 +557,17 @@ private slots:
 
 		QCOMPARE(movedSpy.count(), 0);
 	}
+
+	void testEventItemCompactModePreservesTime()
+	{
+		ExposedTimelineEventItem item(2500.0, 100.0, TimelineEventType::SceneSwitch);
+
+		QCOMPARE(item.getTimeMs(), 2500.0);
+		item.setCompactMode(true);
+		QCOMPARE(item.getTimeMs(), 2500.0);
+		item.setCompactMode(false);
+		QCOMPARE(item.getTimeMs(), 2500.0);
+	}
 };
 
 int main(int argc, char *argv[])

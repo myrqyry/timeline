@@ -150,11 +150,11 @@ void TimelineEventItem::setCompactMode(bool enabled)
 {
 	if (compactMode == enabled)
 		return;
+	double currentTime = getTimeMs();
 	compactMode = enabled;
 	mItemSize = enabled ? COMPACT_SIZE : ITEM_SIZE;
 
 	// Re-anchor the bubble so its center stays at the same time position
-	double currentTime = getTimeMs();
 	prepareGeometryChange();
 	setRect(0, 0, mItemSize, mItemSize);
 	setTransformOriginPoint(mItemSize / 2.0, mItemSize / 2.0);
