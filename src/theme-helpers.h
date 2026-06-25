@@ -332,4 +332,30 @@ inline QColor getDefaultColor(TimelineEventType type)
 	}
 }
 
+inline QString typeDisplayName(TimelineEventType type)
+{
+	switch (type) {
+	case TimelineEventType::SceneSwitch:
+		return QStringLiteral("Scene Switch");
+	case TimelineEventType::SourceShow:
+		return QStringLiteral("Show Source");
+	case TimelineEventType::SourceHide:
+		return QStringLiteral("Hide Source");
+	case TimelineEventType::MediaStart:
+		return QStringLiteral("Play Media");
+	case TimelineEventType::MediaStop:
+		return QStringLiteral("Stop Media");
+	case TimelineEventType::FilterEnable:
+		return QStringLiteral("Enable Filter");
+	case TimelineEventType::FilterDisable:
+		return QStringLiteral("Disable Filter");
+	case TimelineEventType::HotkeyTrigger:
+		return QStringLiteral("Hotkey");
+	case TimelineEventType::TriggerTimeline:
+		return QStringLiteral("Trigger Timeline");
+	default:
+		return QStringLiteral("Event");
+	}
+}
+
 } // namespace ThemeIcons

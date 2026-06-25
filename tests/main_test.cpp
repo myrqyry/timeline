@@ -1,4 +1,4 @@
-#include <QGuiApplication>
+#include <QApplication>
 #include <QGraphicsSceneMouseEvent>
 #include <QTest>
 #include <QSignalSpy>
@@ -19,6 +19,7 @@
 #include "timeline-serialization.h"
 #include "macro-button.h"
 #include "macro-button-model.h"
+#include "macro-button-widget.h"
 #include "macro-serialization.h"
 
 // Mock helpers from mock_frontend.cpp
@@ -652,12 +653,27 @@ private slots:
 		QVERIFY(!MacroSerialization::loadFromFile(file.fileName(), doc, &err));
 		QVERIFY(!err.isEmpty());
 	}
+
+	void testButtonWidgetEmitsFireRequested()
+	{
+		MacroButton b;
+		b.id = "x";
+		b.label = "Go";
+		b.type = TimelineEventType::SceneSwitch;
+		b.sourceName = "Scene B";
+
+		MacroButtonWidget w(b);
+		QSignalSpy spy(&w, &MacroButtonWidget::fireRequested);
+		w.click();
+		QCOMPARE(spy.count(), 1);
+		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
+	}
 };
 
 int main(int argc, char *argv[])
 {
 	setOffscreenPlatform();
-	QGuiApplication app(argc, argv);
+	QApplication app(argc, argv);
 	TestTimeline tc;
 	return QTest::qExec(&tc, argc, argv);
 }

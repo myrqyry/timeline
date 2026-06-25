@@ -37,6 +37,7 @@ set(PLUGIN_SOURCES
     src/timeline-serialization.cpp
     src/timecode-display.cpp
     src/macro-button-model.cpp
+    src/macro-button-widget.cpp
     src/macro-serialization.cpp
 )
 
@@ -54,6 +55,7 @@ set(PLUGIN_HEADERS
     src/timecode-display.h
     src/macro-button.h
     src/macro-button-model.h
+    src/macro-button-widget.h
     src/macro-serialization.h
 )
 
