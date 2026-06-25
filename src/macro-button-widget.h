@@ -15,6 +15,8 @@ public:
 	void refreshIcon(const QString &colorName);
 	void setPressedAppearance(bool pressed);
 
+	static constexpr int kStripButtonSize = 32;
+
 signals:
 	void fireRequested(const MacroButton &button);
 

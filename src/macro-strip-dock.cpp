@@ -45,12 +45,12 @@ void MacroStripDock::setupUi()
 	m_scrollArea->setWidgetResizable(true);
 	m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-	m_scrollArea->setFixedHeight(56);
+	m_scrollArea->setFixedHeight(MacroButtonWidget::kStripButtonSize + 8);
 
 	m_buttonContainer = new QWidget(m_scrollArea);
 	m_buttonLayout = new QHBoxLayout(m_buttonContainer);
 	m_buttonLayout->setContentsMargins(0, 0, 0, 0);
-	m_buttonLayout->setSpacing(6);
+	m_buttonLayout->setSpacing(4);
 	m_buttonLayout->addStretch();
 
 	m_scrollArea->setWidget(m_buttonContainer);

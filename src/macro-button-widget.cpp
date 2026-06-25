@@ -13,9 +13,10 @@ static QString fallbackLabel(const MacroButton &b)
 MacroButtonWidget::MacroButtonWidget(const MacroButton &button, QWidget *parent)
 	: QPushButton(parent), m_button(button)
 {
-	setMinimumSize(56, 48);
-	setMaximumHeight(56);
-	setIconSize(QSize(24, 24));
+	constexpr int side = kStripButtonSize;
+	setMinimumSize(side, side);
+	setMaximumSize(side, side);
+	setIconSize(QSize(20, 20));
 	setText(fallbackLabel(m_button));
 	setToolTip(fallbackLabel(m_button));
 	refreshIcon(ThemeIcons::iconColorFor(this).name());
