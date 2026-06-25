@@ -10,17 +10,29 @@ static QString fallbackLabel(const MacroButton &b)
 	return b.sourceName.isEmpty() ? ThemeIcons::typeDisplayName(b.type) : b.sourceName;
 }
 
-MacroButtonWidget::MacroButtonWidget(const MacroButton &button, QWidget *parent)
-	: QPushButton(parent), m_button(button)
+int MacroButtonWidget::stripSidePxForCompact(bool compact) { return compact ? 24 : 28; }
+int MacroButtonWidget::stripHeightForCompact(bool compact) { return compact ? 24 : 28; }
+
+MacroButtonWidget::MacroButtonWidget(const MacroButton &button, int sidePx, QWidget *parent)
+	: QPushButton(parent), m_button(button), m_sidePx(sidePx)
 {
-	constexpr int side = kStripButtonSize;
-	setMinimumSize(side, side);
-	setMaximumSize(side, side);
-	setIconSize(QSize(20, 20));
+	setMinimumSize(sidePx, sidePx);
+	setMaximumSize(sidePx, sidePx);
+	setIconSize(QSize(sidePx - 8, sidePx - 8));
 	setText(fallbackLabel(m_button));
 	setToolTip(fallbackLabel(m_button));
 	refreshIcon(ThemeIcons::iconColorFor(this).name());
 	connect(this, &QPushButton::clicked, this, [this]() { emit fireRequested(m_button); });
+}
+
+void MacroButtonWidget::setSidePx(int sidePx)
+{
+	if (m_sidePx == sidePx)
+		return;
+	m_sidePx = sidePx;
+	setMinimumSize(sidePx, sidePx);
+	setMaximumSize(sidePx, sidePx);
+	setIconSize(QSize(sidePx - 8, sidePx - 8));
 }
 
 void MacroButtonWidget::setButton(const MacroButton &button)

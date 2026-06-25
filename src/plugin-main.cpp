@@ -65,6 +65,7 @@ bool obs_module_load(void)
 	obs_frontend_add_dock_by_id("timeline_macro_strip", "Macro Strip", g_macroStripDock);
 	if (g_timelineDock) {
 		g_macroStripDock->setObsExecutor(g_timelineDock->obsExecutor());
+		g_macroStripDock->setCompactMode(g_timelineDock->compactModeEnabled());
 	}
 
 	obs_frontend_add_save_callback(macroStripSaveCallback, nullptr);

@@ -41,6 +41,7 @@ public:
 	// Public accessor so the MacroStripDock can share this executor and fire actions
 	// through the same backend without duplicating OBS API usage.
 	ObsExecutor *obsExecutor() const { return executor; }
+	bool compactModeEnabled() const { return compactMode; }
 
 	static void saveCallback(obs_data_t *save_data, bool saving, void *private_data);
 

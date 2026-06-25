@@ -663,7 +663,7 @@ private slots:
 		b.type = TimelineEventType::SceneSwitch;
 		b.sourceName = "Scene B";
 
-		MacroButtonWidget w(b);
+		MacroButtonWidget w(b, MacroButtonWidget::stripSidePxForCompact(false));
 		QSignalSpy spy(&w, &MacroButtonWidget::fireRequested);
 		w.click();
 		QCOMPARE(spy.count(), 1);
@@ -716,6 +716,41 @@ private slots:
 		dock.onFrontendEvent(OBS_FRONTEND_EVENT_THEME_CHANGED);
 		QCOMPARE(dock.buttonModel()->count(), 1);
 		QCOMPARE(dock.buttonModel()->buttons()[0].id, QString("a"));
+	}
+
+	void testStripResizesWithCompactMode()
+	{
+		MacroStripDock dock;
+		MacroButton b;
+		b.id = "x";
+		b.type = TimelineEventType::SceneSwitch;
+		dock.buttonModel()->addButton(b);
+
+		const int normalHeight = MacroButtonWidget::stripHeightForCompact(false);
+		const int compactHeight = MacroButtonWidget::stripHeightForCompact(true);
+
+		dock.setCompactMode(false);
+		QCOMPARE(dock.height(), normalHeight);
+
+		dock.setCompactMode(true);
+		QCOMPARE(dock.height(), compactHeight);
+
+		// Process deleteLater queue from the rebuild so findChildren returns the new widgets.
+		QCoreApplication::sendPostedEvents();
+		QCoreApplication::processEvents();
+		const auto widgets = dock.findChildren<MacroButtonWidget *>();
+		QVERIFY(!widgets.isEmpty());
+		MacroButtonWidget *current = nullptr;
+		for (auto *w : widgets) {
+			if (w->minimumWidth() == compactHeight) {
+				current = w;
+				break;
+			}
+		}
+		QVERIFY(current);
+		QCOMPARE(current->minimumHeight(), compactHeight);
+		QCOMPARE(current->maximumWidth(), compactHeight);
+		QCOMPARE(current->maximumHeight(), compactHeight);
 	}
 };
 
