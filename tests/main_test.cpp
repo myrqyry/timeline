@@ -19,6 +19,7 @@
 #include "timeline-serialization.h"
 #include "macro-button.h"
 #include "macro-button-model.h"
+#include "macro-serialization.h"
 
 // Mock helpers from mock_frontend.cpp
 extern obs_source_t *g_current_scene;
@@ -605,6 +606,51 @@ private slots:
 		QVERIFY(m.removeButton("id-2"));
 		QCOMPARE(m.count(), 2);
 		QVERIFY(!m.removeButton("nope"));
+	}
+
+	void testSerializationRoundTripAndDedupe()
+	{
+		MacroButtonModel model;
+		MacroButton a;
+		a.id = "a";
+		a.label = "A";
+		a.type = TimelineEventType::SourceShow;
+		a.sourceName = "MySrc";
+		a.color = QColor("#ff00ff");
+		model.addButton(a);
+
+		MacroButton dup;
+		dup.id = "a";
+		dup.label = "Dup";
+		dup.type = TimelineEventType::SourceHide;
+		dup.sourceName = "Other";
+		model.addButton(dup);
+
+		const QJsonObject root = MacroSerialization::toJsonObject(model);
+		MacroButtonModel loaded;
+		QString err;
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(root), loaded, &err));
+		QVERIFY(err.isEmpty());
+
+		const auto buttons = loaded.buttons();
+		QCOMPARE(buttons.size(), 2);
+		QCOMPARE(buttons[0].id, QString("a"));
+		QVERIFY(buttons[1].id != QString("a"));
+		QVERIFY(!buttons[1].id.isEmpty());
+		QCOMPARE(buttons[1].label, QString("Dup"));
+	}
+
+	void testMacroSerializationInvalidJson()
+	{
+		QTemporaryFile file;
+		QVERIFY(file.open());
+		file.write("{ not json");
+		file.close();
+
+		QJsonDocument doc;
+		QString err;
+		QVERIFY(!MacroSerialization::loadFromFile(file.fileName(), doc, &err));
+		QVERIFY(!err.isEmpty());
 	}
 };
 
