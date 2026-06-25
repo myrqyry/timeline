@@ -17,6 +17,7 @@
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "timeline-serialization.h"
+#include "macro-button.h"
 
 // Mock helpers from mock_frontend.cpp
 extern obs_source_t *g_current_scene;
@@ -567,6 +568,14 @@ private slots:
 		QCOMPARE(item.getTimeMs(), 2500.0);
 		item.setCompactMode(false);
 		QCOMPARE(item.getTimeMs(), 2500.0);
+	}
+
+	void testMacroButtonHasDefaults()
+	{
+		MacroButton b;
+		QVERIFY(!b.id.isEmpty());
+		QVERIFY(b.label.isEmpty());
+		QCOMPARE(int(b.type), int(TimelineEventType::SceneSwitch));
 	}
 };
 
