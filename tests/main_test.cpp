@@ -704,6 +704,19 @@ private slots:
 		widgets.first()->click();
 		QCOMPARE(spy.count(), 1);
 	}
+
+	void testDockSurvivesThemeEvent()
+	{
+		MacroStripDock dock;
+		MacroButton b;
+		b.id = "a";
+		b.type = TimelineEventType::SceneSwitch;
+		b.sourceName = "S";
+		dock.buttonModel()->addButton(b);
+		dock.onFrontendEvent(OBS_FRONTEND_EVENT_THEME_CHANGED);
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons()[0].id, QString("a"));
+	}
 };
 
 int main(int argc, char *argv[])
