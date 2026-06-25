@@ -24,6 +24,9 @@
 # Exclude lock files
 *.lock.json
 
+# Exclude local superpowers working notes (specs, plans)
+/docs/superpowers/
+
 # Exclude macOS legacy resource forks
 .DS_Store
 
