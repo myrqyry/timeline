@@ -39,6 +39,7 @@ set(PLUGIN_SOURCES
     src/macro-button-model.cpp
     src/macro-button-widget.cpp
     src/macro-serialization.cpp
+    src/macro-strip-dock.cpp
 )
 
 set(PLUGIN_HEADERS
@@ -57,6 +58,7 @@ set(PLUGIN_HEADERS
     src/macro-button-model.h
     src/macro-button-widget.h
     src/macro-serialization.h
+    src/macro-strip-dock.h
 )
 
 # Create library

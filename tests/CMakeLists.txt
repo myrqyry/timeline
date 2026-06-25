@@ -23,6 +23,8 @@ set(TEST_SOURCES
     ../src/macro-button-model.cpp
     ../src/macro-button-widget.cpp
     ../src/macro-serialization.cpp
+    ../src/macro-strip-dock.cpp
+    ../src/event-editor.cpp
     # Exclude plugin-main.cpp because it defines obs_module_load/unload which conflicts or isn't needed
 )
 

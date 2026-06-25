@@ -21,6 +21,7 @@
 #include "macro-button-model.h"
 #include "macro-button-widget.h"
 #include "macro-serialization.h"
+#include "macro-strip-dock.h"
 
 // Mock helpers from mock_frontend.cpp
 extern obs_source_t *g_current_scene;
@@ -667,6 +668,41 @@ private slots:
 		w.click();
 		QCOMPARE(spy.count(), 1);
 		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
+	}
+
+	void testStripDockMoveAndFire()
+	{
+		MacroStripDock dock;
+		ObsExecutor exec;
+		dock.setObsExecutor(&exec);
+
+		MacroButtonModel *model = dock.buttonModel();
+		MacroButton a;
+		a.id = "a";
+		a.type = TimelineEventType::SceneSwitch;
+		a.sourceName = "S1";
+		MacroButton b;
+		b.id = "b";
+		b.type = TimelineEventType::SceneSwitch;
+		b.sourceName = "S2";
+		model->addButton(a);
+		model->addButton(b);
+		QCOMPARE(model->count(), 2);
+
+		dock.moveLeft("b");
+		QCOMPARE(model->buttons()[0].id, QString("b"));
+
+		dock.moveRight("b");
+		QCOMPARE(model->buttons()[1].id, QString("b"));
+
+		dock.removeButton("a");
+		QCOMPARE(model->count(), 1);
+
+		const auto widgets = dock.findChildren<MacroButtonWidget *>();
+		QVERIFY(!widgets.isEmpty());
+		QSignalSpy spy(widgets.first(), &MacroButtonWidget::fireRequested);
+		widgets.first()->click();
+		QCOMPARE(spy.count(), 1);
 	}
 };
 
