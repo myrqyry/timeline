@@ -20,6 +20,7 @@ set(TEST_SOURCES
     ../src/timeline-model.cpp
     ../src/timeline-event-item.cpp
     ../src/timeline-serialization.cpp
+    ../src/macro-button-model.cpp
     # Exclude plugin-main.cpp because it defines obs_module_load/unload which conflicts or isn't needed
 )
 

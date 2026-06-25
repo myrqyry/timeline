@@ -36,6 +36,7 @@ set(PLUGIN_SOURCES
     src/event-editor.cpp
     src/timeline-serialization.cpp
     src/timecode-display.cpp
+    src/macro-button-model.cpp
 )
 
 set(PLUGIN_HEADERS
@@ -50,6 +51,8 @@ set(PLUGIN_HEADERS
     src/headless-timeline.h
     src/timeline-serialization.h
     src/timecode-display.h
+    src/macro-button.h
+    src/macro-button-model.h
 )
 
 # Create library

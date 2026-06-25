@@ -18,6 +18,7 @@
 #include "timeline-scheduler.h"
 #include "timeline-serialization.h"
 #include "macro-button.h"
+#include "macro-button-model.h"
 
 // Mock helpers from mock_frontend.cpp
 extern obs_source_t *g_current_scene;
@@ -576,6 +577,34 @@ private slots:
 		QVERIFY(!b.id.isEmpty());
 		QVERIFY(b.label.isEmpty());
 		QCOMPARE(int(b.type), int(TimelineEventType::SceneSwitch));
+	}
+
+	void testModelAddRemoveMove()
+	{
+		MacroButtonModel m;
+		QSignalSpy spy(&m, &MacroButtonModel::modelChanged);
+
+		for (int i = 0; i < 3; ++i) {
+			MacroButton b;
+			b.id = QString("id-%1").arg(i);
+			b.label = QString("B%1").arg(i);
+			b.sourceName = "A";
+			b.type = TimelineEventType::SceneSwitch;
+			m.addButton(b);
+		}
+		QCOMPARE(m.count(), 3);
+		QCOMPARE(spy.count(), 3);
+
+		QVERIFY(m.moveButton("id-1", 0));
+		QCOMPARE(m.buttons()[0].id, QString("id-1"));
+		QCOMPARE(m.buttons()[1].id, QString("id-0"));
+
+		QVERIFY(m.moveButton("id-0", 999));
+		QCOMPARE(m.buttons().last().id, QString("id-0"));
+
+		QVERIFY(m.removeButton("id-2"));
+		QCOMPARE(m.count(), 2);
+		QVERIFY(!m.removeButton("nope"));
 	}
 };
 
