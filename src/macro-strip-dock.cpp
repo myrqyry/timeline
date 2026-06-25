@@ -31,13 +31,14 @@ MacroStripDock::~MacroStripDock() = default;
 void MacroStripDock::setupUi()
 {
 	setObjectName("timeline-macro-strip-dock");
+	setFixedHeight(MacroButtonWidget::kStripButtonSize);
 	auto *root = new QHBoxLayout(this);
-	root->setContentsMargins(6, 4, 6, 4);
+	root->setContentsMargins(6, 0, 6, 0);
 	root->setSpacing(6);
 
 	m_addButton = new QPushButton(this);
 	m_addButton->setText("+");
-	m_addButton->setFixedSize(28, 28);
+	m_addButton->setFixedSize(MacroButtonWidget::kStripButtonSize, MacroButtonWidget::kStripButtonSize);
 	connect(m_addButton, &QPushButton::clicked, this, &MacroStripDock::addButtonAtEnd);
 	root->addWidget(m_addButton);
 
@@ -45,7 +46,7 @@ void MacroStripDock::setupUi()
 	m_scrollArea->setWidgetResizable(true);
 	m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-	m_scrollArea->setFixedHeight(MacroButtonWidget::kStripButtonSize + 8);
+	m_scrollArea->setFixedHeight(MacroButtonWidget::kStripButtonSize);
 
 	m_buttonContainer = new QWidget(m_scrollArea);
 	m_buttonLayout = new QHBoxLayout(m_buttonContainer);
