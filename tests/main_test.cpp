@@ -35,6 +35,18 @@ public:
 	using TimelineEventItem::mouseReleaseEvent;
 };
 
+// Friend of MacroButtonWidget so tests can drive protected mouse handlers.
+class TestTimelineMacroButtonAccessor {
+public:
+	static void clickBubble(MacroButtonWidget &w)
+	{
+		QMouseEvent press(QEvent::MouseButtonPress, QPointF(15, 26), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+		w.mousePressEvent(&press);
+		w.mouseReleaseEvent(&release);
+	}
+};
+
 // Helper to set QT_QPA_PLATFORM to offscreen
 void setOffscreenPlatform()
 {
@@ -663,9 +675,9 @@ private slots:
 		b.type = TimelineEventType::SceneSwitch;
 		b.sourceName = "Scene B";
 
-		MacroButtonWidget w(b, MacroButtonWidget::stripSidePxForCompact(false));
+		MacroButtonWidget w(b);
 		QSignalSpy spy(&w, &MacroButtonWidget::fireRequested);
-		w.click();
+		TestTimelineMacroButtonAccessor::clickBubble(w);
 		QCOMPARE(spy.count(), 1);
 		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
 	}
@@ -701,7 +713,7 @@ private slots:
 		const auto widgets = dock.findChildren<MacroButtonWidget *>();
 		QVERIFY(!widgets.isEmpty());
 		QSignalSpy spy(widgets.first(), &MacroButtonWidget::fireRequested);
-		widgets.first()->click();
+		TestTimelineMacroButtonAccessor::clickBubble(*widgets.first());
 		QCOMPARE(spy.count(), 1);
 	}
 
@@ -718,41 +730,14 @@ private slots:
 		QCOMPARE(dock.buttonModel()->buttons()[0].id, QString("a"));
 	}
 
-	void testStripResizesWithCompactMode()
+	void testStripDockHeightMatchesToolbar()
 	{
 		MacroStripDock dock;
-		MacroButton b;
-		b.id = "x";
-		b.type = TimelineEventType::SceneSwitch;
-		dock.buttonModel()->addButton(b);
-
-		const int normalHeight = MacroButtonWidget::stripHeightForCompact(false);
-		const int compactHeight = MacroButtonWidget::stripHeightForCompact(true);
-
-		dock.setCompactMode(false);
-		QCOMPARE(dock.height(), normalHeight);
-
-		dock.setCompactMode(true);
-		QCOMPARE(dock.height(), compactHeight);
-
-		// Process deleteLater queue from the rebuild so findChildren returns the new widgets.
-		QCoreApplication::sendPostedEvents();
-		QCoreApplication::processEvents();
-		const auto widgets = dock.findChildren<MacroButtonWidget *>();
-		QVERIFY(!widgets.isEmpty());
-		MacroButtonWidget *current = nullptr;
-		for (auto *w : widgets) {
-			if (w->minimumWidth() == compactHeight) {
-				current = w;
-				break;
-			}
-		}
-		QVERIFY(current);
-		QCOMPARE(current->minimumHeight(), compactHeight);
-		QCOMPARE(current->maximumWidth(), compactHeight);
-		QCOMPARE(current->maximumHeight(), compactHeight);
+		// The strip dock height should match the timeline dock's toolbar row
+		// (controlsLayout uses 2 px margins around 28 px secondary buttons → 32 px).
+		QCOMPARE(dock.height(), 32);
 	}
-};
+ };
 
 int main(int argc, char *argv[])
 {

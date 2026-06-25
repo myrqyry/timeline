@@ -26,10 +26,6 @@ public:
 	// Public accessor for the model so tests and other widgets can drive it.
 	MacroButtonModel *buttonModel() { return &m_model; }
 
-	// Reflect the timeline dock's compact-mode setting so the strip's button sizes
-	// stay in sync with the toolbar buttons (28 px normally, 24 px in compact).
-	void setCompactMode(bool compact);
-
 	// Persistence entry points used by the module-level save/load callbacks
 	QJsonObject toJson() const;
 	QString toJsonText() const
@@ -67,10 +63,6 @@ private:
 
 	MacroButtonModel m_model;
 	QPointer<ObsExecutor> m_executor;
-
-	// Mirrors the timeline dock's compact-mode setting so strip buttons stay in
-	// sync with the timeline toolbar (Add Event, Snap, Loop, etc.).
-	bool m_compactMode = false;
 
 	void setupUi();
 	void connectModel();

@@ -31,15 +31,17 @@ MacroStripDock::~MacroStripDock() = default;
 void MacroStripDock::setupUi()
 {
 	setObjectName("timeline-macro-strip-dock");
-	const int side = MacroButtonWidget::stripSidePxForCompact(m_compactMode);
-	setFixedHeight(side);
+	// Match the timeline dock's toolbar row height (controlsLayout uses 2 px
+	// margins around 28 px secondary buttons → 32 px total).
+	constexpr int kDockHeight = 32;
+	setFixedHeight(kDockHeight);
 	auto *root = new QHBoxLayout(this);
 	root->setContentsMargins(6, 0, 6, 0);
 	root->setSpacing(6);
 
 	m_addButton = new QPushButton(this);
 	m_addButton->setText("+");
-	m_addButton->setFixedSize(side, side);
+	m_addButton->setFixedSize(28, 28);
 	connect(m_addButton, &QPushButton::clicked, this, &MacroStripDock::addButtonAtEnd);
 	root->addWidget(m_addButton);
 
@@ -47,7 +49,7 @@ void MacroStripDock::setupUi()
 	m_scrollArea->setWidgetResizable(true);
 	m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-	m_scrollArea->setFixedHeight(side);
+	m_scrollArea->setFixedHeight(kDockHeight);
 
 	m_buttonContainer = new QWidget(m_scrollArea);
 	m_buttonLayout = new QHBoxLayout(m_buttonContainer);
@@ -76,9 +78,8 @@ void MacroStripDock::rebuildFromModel()
 	}
 
 	const auto buttons = m_model.buttons();
-	const int side = MacroButtonWidget::stripSidePxForCompact(m_compactMode);
 	for (const auto &b : buttons) {
-		auto *w = new MacroButtonWidget(b, side, m_buttonContainer);
+		auto *w = new MacroButtonWidget(b, m_buttonContainer);
 		connect(w, &MacroButtonWidget::fireRequested, this, &MacroStripDock::onButtonFired);
 		w->setContextMenuPolicy(Qt::CustomContextMenu);
 		connect(w, &QWidget::customContextMenuRequested, this, [this, id = b.id](const QPoint &pos) {
@@ -239,20 +240,6 @@ bool MacroStripDock::loadNow()
 		return false;
 	}
 	return fromJson(doc.object(), &err);
-}
-
-void MacroStripDock::setCompactMode(bool compact)
-{
-	if (m_compactMode == compact)
-		return;
-	m_compactMode = compact;
-	const int side = MacroButtonWidget::stripSidePxForCompact(m_compactMode);
-	setFixedHeight(side);
-	if (m_addButton)
-		m_addButton->setFixedSize(side, side);
-	if (m_scrollArea)
-		m_scrollArea->setFixedHeight(side);
-	rebuildFromModel();
 }
 
 void MacroStripDock::onFrontendEvent(enum obs_frontend_event event)
