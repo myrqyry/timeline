@@ -74,14 +74,34 @@ bool obs_frontend_preview_program_mode_active(void) {
 }
 
 bool obs_frontend_add_dock_by_id(const char *id, const char *title, void *dock) {
-    // No-op for test
-    return true;
+	// No-op for test
+	return true;
+}
+
+void obs_frontend_add_save_callback(obs_frontend_save_cb callback, void *private_data)
+{
+	// No-op for test
+}
+
+void obs_frontend_remove_save_callback(obs_frontend_save_cb callback, void *private_data)
+{
+	// No-op for test
+}
+
+void obs_frontend_add_event_callback(obs_frontend_event_cb callback, void *private_data)
+{
+	// No-op for test
+}
+
+void obs_frontend_remove_event_callback(obs_frontend_event_cb callback, void *private_data)
+{
+	// No-op for test
 }
 
 // Mock obs_module_text for test builds (returns the key as-is)
 const char *obs_module_text(const char *text)
 {
-    return text;
+	return text;
 }
 
 } // extern "C"
