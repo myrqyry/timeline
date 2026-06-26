@@ -161,10 +161,9 @@ void TimelineScheduler::onTimerTick()
 			startTime = std::chrono::high_resolution_clock::now();
 			eventStartFired.clear();
 			eventEndFired.clear();
-			emit tick(0.0);
 			emit looped();
 			blog(LOG_DEBUG, "[Timeline] Looped back to start");
-			return;
+			currentTime = 0.0; // Fall through to fire t=0 events on this tick
 		} else {
 			// Stop at end
 			pause();

@@ -114,7 +114,7 @@ void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *privat
 {
 	TimelineDock *dock = static_cast<TimelineDock *>(private_data);
 	if (saving) {
-		dock->save();
+		QMetaObject::invokeMethod(dock, &TimelineDock::save, Qt::BlockingQueuedConnection);
 	}
 }
 
@@ -170,6 +170,10 @@ void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *pr
 					dock->view->viewport()->update();
 				if (dock->timecodeDisplay)
 					dock->timecodeDisplay->update();
+				if (dock->zoomLabel)
+					dock->zoomLabel->update();
+				if (dock->hoverTimeLabel)
+					dock->hoverTimeLabel->update();
 			},
 			Qt::QueuedConnection);
 		break;
@@ -208,8 +212,7 @@ void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *pr
 
 void TimelineDock::onRestartHotkey()
 {
-	scheduler->stop();
-	scheduler->start();
+	scheduler->restart();
 	updatePlayButtonIcon();
 }
 
@@ -262,37 +265,7 @@ void TimelineDock::load()
 			return;
 		}
 
-		loopCheckbox->setChecked(timelineDoc.loop);
-		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
-		snapCheckbox->setChecked(timelineDoc.snap);
-		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
-		for (int i = 0; i < snapIntervalCombo->count(); i++) {
-			if (snapIntervalCombo->itemData(i).toDouble() == manualSnapIntervalMs) {
-				snapIntervalCombo->setCurrentIndex(i);
-				break;
-			}
-		}
-		bpmSpinbox->setValue(timelineDoc.bpm);
-		gridTypeCombo->setCurrentIndex(timelineDoc.gridToBpm ? 1 : 0);
-		noteLengthBeats = timelineDoc.noteLengthBeats;
-		int noteIdx = noteLengthCombo->findData(noteLengthBeats);
-		if (noteIdx >= 0)
-			noteLengthCombo->setCurrentIndex(noteIdx);
-		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
-		alternatingBg = timelineDoc.alternatingBg;
-		alternatingBgCheckbox->blockSignals(true);
-		alternatingBgCheckbox->setChecked(alternatingBg);
-		alternatingBgCheckbox->blockSignals(false);
-		compactMode = timelineDoc.compactMode;
-		compactModeCheckbox->blockSignals(true);
-		compactModeCheckbox->setChecked(compactMode);
-		compactModeCheckbox->blockSignals(false);
-		showEndTimeOnDock = timelineDoc.showEndTimeOnDock;
-		showEndTimeCheckbox->blockSignals(true);
-		showEndTimeCheckbox->setChecked(showEndTimeOnDock);
-		showEndTimeCheckbox->blockSignals(false);
-		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
-		scheduler->seek(timelineDoc.currentTimeMs);
+		applyTimelineDocument(timelineDoc);
 		model->blockSignals(false);
 		loadingTimeline = false;
 
@@ -321,6 +294,41 @@ void TimelineDock::load()
 		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 	}
 	bfree(configPath);
+}
+
+void TimelineDock::applyTimelineDocument(const TimelineDocument &doc)
+{
+	loopCheckbox->setChecked(doc.loop);
+	endTimeSpinbox->setValue(doc.endTimeSeconds);
+	snapCheckbox->setChecked(doc.snap);
+	manualSnapIntervalMs = doc.snapIntervalMs;
+	for (int i = 0; i < snapIntervalCombo->count(); i++) {
+		if (snapIntervalCombo->itemData(i).toDouble() == manualSnapIntervalMs) {
+			snapIntervalCombo->setCurrentIndex(i);
+			break;
+		}
+	}
+	bpmSpinbox->setValue(doc.bpm);
+	gridTypeCombo->setCurrentIndex(doc.gridToBpm ? 1 : 0);
+	noteLengthBeats = doc.noteLengthBeats;
+	int noteIdx = noteLengthCombo->findData(noteLengthBeats);
+	if (noteIdx >= 0)
+		noteLengthCombo->setCurrentIndex(noteIdx);
+	centerControlsCheckbox->setChecked(doc.centerControls);
+	alternatingBg = doc.alternatingBg;
+	alternatingBgCheckbox->blockSignals(true);
+	alternatingBgCheckbox->setChecked(alternatingBg);
+	alternatingBgCheckbox->blockSignals(false);
+	compactMode = doc.compactMode;
+	compactModeCheckbox->blockSignals(true);
+	compactModeCheckbox->setChecked(compactMode);
+	compactModeCheckbox->blockSignals(false);
+	showEndTimeOnDock = doc.showEndTimeOnDock;
+	showEndTimeCheckbox->blockSignals(true);
+	showEndTimeCheckbox->setChecked(showEndTimeOnDock);
+	showEndTimeCheckbox->blockSignals(false);
+	pixelsPerSecond = doc.zoomPixelsPerSecond;
+	scheduler->seek(doc.currentTimeMs);
 }
 
 void TimelineDock::setupUi()
@@ -649,6 +657,11 @@ void TimelineDock::setupUi()
 	dragGuideItem->setZValue(110);
 	dragGuideItem->setVisible(false);
 
+	// Playhead grab handle (pixmap-based, for actual mouse interaction)
+	playheadGrabHandle = scene->addPixmap(QPixmap());
+	playheadGrabHandle->setZValue(101);
+	playheadGrabHandle->setCursor(Qt::SizeHorCursor);
+
 	// Playhead handle (triangle glyph) for easier grabbing
 	playheadHandle = scene->addSimpleText(QString::fromUtf8("\xE2\x96\xBC")); // ▼ down triangle
 	playheadHandle->setBrush(QBrush(playheadColor));
@@ -965,6 +978,13 @@ void TimelineDock::drawRuler()
 	if (!scene)
 		return;
 
+	double sceneWidth = scene->sceneRect().width();
+	if (cachedRulerPxPerSec == pixelsPerSecond && cachedRulerSceneWidth == sceneWidth)
+		return;
+
+	cachedRulerPxPerSec = pixelsPerSecond;
+	cachedRulerSceneWidth = sceneWidth;
+
 	clearRuler();
 
 	double durationSec = scene->sceneRect().width() / pixelsPerSecond;
@@ -1181,9 +1201,16 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			return false;
 		}
 
-		if (event->type() == QEvent::MouseButtonRelease && (draggingPlayhead || draggingEndMarker)) {
+		if (event->type() == QEvent::MouseButtonRelease) {
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			if (mouseEvent->button() == Qt::LeftButton) {
+				if (isDragging) {
+					isDragging = false;
+					if (dragGuideItem)
+						dragGuideItem->setVisible(false);
+					if (rebuildScheduled)
+						rebuildEventItems();
+				}
 				if (draggingPlayhead) {
 					draggingPlayhead = false;
 					seekToSceneX(view->mapToScene(mouseEvent->pos()).x());
@@ -1359,37 +1386,7 @@ void TimelineDock::onLoadClicked()
 			return;
 		}
 
-		loopCheckbox->setChecked(timelineDoc.loop);
-		endTimeSpinbox->setValue(timelineDoc.endTimeSeconds);
-		snapCheckbox->setChecked(timelineDoc.snap);
-		manualSnapIntervalMs = timelineDoc.snapIntervalMs;
-		for (int i = 0; i < snapIntervalCombo->count(); i++) {
-			if (snapIntervalCombo->itemData(i).toDouble() == manualSnapIntervalMs) {
-				snapIntervalCombo->setCurrentIndex(i);
-				break;
-			}
-		}
-		bpmSpinbox->setValue(timelineDoc.bpm);
-		gridTypeCombo->setCurrentIndex(timelineDoc.gridToBpm ? 1 : 0);
-		noteLengthBeats = timelineDoc.noteLengthBeats;
-		int noteIdx = noteLengthCombo->findData(noteLengthBeats);
-		if (noteIdx >= 0)
-			noteLengthCombo->setCurrentIndex(noteIdx);
-		centerControlsCheckbox->setChecked(timelineDoc.centerControls);
-		alternatingBg = timelineDoc.alternatingBg;
-		alternatingBgCheckbox->blockSignals(true);
-		alternatingBgCheckbox->setChecked(alternatingBg);
-		alternatingBgCheckbox->blockSignals(false);
-		compactMode = timelineDoc.compactMode;
-		compactModeCheckbox->blockSignals(true);
-		compactModeCheckbox->setChecked(compactMode);
-		compactModeCheckbox->blockSignals(false);
-		showEndTimeOnDock = timelineDoc.showEndTimeOnDock;
-		showEndTimeCheckbox->blockSignals(true);
-		showEndTimeCheckbox->setChecked(showEndTimeOnDock);
-		showEndTimeCheckbox->blockSignals(false);
-		pixelsPerSecond = timelineDoc.zoomPixelsPerSecond;
-		scheduler->seek(timelineDoc.currentTimeMs);
+		applyTimelineDocument(timelineDoc);
 		model->blockSignals(false);
 		loadingTimeline = false;
 
@@ -1504,6 +1501,10 @@ void TimelineDock::changeEvent(QEvent *event)
 			view->viewport()->update();
 		if (timecodeDisplay)
 			timecodeDisplay->update();
+		if (zoomLabel)
+			zoomLabel->update();
+		if (hoverTimeLabel)
+			hoverTimeLabel->update();
 		update();
 	}
 }
@@ -1603,6 +1604,19 @@ void TimelineDock::drawGrid()
 	if (!scene || !view)
 		return;
 
+	double sceneHeight = view->viewport()->height();
+	if (cachedGridPxPerSec == pixelsPerSecond && cachedGridBpm == bpm &&
+	    cachedGridNoteBeats == noteLengthBeats && cachedGridToBpm == gridToBpm &&
+	    cachedAlternatingBg == alternatingBg && cachedGridSceneHeight == sceneHeight)
+		return;
+
+	cachedGridPxPerSec = pixelsPerSecond;
+	cachedGridBpm = bpm;
+	cachedGridNoteBeats = noteLengthBeats;
+	cachedGridToBpm = gridToBpm;
+	cachedAlternatingBg = alternatingBg;
+	cachedGridSceneHeight = sceneHeight;
+
 	// Clear existing grid
 	for (QGraphicsItem *item : gridItems) {
 		scene->removeItem(item);
@@ -1611,7 +1625,6 @@ void TimelineDock::drawGrid()
 	gridItems.clear();
 
 	double sceneWidth = scene->width();
-	double sceneHeight = view->viewport()->height();
 
 	double stepPx;
 
@@ -1708,13 +1721,6 @@ void TimelineDock::updatePlayhead(double timeMs)
 		playheadHandle->setPos(x - br.width() / 2.0, -br.height() + 2);
 	}
 
-	// Visual grab handle at top using Arrow Down
-	if (!playheadGrabHandle) {
-		playheadGrabHandle = scene->addPixmap(QPixmap());
-		playheadGrabHandle->setZValue(101);
-		playheadGrabHandle->setCursor(Qt::SizeHorCursor);
-	}
-
 	refreshPlayheadHandlePixmap();
 	playheadGrabHandle->setPixmap(playheadHandlePixmap);
 	playheadGrabHandle->setPos(x - 10, 0);
@@ -1763,11 +1769,9 @@ void TimelineDock::onAddEventClicked()
 		return;
 
 	TimelineEvent evt;
-	evt.timeMs = currentTimeMs;
-
 	editor.getUpdatedEvent(evt);
 
-	// New-event time is placement-controlled; the editor time field is disabled here.
+	// Placement always overrides editor time field; the editor keeps it disabled.
 	evt.timeMs = currentTimeMs;
 
 	if (evt.color == QColor(0, 200, 255)) {
@@ -1784,11 +1788,9 @@ void TimelineDock::addEventAtTime(double timeMs)
 		return;
 
 	TimelineEvent evt;
-	evt.timeMs = timeMs;
-
 	editor.getUpdatedEvent(evt);
 
-	// New-event time is placement-controlled; the editor time field is disabled here.
+	// Placement always overrides editor time field; the editor keeps it disabled.
 	evt.timeMs = timeMs;
 
 	if (evt.color == QColor(0, 200, 255)) {

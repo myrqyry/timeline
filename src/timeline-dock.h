@@ -21,6 +21,7 @@
 #include "obs-executor.h"
 
 class TimelineEventItem;
+struct TimelineDocument;
 class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
 class TimecodeDisplay;
@@ -84,6 +85,7 @@ private slots:
 private:
 	void setupUi();
 	void setupModeToggle();
+	void applyTimelineDocument(const TimelineDocument &doc);
 	void updatePlayhead(double timeMs);
 	void updateLayout();
 	void drawRuler();
@@ -219,4 +221,14 @@ private:
 	QTimer *debounceSaveTimer = nullptr;
 	bool isDragging = false;
 	QString zoomLabelCache;
+
+	// Cached values for grid/ruler rebuild avoidance
+	double cachedGridPxPerSec = -1.0;
+	double cachedGridBpm = -1.0;
+	double cachedGridNoteBeats = -1.0;
+	double cachedGridSceneHeight = -1.0;
+	bool cachedGridToBpm = false;
+	bool cachedAlternatingBg = false;
+	double cachedRulerPxPerSec = -1.0;
+	double cachedRulerSceneWidth = -1.0;
 };
