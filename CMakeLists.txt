@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(timeline VERSION 1.0.0)
+project(timeline VERSION 0.1.0)
 
 # OBS expects plugin .so without 'lib' prefix
 set(CMAKE_SHARED_LIBRARY_PREFIX "")

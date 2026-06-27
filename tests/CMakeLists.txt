@@ -43,4 +43,4 @@ target_link_libraries(run_tests PRIVATE
     ${OBS_LIBRARIES}
 )
 
-add_test(NAME leak_test COMMAND run_tests)
+add_test(NAME timeline_tests COMMAND run_tests)
