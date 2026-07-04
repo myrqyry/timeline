@@ -114,7 +114,7 @@ void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *privat
 {
 	TimelineDock *dock = static_cast<TimelineDock *>(private_data);
 	if (saving) {
-		QMetaObject::invokeMethod(dock, &TimelineDock::save, Qt::BlockingQueuedConnection);
+		QMetaObject::invokeMethod(dock, &TimelineDock::save, Qt::QueuedConnection);
 	}
 }
 
@@ -1188,7 +1188,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				labelX = view->viewport()->width() - size.width() - 4;
 			hoverTimeLabel->setGeometry(labelX, labelY, size.width(), size.height());
 			hoverTimeLabel->raise();
-			return false;
+			return true;
 		}
 
 		if (event->type() == QEvent::Enter) {
@@ -1204,6 +1204,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		if (event->type() == QEvent::MouseButtonRelease) {
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			if (mouseEvent->button() == Qt::LeftButton) {
+				bool consumed = draggingPlayhead || draggingEndMarker || isDragging;
 				if (isDragging) {
 					isDragging = false;
 					if (dragGuideItem)
@@ -1220,7 +1221,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				}
 				view->viewport()->unsetCursor();
 				debounceSaveTimer->start();
-				return true;
+				return consumed;
 			}
 		}
 	}
@@ -1859,11 +1860,20 @@ void TimelineDock::rebuildEventItems()
 	QSet<QString> currentIds;
 	currentIds.reserve(static_cast<int>(events.size()));
 
+	// Sort by time so stacking lane assignment is correct
+	// even after insertions at arbitrary positions.
+	std::vector<size_t> sortedIdx(events.size());
+	for (size_t i = 0; i < events.size(); i++)
+		sortedIdx[i] = i;
+	std::sort(sortedIdx.begin(), sortedIdx.end(),
+		  [&](size_t a, size_t b) { return events[a].timeMs < events[b].timeMs; });
+
 	// Track stacked lanes for events that are close enough to visually overlap.
 	const double STACK_TOLERANCE_MS = 50.0;
 	std::vector<double> stackLaneLastTimes;
 
-	for (size_t i = 0; i < events.size(); i++) {
+	for (size_t ii = 0; ii < events.size(); ii++) {
+		const size_t i = sortedIdx[ii];
 		const auto &evt = events[i];
 		currentIds.insert(evt.id);
 

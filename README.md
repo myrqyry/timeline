@@ -8,8 +8,6 @@
 > tested across OBS versions or distributions. Back up important scene
 > collections before using it in a production stream.
 
-## Linux Preview Timeline Dock]
-
 ## Key Features
 
 ### Visual Timeline

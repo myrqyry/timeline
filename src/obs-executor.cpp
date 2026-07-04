@@ -165,10 +165,7 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 
 		if (!transitionName.isEmpty()) {
 			transition = find_transition(transitionName.toUtf8().constData());
-			if (transition) {
-				oldTransition = obs_frontend_get_current_transition();
-				obs_frontend_set_current_transition(transition);
-			} else {
+			if (!transition) {
 				blog(LOG_WARNING, "[Timeline] ┌─ Transition not found");
 				blog(LOG_WARNING, "[Timeline] └─ Name : %s",
 				     transitionName.toUtf8().constData());
@@ -177,14 +174,19 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 
 		if (obs_frontend_preview_program_mode_active()) {
 			obs_frontend_set_current_preview_scene(scene);
+			if (transition)
+				obs_source_release(transition);
 		} else {
+			if (transition) {
+				oldTransition = obs_frontend_get_current_transition();
+				obs_frontend_set_current_transition(transition);
+			}
 			obs_frontend_set_current_scene(scene);
-		}
-
-		if (transition) {
-			if (oldTransition)
-				obs_frontend_set_current_transition(oldTransition);
-			obs_source_release(transition);
+			if (transition) {
+				if (oldTransition)
+					obs_frontend_set_current_transition(oldTransition);
+				obs_source_release(transition);
+			}
 		}
 		if (oldTransition)
 			obs_source_release(oldTransition);

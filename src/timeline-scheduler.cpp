@@ -117,7 +117,8 @@ void TimelineScheduler::seek(double timeMs)
 					eventEndFired.insert(evt.id);
 				}
 			} else {
-				eventEndFired.insert(evt.id);
+				if (evt.timeMs < timeMs)
+					eventEndFired.insert(evt.id);
 			}
 		}
 	}
