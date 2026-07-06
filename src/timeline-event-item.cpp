@@ -407,39 +407,24 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
 		// Keep Y at stacked position
 		newPos.setY(baseY + (stackOffset * (mItemSize + 4)));
 
-		double minX = -mItemSize / 2.0; // Allow moving slightly left so center can be at 0
-		if (newPos.x() < minX)
-			newPos.setX(minX);
-
-		// Clamp to max time if set
-		if (maxTimeMs >= 0) {
-			double maxX = (maxTimeMs / 1000.0) * pixelsPerSecond - mItemSize / 2.0;
-			if (newPos.x() > maxX)
-				newPos.setX(maxX);
-		}
-
 		// Snap to grid if enabled
 		if (snapEnabled && snapIntervalMs > 0) {
-			// Calculate current time at center
 			double centerX = newPos.x() + mItemSize / 2.0;
 			double timeMs = centerX / pixelsPerSecond * 1000.0;
 
 			double snappedTimeMs = std::round(timeMs / snapIntervalMs) * snapIntervalMs;
 
-			// Convert back to top-left position
 			double snappedCenterX = snappedTimeMs / 1000.0 * pixelsPerSecond;
 			newPos.setX(snappedCenterX - mItemSize / 2.0);
 
-			// Emit drag signals only during actual user drag
 			if (isBeingDragged && !suppressDragSignals) {
 				if (!dragStartedEmitted) {
 					dragStartedEmitted = true;
 					emit dragStarted();
 				}
-				emit dragMoved(snappedTimeMs);
+				emit dragMoved(std::max(0.0, snappedTimeMs));
 			}
 		} else {
-			// Calculate time for current pos
 			double centerX = newPos.x() + mItemSize / 2.0;
 			double timeMs = centerX / pixelsPerSecond * 1000.0;
 			if (timeMs < 0)
@@ -451,6 +436,16 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
 				}
 				emit dragMoved(timeMs);
 			}
+		}
+
+		double minX = -mItemSize / 2.0;
+		if (newPos.x() < minX)
+			newPos.setX(minX);
+
+		if (maxTimeMs >= 0) {
+			double maxX = (maxTimeMs / 1000.0) * pixelsPerSecond - mItemSize / 2.0;
+			if (newPos.x() > maxX)
+				newPos.setX(maxX);
 		}
 
 		return newPos;

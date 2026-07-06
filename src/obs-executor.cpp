@@ -351,7 +351,8 @@ void ObsExecutor::handleHotkey(const TimelineEvent &evt)
 
 	if (search.foundId != OBS_INVALID_HOTKEY_ID) {
 		obs_hotkey_trigger_routed_callback(search.foundId, true);
-		blog(LOG_INFO, "[Timeline] Hotkey → '%s'", hotkeyName.toUtf8().constData());
+		obs_hotkey_trigger_routed_callback(search.foundId, false);
+		blog(LOG_INFO, "[Timeline] Hotkey → '%s' (triggered)", hotkeyName.toUtf8().constData());
 	}
 }
 

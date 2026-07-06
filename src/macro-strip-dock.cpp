@@ -83,6 +83,7 @@ void MacroStripDock::rebuildFromModel()
 		connect(w, &MacroButtonWidget::fireRequested, this, &MacroStripDock::onButtonFired);
 		w->setContextMenuPolicy(Qt::CustomContextMenu);
 		connect(w, &QWidget::customContextMenuRequested, this, [this, id = b.id](const QPoint &pos) {
+			QPointer<MacroStripDock> safeThis(this);
 			QMenu menu;
 			QAction *edit = menu.addAction(QObject::tr("Edit"));
 			QAction *left = menu.addAction(QObject::tr("Move Left"));
@@ -91,16 +92,16 @@ void MacroStripDock::rebuildFromModel()
 			QAction *del = menu.addAction(QObject::tr("Delete"));
 			QAction *picked =
 				menu.exec(static_cast<QWidget *>(QObject::sender())->mapToGlobal(pos));
-			if (!picked)
+			if (!safeThis || !picked)
 				return;
 			if (picked == edit)
-				editButton(id);
+				safeThis->editButton(id);
 			else if (picked == left)
-				moveLeft(id);
+				safeThis->moveLeft(id);
 			else if (picked == right)
-				moveRight(id);
+				safeThis->moveRight(id);
 			else if (picked == del)
-				removeButton(id);
+				safeThis->removeButton(id);
 		});
 		m_buttonLayout->addWidget(w);
 	}

@@ -1215,7 +1215,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					if (dragGuideItem)
 						dragGuideItem->setVisible(false);
 					if (rebuildScheduled)
-						rebuildEventItems();
+						QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
 				}
 				if (draggingPlayhead) {
 					draggingPlayhead = false;
