@@ -23,6 +23,7 @@ Main plugin source code. Contains the dock widget (`TimelineDock`), timeline mod
 ## Deviations from Root
 
 - Qt objects rely on parent-child ownership; prefer `deleteLater()` over direct `delete` for items that may be handling events.
+  - **Exception**: `QSvgRenderer` inside `TimelineEventItem` uses synchronous `delete` — it has no pending Qt events and is exclusively owned, so `deleteLater()` risks use-after-free when items are rapidly rebuilt.
 - Event items are stored in a `QHash<QString, TimelineEventItem *>` keyed by event ID to support fast lookup and multiple events at the same timestamp.
 
 ## Dependencies & Side Effects

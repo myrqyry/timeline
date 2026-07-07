@@ -174,8 +174,16 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 
 		if (obs_frontend_preview_program_mode_active()) {
 			obs_frontend_set_current_preview_scene(scene);
-			if (transition)
+			if (transition) {
+				oldTransition = obs_frontend_get_current_transition();
+				obs_frontend_set_current_transition(transition);
+			}
+			obs_frontend_set_current_scene(scene);
+			if (transition) {
+				if (oldTransition)
+					obs_frontend_set_current_transition(oldTransition);
 				obs_source_release(transition);
+			}
 		} else {
 			if (transition) {
 				oldTransition = obs_frontend_get_current_transition();

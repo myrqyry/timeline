@@ -70,7 +70,6 @@ void TimelineScheduler::restart()
 {
 	playing = false;
 	timer->stop();
-	currentOffsetMs = 0.0;
 	seek(0.0);
 	blog(LOG_INFO, "[Timeline] Playback restarted");
 }

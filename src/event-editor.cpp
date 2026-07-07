@@ -467,7 +467,9 @@ void EventEditor::pickColor()
 
  void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
  {
-     evt.timeMs = timeSpin->value() * 1000.0;
+     if (!isNewMode) {
+         evt.timeMs = timeSpin->value() * 1000.0;
+     }
 
      evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
 

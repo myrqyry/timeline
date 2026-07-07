@@ -1188,7 +1188,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				labelX = view->viewport()->width() - size.width() - 4;
 			hoverTimeLabel->setGeometry(labelX, labelY, size.width(), size.height());
 			hoverTimeLabel->raise();
-			return true;
+			return false; // Let scene process hover events for item hover effects
 		}
 
 		if (event->type() == QEvent::Enter) {
@@ -1405,60 +1405,62 @@ void TimelineDock::onLoadClicked()
 void TimelineDock::updateEndMarker()
 {
 	double endTimeMs = scheduler->getEndTime();
+	bool shouldShow = endTimeMs > 0 && view;
 
-	// Cleanup existing items
-	if (endMarkerItem) {
-		scene->removeItem(endMarkerItem);
-		delete endMarkerItem;
-		endMarkerItem = nullptr;
-	}
-	if (endMarkerGrabHandle) {
-		scene->removeItem(endMarkerGrabHandle);
-		delete endMarkerGrabHandle;
-		endMarkerGrabHandle = nullptr;
-	}
-	if (postEndOverlay) {
-		scene->removeItem(postEndOverlay);
-		delete postEndOverlay;
-		postEndOverlay = nullptr;
+	if (!shouldShow) {
+		if (endMarkerItem)
+			endMarkerItem->setVisible(false);
+		if (endMarkerGrabHandle)
+			endMarkerGrabHandle->setVisible(false);
+		if (postEndOverlay)
+			postEndOverlay->setVisible(false);
+		return;
 	}
 
-	// Only draw if end time is set
-	if (endTimeMs > 0 && view) {
-		double x = (endTimeMs / 1000.0) * pixelsPerSecond;
-		double h = view->viewport()->height();
+	double x = (endTimeMs / 1000.0) * pixelsPerSecond;
+	double h = view->viewport()->height();
+	QColor link = palette().color(QPalette::Link);
+	link.setAlpha(180);
 
-		// End line marker
-		QColor link = palette().color(QPalette::Link);
-		link.setAlpha(180);
+	// End line marker — create once, reposition thereafter
+	if (!endMarkerItem) {
 		QPen endPen(link, 1, Qt::DashLine);
 		endPen.setCosmetic(true);
 		endMarkerItem = scene->addLine(x, 20, x, h, endPen);
 		endMarkerItem->setZValue(99);
-		endMarkerItem->setToolTip(QString("End time: %1 sec").arg(endTimeMs / 1000.0, 0, 'f', 1));
-
-		// Visual grab handle at top using Arrow Down
-		if (!endMarkerGrabHandle) {
-			endMarkerGrabHandle = scene->addPixmap(QPixmap());
-			endMarkerGrabHandle->setZValue(100);
-			endMarkerGrabHandle->setCursor(Qt::SizeHorCursor);
-		}
-
-		refreshEndMarkerHandlePixmap(link);
-		endMarkerGrabHandle->setPixmap(endMarkerHandlePixmap);
-		endMarkerGrabHandle->setPos(x - 10, 0);
-
-		// Dimming overlay for out-of-bounds area
-		QColor dimColor = Qt::black;
-		dimColor.setAlpha(120); // semi-transparent black
-
-		// Large width to cover scrollable area
-		double sceneW = std::max(scene->width(), x + 20000.0);
-		postEndOverlay = scene->addRect(x, 0, sceneW - x, h, Qt::NoPen, QBrush(dimColor));
-		postEndOverlay->setZValue(95); // Above events (0) and grid (-2), below playhead (100)
-		postEndOverlay->setAcceptedMouseButtons(Qt::NoButton); // Don't block clicks to events
-		postEndOverlay->setAcceptHoverEvents(false);
+	} else {
+		endMarkerItem->setLine(x, 20, x, h);
+		QPen endPen(link, 1, Qt::DashLine);
+		endPen.setCosmetic(true);
+		endMarkerItem->setPen(endPen);
 	}
+	endMarkerItem->setToolTip(QString("End time: %1 sec").arg(endTimeMs / 1000.0, 0, 'f', 1));
+	endMarkerItem->setVisible(true);
+
+	// Grab handle — create once
+	if (!endMarkerGrabHandle) {
+		endMarkerGrabHandle = scene->addPixmap(QPixmap());
+		endMarkerGrabHandle->setZValue(100);
+		endMarkerGrabHandle->setCursor(Qt::SizeHorCursor);
+	}
+	refreshEndMarkerHandlePixmap(link);
+	endMarkerGrabHandle->setPixmap(endMarkerHandlePixmap);
+	endMarkerGrabHandle->setPos(x - 10, 0);
+	endMarkerGrabHandle->setVisible(true);
+
+	// Dimming overlay — create once, resize thereafter
+	double sceneW = std::max(scene->width(), x + 20000.0);
+	if (!postEndOverlay) {
+		QColor dimColor = Qt::black;
+		dimColor.setAlpha(120);
+		postEndOverlay = scene->addRect(x, 0, sceneW - x, h, Qt::NoPen, QBrush(dimColor));
+		postEndOverlay->setZValue(95);
+		postEndOverlay->setAcceptedMouseButtons(Qt::NoButton);
+		postEndOverlay->setAcceptHoverEvents(false);
+	} else {
+		postEndOverlay->setRect(x, 0, sceneW - x, h);
+	}
+	postEndOverlay->setVisible(true);
 }
 
 void TimelineDock::keyPressEvent(QKeyEvent *event)
@@ -1625,7 +1627,8 @@ void TimelineDock::drawGrid()
 	}
 	gridItems.clear();
 
-	double sceneWidth = scene->width();
+	double sceneRight = scene->sceneRect().right();
+	double sceneStart = std::max(0.0, scene->sceneRect().left());
 
 	double stepPx;
 
@@ -1653,10 +1656,10 @@ void TimelineDock::drawGrid()
 			// Time mode: 1 second intervals
 			altStepPx = pixelsPerSecond;
 		}
-		for (double x = 0; x < sceneWidth; x += altStepPx * 2.0) {
+		for (double x = sceneStart; x < sceneRight; x += altStepPx * 2.0) {
 			double rectW = altStepPx;
-			if (x + rectW > sceneWidth)
-				rectW = sceneWidth - x;
+			if (x + rectW > sceneRight)
+				rectW = sceneRight - x;
 			if (rectW < 0.1)
 				break;
 			QGraphicsRectItem *rect =
@@ -1671,7 +1674,7 @@ void TimelineDock::drawGrid()
 	gridColor.setAlpha(55);
 	QPen gridPen(gridColor, 1, Qt::DotLine);
 	gridPen.setCosmetic(true);
-	for (double x = 0; x < sceneWidth; x += stepPx) {
+	for (double x = sceneStart; x < sceneRight; x += stepPx) {
 		// Skip x=0 (optional, but usually 0 is implied)
 		if (x < 0.1)
 			continue;
@@ -1896,10 +1899,11 @@ void TimelineDock::rebuildEventItems()
 
 		TimelineEventItem *item = eventItemMap.value(evt.id, nullptr);
 		if (!item) {
-			// Create new item
+			// Create new item (suppress drag signals during setup)
 			item = new TimelineEventItem(evt.timeMs, pixelsPerSecond, evt.type, evt.color,
 						     evt.customIconPath);
 			item->setEventId(evt.id);
+			item->setSuppressDragSignals(true);
 			item->setBorderColor(borderColor);
 			item->setSelectionColor(selectionColor);
 			item->setBackgroundColor(bgColor);
@@ -1907,6 +1911,7 @@ void TimelineDock::rebuildEventItems()
 			item->setCompactMode(compactMode);
 			scene->addItem(item);
 			connectItemSignals(item, evt.id);
+			item->setSuppressDragSignals(false);
 			eventItemMap[evt.id] = item;
 		} else {
 			// Update existing item properties
