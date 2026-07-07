@@ -169,10 +169,16 @@ void EventEditor::buildUi()
      }
 
      // Optional display label
+     showLabelCheck = new QCheckBox(obs_module_text("EventEditor.ShowLabel"), this);
      labelEdit = new QLineEdit(this);
     labelEdit->setPlaceholderText("Optional display label (max 12 chars)");
     labelEdit->setMaxLength(12);
-    layout->addRow(obs_module_text("EventEditor.TimelineLabel"), labelEdit);
+    labelEdit->setEnabled(false);
+    connect(showLabelCheck, &QCheckBox::toggled, labelEdit, &QLineEdit::setEnabled);
+    auto *labelRow = new QHBoxLayout();
+    labelRow->addWidget(showLabelCheck);
+    labelRow->addWidget(labelEdit);
+    layout->addRow(obs_module_text("EventEditor.TimelineLabel"), labelRow);
 
      // Buttons
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -392,7 +398,9 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
      colorButton->setStyleSheet(
          QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
      iconPathEdit->setText(evt.customIconPath);
+     showLabelCheck->setChecked(evt.showLabel);
      labelEdit->setText(evt.label);
+     labelEdit->setEnabled(evt.showLabel);
      durationCheck->setChecked(evt.hasDuration);
      durationSpin->setValue(evt.durationMs / 1000.0);
      timeSpin->setValue(evt.timeMs / 1000.0);
@@ -508,6 +516,7 @@ void EventEditor::pickColor()
 
      evt.color = selectedColor;
      evt.customIconPath = iconPathEdit->text();
+     evt.showLabel = showLabelCheck->isChecked();
      evt.label = labelEdit->text().trimmed();
      evt.hasDuration = durationCheck->isChecked();
      evt.durationMs = durationSpin->value() * 1000.0;

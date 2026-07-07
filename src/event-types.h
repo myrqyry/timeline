@@ -28,6 +28,7 @@ struct TimelineEvent {
     QColor color = QColor(0, 200, 255); // Default cyan color
     QString customIconPath; // Path to custom SVG icon
     QString label; // Optional display label for the event
+    bool showLabel = false; // Whether to display the label on the timeline
 
     // Duration
     bool hasDuration = false;

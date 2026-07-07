@@ -44,6 +44,7 @@ private:
      QDoubleSpinBox *timeSpin = nullptr;
 
     QLineEdit *labelEdit = nullptr;
+    QCheckBox *showLabelCheck = nullptr;
 
     QColor selectedColor;
     double eventTimeMs = 0.0;

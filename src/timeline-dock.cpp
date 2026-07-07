@@ -1986,6 +1986,7 @@ void TimelineDock::rebuildEventItems()
 				.arg(ms / 10, 2, 10, QChar('0'));
 		item->setToolTip(tooltip);
 		item->setEventLabel(evt.label.isEmpty() ? evt.sourceName : evt.label);
+		item->setShowLabel(evt.showLabel);
 	}
 
 	// Remove items no longer in the model

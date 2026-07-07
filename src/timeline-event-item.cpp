@@ -293,7 +293,7 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 	}
 
 	// Draw event label centered above the bubble
-	if (!eventLabel.isEmpty()) {
+	if (showLabel && !eventLabel.isEmpty()) {
 		painter->save();
 		painter->setRenderHint(QPainter::TextAntialiasing);
 

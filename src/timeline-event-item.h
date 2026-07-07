@@ -36,6 +36,8 @@ public:
     // Label
     void setEventLabel(const QString &label);
     QString getEventLabel() const { return eventLabel; }
+    void setShowLabel(bool show) { showLabel = show; update(); }
+    bool getShowLabel() const { return showLabel; }
 
     // Stacking offset
     void setStackOffset(int offset);
@@ -92,6 +94,7 @@ private:
     QString customIconPath;
     QString eventId;
     QString eventLabel;
+    bool showLabel = false;
     TimelineEventType eventType;
     int stackOffset = 0;
     double baseY = 30.0;

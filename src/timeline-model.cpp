@@ -91,6 +91,9 @@ QJsonArray TimelineModel::toJson() const {
         if (!evt.label.isEmpty()) {
             obj["label"] = evt.label;
         }
+        if (evt.showLabel) {
+            obj["showLabel"] = true;
+        }
 
         if (evt.hasDuration) {
             obj["hasDuration"] = true;
@@ -159,6 +162,7 @@ void TimelineModel::fromJson(const QJsonArray &json) {
         if (obj.contains("label")) {
             evt.label = obj["label"].toString();
         }
+        evt.showLabel = obj["showLabel"].toBool(false);
 
         if (obj.contains("hasDuration")) {
             evt.hasDuration = obj["hasDuration"].toBool();
