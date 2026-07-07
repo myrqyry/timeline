@@ -158,7 +158,7 @@ cmake --build build
 cmake --install build
 
 # Run tests
-cd build && ./tests/run_tests -v
+cd build && ./tests/run_tests
 cd build && ./tests/run_tests testSceneSwitch
 
 # Format code
@@ -185,7 +185,7 @@ find src -name "*.cpp" -o -name "*.h" | xargs clang-format -i
 
 ### Versioning
 - Never manually edit version numbers in source files.
-- Edit `version` in `CMakeLists.txt` line 3: `project(timeline VERSION 1.0.0)`.
+- Edit `version` in `CMakeLists.txt` line 3: `project(timeline VERSION 0.1.0)`.
 
 ## Routing
 

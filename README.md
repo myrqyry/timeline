@@ -90,7 +90,7 @@
 - **Multi-Selection**: Box selection and shift-clicking for moving multiple events at once.
 - **Unified Visibility Events**: Merge `Source Show/Hide` and `Filter Enable/Disable` into unified event types with an internal toggle state.
 - **Windows Builds**: Packaged installers and broader platform support.
-- **CI Automated builds across OBS versions.
+- **CI**: Automated builds across OBS versions.
 
 ## Usage
 
@@ -129,7 +129,7 @@ For a comprehensive technical reference covering the plugin's architecture, desi
 cmake -S . -B build
 cmake --build build
 cmake --install build
-cd build && ./tests/run_tests -v
+cd build && ./tests/run_tests
 ```
 
 ## Contributing

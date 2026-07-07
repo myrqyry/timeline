@@ -37,8 +37,8 @@ cmake --install build
 
 Default install layout:
 
-- Binary: `~/.config/obs-studio/plugins/obs-timeline-plugin/bin/64bit`
-- Data: `~/.config/obs-studio/plugins/obs-timeline-plugin/data`
+- Binary: `~/.config/obs-studio/plugins/timeline/bin/64bit`
+- Data: `~/.config/obs-studio/plugins/timeline/data`
 
 ## Quick Validation
 

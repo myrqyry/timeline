@@ -4,9 +4,9 @@ This document provides an overview of the Timeline plugin's architecture, design
 
 ## UI Layer (TimelineDock)
 
-The `TimelineDock` is a `QDockWidget` built using Qt6.
+The `TimelineDock` extends `QWidget` and is registered as an OBS dock via `obs_frontend_add_dock_by_id()` in `plugin-main.cpp`.
 - **QGraphicsView / QGraphicsScene**: The main timeline area where `TimelineEventItem`s are drawn.
-- **Custom Widgets**: `TimecodeDisplay` is used for the playback clock. It exposes `OBSAudioMeter` properties to inherit colors directly from OBS themes.
+- **Custom Widgets**: `TimecodeDisplay` is used for the playback clock. It sets its object name to `"OBSAudioMeter"` so OBS theme stylesheets style it with audio meter colors.
 - **Toolbar**: All primary actions (Play, Stop, Settings, Add Event) are normalized to a 32px height (28px in Compact Mode). Icons are dynamically baked from SVG path data using the `IconaMoon Bold` set and tinted based on the current OBS palette and selection state.
 
 ## Data Layer (TimelineModel & Serialization)
