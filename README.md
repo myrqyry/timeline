@@ -38,6 +38,7 @@
 ### Easy Editing
 - **Double-Click to Edit**: Open a dialog to change event type, target, color, and duration.
 - **Color Coding**: Each event type has a default category color, or customize freely.
+- **Show Label**: Enable a text label on any event bubble via the event editor.
 - **Persistence**: **Import/Export** your full timeline to JSON for backup or sharing.
 - **Drag & Drop**: Freely move events on the timeline (with optional snap).
 - **Keyboard Shortcuts**:
@@ -50,6 +51,8 @@
 ### Macro Controls
 - Reusable **macro buttons** that can be triggered from the timeline or docked separately.
 - Macros are saved as JSON alongside the timeline data.
+
+![Timeline dock screenshot](Screenshot.png)
 
 ## Installation
 
