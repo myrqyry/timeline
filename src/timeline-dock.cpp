@@ -1936,6 +1936,7 @@ void TimelineDock::rebuildEventItems()
 			item->setBackgroundColor(bgColor);
 			item->setLabelColors(labelText, labelBg);
 			item->setCompactMode(compactMode);
+			item->setMaxTime(scheduler ? scheduler->getEndTime() : -1.0);
 			scene->addItem(item);
 			connectItemSignals(item, evt.id);
 			item->setSuppressDragSignals(false);
@@ -1945,6 +1946,7 @@ void TimelineDock::rebuildEventItems()
 			item->setSuppressDragSignals(true);
 			item->setPixelsPerSecond(pixelsPerSecond);
 			item->setTimeMs(evt.timeMs);
+			item->setMaxTime(scheduler ? scheduler->getEndTime() : -1.0);
 			item->setSuppressDragSignals(false);
 			item->setEventType(evt.type);
 			item->setEventColor(evt.color);
