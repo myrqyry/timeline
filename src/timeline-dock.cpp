@@ -131,7 +131,7 @@ void TimelineDock::hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *h
 	if (!pressed)
 		return;
 	TimelineDock *dock = static_cast<TimelineDock *>(data);
-	QMetaObject::invokeMethod(dock, "onPlayClicked", Qt::QueuedConnection);
+	QMetaObject::invokeMethod(dock, &TimelineDock::onPlayClicked, Qt::QueuedConnection);
 }
 
 void TimelineDock::hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
@@ -139,7 +139,7 @@ void TimelineDock::hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey
 	if (!pressed)
 		return;
 	TimelineDock *dock = static_cast<TimelineDock *>(data);
-	QMetaObject::invokeMethod(dock, "onStopClicked", Qt::QueuedConnection);
+	QMetaObject::invokeMethod(dock, &TimelineDock::onStopClicked, Qt::QueuedConnection);
 }
 
 void TimelineDock::hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
@@ -147,7 +147,7 @@ void TimelineDock::hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hot
 	if (!pressed)
 		return;
 	TimelineDock *dock = static_cast<TimelineDock *>(data);
-	QMetaObject::invokeMethod(dock, "onRestartHotkey", Qt::QueuedConnection);
+	QMetaObject::invokeMethod(dock, &TimelineDock::onRestartHotkey, Qt::QueuedConnection);
 }
 
 void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *private_data)
@@ -243,6 +243,11 @@ void TimelineDock::save()
 
 void TimelineDock::load()
 {
+	// Cancel any pending or in-flight saves from a previous session so
+	// a queued saveCallback cannot fire over freshly-loaded state.
+	if (debounceSaveTimer)
+		debounceSaveTimer->stop();
+
 	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline.json");
 	if (!configPath)
 		return;
@@ -1764,9 +1769,22 @@ void TimelineDock::refreshEndMarkerHandlePixmap(const QColor &color)
 	sel.render(&p);
 }
 
+double TimelineDock::snapTimeMs(double timeMs) const
+{
+	if (!snapEnabled)
+		return timeMs;
+	const double interval = getSnapIntervalMs();
+	if (interval <= 0.0)
+		return timeMs;
+	return std::round(timeMs / interval) * interval;
+}
+
 void TimelineDock::onAddEventClicked()
 {
-	const double currentTimeMs = scheduler ? scheduler->getCurrentTime() : 0.0;
+	double currentTimeMs = scheduler ? scheduler->getCurrentTime() : 0.0;
+	currentTimeMs = snapTimeMs(currentTimeMs);
+	if (currentTimeMs < 0.0)
+		currentTimeMs = 0.0;
 
 	EventEditor editor(currentTimeMs, this);
 	if (editor.exec() != QDialog::Accepted)
@@ -1787,7 +1805,11 @@ void TimelineDock::onAddEventClicked()
 
 void TimelineDock::addEventAtTime(double timeMs)
 {
-	EventEditor editor(timeMs, this);
+	double snapped = snapTimeMs(timeMs);
+	if (snapped < 0.0)
+		snapped = 0.0;
+
+	EventEditor editor(snapped, this);
 	if (editor.exec() != QDialog::Accepted)
 		return;
 
@@ -1795,7 +1817,7 @@ void TimelineDock::addEventAtTime(double timeMs)
 	editor.getUpdatedEvent(evt);
 
 	// Placement always overrides editor time field; the editor keeps it disabled.
-	evt.timeMs = timeMs;
+	evt.timeMs = snapped;
 
 	if (evt.color == QColor(0, 200, 255)) {
 		evt.color = ThemeIcons::getDefaultColor(evt.type);
@@ -1872,7 +1894,12 @@ void TimelineDock::rebuildEventItems()
 		  [&](size_t a, size_t b) { return events[a].timeMs < events[b].timeMs; });
 
 	// Track stacked lanes for events that are close enough to visually overlap.
+	// The lane is considered occupied until the item's right edge has cleared
+	// (event time + item width in ms), not just the event's start time.
 	const double STACK_TOLERANCE_MS = 50.0;
+	const double itemWidthMs = pixelsPerSecond > 0.0
+					 ? (TimelineEventItem::COMPACT_SIZE / pixelsPerSecond) * 1000.0 + 4.0
+					 : STACK_TOLERANCE_MS;
 	std::vector<double> stackLaneLastTimes;
 
 	for (size_t ii = 0; ii < events.size(); ii++) {
@@ -1886,9 +1913,9 @@ void TimelineDock::rebuildEventItems()
 				break;
 		}
 		if (stackIndex == static_cast<int>(stackLaneLastTimes.size())) {
-			stackLaneLastTimes.push_back(evt.timeMs);
+			stackLaneLastTimes.push_back(evt.timeMs + itemWidthMs);
 		} else {
-			stackLaneLastTimes[stackIndex] = evt.timeMs;
+			stackLaneLastTimes[stackIndex] = evt.timeMs + itemWidthMs;
 		}
 
 		QColor borderColor = palette().color(QPalette::Text);

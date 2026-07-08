@@ -53,5 +53,5 @@ private:
     bool looping = false;
     QSet<QString> eventStartFired;
     QSet<QString> eventEndFired;
-    int timerIntervalMs = 16; // ~60 FPS
+	int timerIntervalMs = 8; // ~125 Hz; finer than 60 FPS for tight 32nd-note BPM timing
 };

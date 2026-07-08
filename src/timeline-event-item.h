@@ -16,6 +16,10 @@ public:
     TimelineEventItem(double timeMs, double pixelsPerSecond, TimelineEventType type,
                       QColor color = QColor(0, 200, 255), const QString &customIconPath = QString(), QGraphicsItem *parent = nullptr);
 
+    // Item dimensions for stacking calculation
+    static constexpr double ITEM_SIZE = 32.0;
+    static constexpr double COMPACT_SIZE = 22.0;
+
     // Limits
     void setMaxTime(double maxTimeMs);
     void setPixelsPerSecond(double pxPerSec);
@@ -88,21 +92,19 @@ protected:
 	QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
-    double pixelsPerSecond;
-    double maxTimeMs = -1.0; // -1 = unlimited
-    QColor eventColor;
-    QString customIconPath;
-    QString eventId;
-    QString eventLabel;
-    bool showLabel = false;
-    TimelineEventType eventType;
-    int stackOffset = 0;
-    double baseY = 30.0;
-    static constexpr double ITEM_SIZE = 32.0;
-    static constexpr double COMPACT_SIZE = 22.0;
-    double mItemSize = ITEM_SIZE;
-    bool compactMode = false;
-    
+	double pixelsPerSecond;
+	double maxTimeMs = -1.0; // -1 = unlimited
+	QColor eventColor;
+	QString customIconPath;
+	QString eventId;
+	QString eventLabel;
+	bool showLabel = false;
+	TimelineEventType eventType;
+	int stackOffset = 0;
+	double baseY = 30.0;
+	double mItemSize = ITEM_SIZE;
+	bool compactMode = false;
+
     // Snap settings
     bool snapEnabled = false;
     double snapIntervalMs = 1000.0; // Default 1 second

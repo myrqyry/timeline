@@ -103,6 +103,7 @@ private:
 	void nudgeSelectedEvents(double deltaMs);
 	void updateControlsLayout();
 	double getSnapIntervalMs() const;
+	double snapTimeMs(double timeMs) const;
 	void applySnapIntervalToItems();
 	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
 	void updateMoonButtonIcon(QAbstractButton *btn, const char *inner, int size = 24,
