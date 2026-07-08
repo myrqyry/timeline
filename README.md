@@ -104,7 +104,7 @@ editing.
 
 **Prerequisites:**
 
-- OBS Studio built from source (with development headers)
+- OBS Studio development packages (`libobs-dev`)
 - CMake 3.16 or newer
 - Qt6 development packages (`qt6-base-dev` on Debian/Ubuntu)
 - A C++17 toolchain (`build-essential` on Debian/Ubuntu)

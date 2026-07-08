@@ -33,12 +33,12 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "com.example.plugintemplate-for-obs"
+            "bundleId": "com.mqr.timeline-obs-plugin"
         }
     },
     "name": "timeline",
     "displayName": "Timeline for OBS",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "author": "MQR",
     "website": "",
     "email": ""
