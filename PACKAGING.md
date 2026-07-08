@@ -1,14 +1,15 @@
 # OBS Timeline Plugin Packaging
 
-This document describes how to build and package `obs-timeline-plugin` for local installation in OBS.
+This document describes how to build and package the **Timeline for OBS**
+plugin (project name: `timeline`) for local installation in OBS Studio.
 
 ## Prerequisites
 
 - CMake 3.16+
 - C++17 toolchain
 - Qt6 (`Core`, `Gui`, `Widgets`, `Svg`)
-- `libobs` development headers/libraries
-- (Optional) `obs-websocket-api.h` for websocket vendor support
+- `libobs` development headers/libraries (via `pkg-config`)
+- (Optional) `obs-websocket-api.h` for WebSocket vendor support
 
 ## Configure
 
@@ -18,10 +19,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 Optional flags:
 
-- `-DENABLE_OBS_WEBSOCKET_VENDOR=ON|OFF`
-- `-DOBS_TIMELINE_PLUGIN_ROOT=/path/to/plugins/obs-timeline-plugin`
-- `-DOBS_PLUGIN_DESTINATION=/custom/bin/64bit`
-- `-DOBS_DATA_DESTINATION=/custom/data`
+- `-DENABLE_OBS_WEBSOCKET_VENDOR=ON|OFF` — toggle WebSocket vendor
+  support (auto-detected when OFF).
+- `-DTIMELINE_PLUGIN_ROOT=/path/to/install/root` — override the
+  install location.
+- `-DOBS_PLUGIN_DESTINATION=/custom/bin/64bit` — override the binary
+  destination.
+- `-DOBS_DATA_DESTINATION=/custom/data` — override the data
+  destination.
 
 ## Build
 
@@ -35,14 +40,17 @@ cmake --build build
 cmake --install build
 ```
 
-Default install layout:
+Default install layout (Linux):
 
-- Binary: `~/.config/obs-studio/plugins/timeline/bin/64bit`
-- Data: `~/.config/obs-studio/plugins/timeline/data`
+- Binary: `~/.config/obs-studio/plugins/timeline/bin/64bit/timeline.so`
+- Data: `~/.config/obs-studio/plugins/timeline/data/`
 
 ## Quick Validation
 
 1. Launch OBS.
-2. Open `View > Docks > Timeline`.
+2. Open **View > Docks > Timeline** (and optionally **Macro Strip**).
 3. Load one of the example timeline JSON files from `examples/`.
 4. Verify playback controls and event execution.
+5. Stop OBS, then verify the file
+   `~/.config/obs-studio/plugins/timeline/timeline.json` contains
+   your saved events.
