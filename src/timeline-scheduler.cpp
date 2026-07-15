@@ -110,14 +110,13 @@ void TimelineScheduler::seek(double timeMs)
 			if (evt.timeMs < timeMs) {
 				eventStartFired.insert(evt.id);
 			}
+			// Only duration events have an "end" to track —
+			// instant events never emit eventEnded.
 			if (evt.hasDuration && evt.durationMs > 0) {
 				const double endMs = evt.timeMs + evt.durationMs;
 				if (endMs < timeMs) {
 					eventEndFired.insert(evt.id);
 				}
-			} else {
-				if (evt.timeMs < timeMs)
-					eventEndFired.insert(evt.id);
 			}
 		}
 	}
@@ -152,6 +151,7 @@ void TimelineScheduler::setLooping(bool loop)
 void TimelineScheduler::onTimerTick()
 {
 	double currentTime = getCurrentTime();
+	bool justLooped = false;
 
 	// Check if we've reached the end time
 	if (endTimeMs > 0 && currentTime >= endTimeMs) {
@@ -161,9 +161,9 @@ void TimelineScheduler::onTimerTick()
 			startTime = std::chrono::high_resolution_clock::now();
 			eventStartFired.clear();
 			eventEndFired.clear();
-			emit looped();
+			currentTime = 0.0;
+			justLooped = true;
 			blog(LOG_DEBUG, "[Timeline] Looped back to start");
-			currentTime = 0.0; // Fall through to fire t=0 events on this tick
 		} else {
 			// Stop at end
 			pause();
@@ -174,6 +174,10 @@ void TimelineScheduler::onTimerTick()
 	}
 
 	emit tick(currentTime);
+
+	// Emit looped after tick so UI sees t=0 before the loop signal
+	if (justLooped)
+		emit looped();
 
 	if (!model)
 		return;

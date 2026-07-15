@@ -161,7 +161,6 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 		// Check for specific transition
 		QString transitionName = evt.data.toString();
 		obs_source_t *transition = nullptr;
-		obs_source_t *oldTransition = nullptr;
 
 		if (!transitionName.isEmpty()) {
 			transition = find_transition(transitionName.toUtf8().constData());
@@ -172,29 +171,20 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 			}
 		}
 
-		if (obs_frontend_preview_program_mode_active()) {
+		if (obs_frontend_preview_program_mode_active())
 			obs_frontend_set_current_preview_scene(scene);
-			if (transition) {
-				oldTransition = obs_frontend_get_current_transition();
-				obs_frontend_set_current_transition(transition);
-			}
-			obs_frontend_set_current_scene(scene);
-			if (transition) {
-				if (oldTransition)
-					obs_frontend_set_current_transition(oldTransition);
-				obs_source_release(transition);
-			}
-		} else {
-			if (transition) {
-				oldTransition = obs_frontend_get_current_transition();
-				obs_frontend_set_current_transition(transition);
-			}
-			obs_frontend_set_current_scene(scene);
-			if (transition) {
-				if (oldTransition)
-					obs_frontend_set_current_transition(oldTransition);
-				obs_source_release(transition);
-			}
+
+		// Apply requested transition, then restore the original after the switch
+		obs_source_t *oldTransition = nullptr;
+		if (transition) {
+			oldTransition = obs_frontend_get_current_transition();
+			obs_frontend_set_current_transition(transition);
+		}
+		obs_frontend_set_current_scene(scene);
+		if (transition) {
+			if (oldTransition)
+				obs_frontend_set_current_transition(oldTransition);
+			obs_source_release(transition);
 		}
 		if (oldTransition)
 			obs_source_release(oldTransition);

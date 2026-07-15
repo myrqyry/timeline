@@ -130,22 +130,17 @@ void TimelineModel::fromJson(const QJsonArray &json) {
             if (obj.contains("filter")) {
                 evt.filterName = obj["filter"].toString();
             }
-        } else if (obj.contains("target")) {
-            // Legacy migration
-            QString target = obj["target"].toString();
-            // If it looks like Source::Filter and needs splitting based on type? 
-            // Better safe strategy: if it contains :: split it
-            if (target.contains("::") && (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable)) {
-                 QStringList parts = target.split("::");
-                 if (parts.size() >= 2) {
-                     evt.sourceName = parts[0];
-                     evt.filterName = parts[1];
-                 } else {
-                     evt.sourceName = target;
-                 }
-            } else {
-                evt.sourceName = target;
-            }
+		} else if (obj.contains("target")) {
+			// Legacy migration: older files used "target" instead of "source"/"filter".
+			// Filter events stored their value as "Source::FilterName".
+			QString target = obj["target"].toString();
+			if (target.contains("::") && (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable)) {
+				QStringList parts = target.split("::");
+				evt.sourceName = parts[0];
+				evt.filterName = parts[1];
+			} else {
+				evt.sourceName = target;
+			}
         }
         
         if (obj.contains("color")) {
