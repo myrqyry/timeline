@@ -728,7 +728,7 @@ or object document, and that its canonical path is not already active
 ### Tests produce graphics warnings
 
 The test harness creates an offscreen surface and OpenGL context before OBS
-startup, but mock shutdown can still emit graphics-context warnings in some
+startup, but test-harness shutdown can still emit graphics-context warnings in some
 environments (`tests/main_test.cpp:65-87`, `tests/AGENTS.md:27-30`). Treat test
 failures separately from known shutdown warnings.
 

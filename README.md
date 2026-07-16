@@ -224,7 +224,7 @@ build/tests/run_tests testSchedulerStartCursorResets
 
 The test harness sets `QT_QPA_PLATFORM=offscreen` and creates an offscreen
 OpenGL context before OBS startup (`tests/main_test.cpp:50-87`). Existing OBS
-graphics-context warnings during mock shutdown do not imply a test failure;
+graphics-context warnings during test-harness shutdown do not imply a test failure;
 check the QTest result and CTest status separately.
 
 ### Source layout
