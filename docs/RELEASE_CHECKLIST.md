@@ -8,6 +8,12 @@ Use this checklist before tagging a release.
 - [ ] Clean build: `cmake --build build`
 - [ ] Clean install: `cmake --install build`
 
+## Automated Tests
+
+- [ ] Run the test suite: `ctest --test-dir build --output-on-failure`
+- [ ] Run a focused test when diagnosing a regression:
+  `build/tests/run_tests testSceneSwitch`
+
 ## OBS Runtime Smoke
 
 - [ ] OBS launches without plugin crash

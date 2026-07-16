@@ -99,6 +99,8 @@ TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
 TimelineDock::~TimelineDock()
 {
 	blog(LOG_INFO, "[Timeline] Cleaning up dock");
+	isDragging = false;
+	rebuildScheduled = false;
 	save();
 	obs_frontend_remove_event_callback(frontendEventCallback, this);
 	obs_frontend_remove_save_callback(saveCallback, this);
@@ -679,7 +681,15 @@ void TimelineDock::setupUi()
 	playheadHandle->setAcceptedMouseButtons(Qt::NoButton);
 
 	// Keyboard shortcuts
-	new QShortcut(QKeySequence(Qt::Key_Space), this, SLOT(onPlayClicked()));
+	QShortcut *spaceShortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
+	spaceShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+	connect(spaceShortcut, &QShortcut::activated, this, [this]() {
+		QWidget *focusWidget = QApplication::focusWidget();
+		if (focusWidget && (qobject_cast<QLineEdit *>(focusWidget) || qobject_cast<QComboBox *>(focusWidget))) {
+			return;
+		}
+		onPlayClicked();
+	});
 	new QShortcut(QKeySequence(Qt::Key_Delete), this, SLOT(deleteSelectedEvents()));
 	new QShortcut(QKeySequence(Qt::Key_Home), this, [this]() { scheduler->seek(0); });
 	new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this, SLOT(copySelectedEvents()));
@@ -696,6 +706,11 @@ void TimelineDock::updateControlsLayout()
 {
 	if (!controlsLayout || !scene || !view)
 		return;
+
+	struct UpdatesGuard {
+		QWidget *widget;
+		~UpdatesGuard() { widget->setUpdatesEnabled(true); }
+	} updatesGuard{this};
 	setUpdatesEnabled(false); // Prevent flicker from hide/show cycle
 
 	// Clear layout (but don't delete widgets!)
@@ -754,8 +769,6 @@ void TimelineDock::updateControlsLayout()
 	updateDependentControlStates();
 	zoomLabel->show();
 	updateZoomLabelPosition();
-
-	setUpdatesEnabled(true); // Re-enable updates after layout change
 }
 
 void TimelineDock::updateDependentControlStates()
@@ -1037,6 +1050,15 @@ void TimelineDock::drawRuler()
 				int tickH = (j == 5) ? 14 : 8;
 				QGraphicsLineItem *minor = scene->addLine(xm, 20 - tickH, xm, 20, QPen(minorColor, 1));
 				rulerItems.append(minor);
+
+				if (pixelsPerSecond > 100 && j == 5) {
+					QGraphicsSimpleTextItem *minorText =
+						scene->addSimpleText(QString::number(i + 0.5, 'f', 1) + "s");
+					minorText->setPos(xm + 3, 1);
+					minorText->setBrush(QBrush(textColor));
+					minorText->setFont(markerFont);
+					rulerItems.append(minorText);
+				}
 			}
 		}
 	}
@@ -1215,7 +1237,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					if (dragGuideItem)
 						dragGuideItem->setVisible(false);
 					if (rebuildScheduled)
-						QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems, Qt::QueuedConnection);
+						QMetaObject::invokeMethod(this, &TimelineDock::rebuildEventItems,
+									  Qt::QueuedConnection);
 				}
 				if (draggingPlayhead) {
 					draggingPlayhead = false;
@@ -1613,9 +1636,9 @@ void TimelineDock::drawGrid()
 		return;
 
 	double sceneHeight = view->viewport()->height();
-	if (cachedGridPxPerSec == pixelsPerSecond && cachedGridBpm == bpm &&
-	    cachedGridNoteBeats == noteLengthBeats && cachedGridToBpm == gridToBpm &&
-	    cachedAlternatingBg == alternatingBg && cachedGridSceneHeight == sceneHeight)
+	if (cachedGridPxPerSec == pixelsPerSecond && cachedGridBpm == bpm && cachedGridNoteBeats == noteLengthBeats &&
+	    cachedGridToBpm == gridToBpm && cachedAlternatingBg == alternatingBg &&
+	    cachedGridSceneHeight == sceneHeight)
 		return;
 
 	cachedGridPxPerSec = pixelsPerSecond;
@@ -1779,31 +1802,7 @@ double TimelineDock::snapTimeMs(double timeMs) const
 	return std::round(timeMs / interval) * interval;
 }
 
-void TimelineDock::onAddEventClicked()
-{
-	double currentTimeMs = scheduler ? scheduler->getCurrentTime() : 0.0;
-	currentTimeMs = snapTimeMs(currentTimeMs);
-	if (currentTimeMs < 0.0)
-		currentTimeMs = 0.0;
-
-	EventEditor editor(currentTimeMs, this);
-	if (editor.exec() != QDialog::Accepted)
-		return;
-
-	TimelineEvent evt;
-	editor.getUpdatedEvent(evt);
-
-	// Placement always overrides editor time field; the editor keeps it disabled.
-	evt.timeMs = currentTimeMs;
-
-	if (evt.color == QColor(0, 200, 255)) {
-		evt.color = ThemeIcons::getDefaultColor(evt.type);
-	}
-
-	model->addEvent(evt);
-}
-
-void TimelineDock::addEventAtTime(double timeMs)
+void TimelineDock::placeNewEvent(double timeMs)
 {
 	double snapped = snapTimeMs(timeMs);
 	if (snapped < 0.0)
@@ -1816,7 +1815,7 @@ void TimelineDock::addEventAtTime(double timeMs)
 	TimelineEvent evt;
 	editor.getUpdatedEvent(evt);
 
-	// Placement always overrides editor time field; the editor keeps it disabled.
+	// Placement explicitly owns the event time; the editor's time field is disabled.
 	evt.timeMs = snapped;
 
 	if (evt.color == QColor(0, 200, 255)) {
@@ -1824,6 +1823,16 @@ void TimelineDock::addEventAtTime(double timeMs)
 	}
 
 	model->addEvent(evt);
+}
+
+void TimelineDock::onAddEventClicked()
+{
+	placeNewEvent(scheduler ? scheduler->getCurrentTime() : 0.0);
+}
+
+void TimelineDock::addEventAtTime(double timeMs)
+{
+	placeNewEvent(timeMs);
 }
 
 void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &eventId)
@@ -1897,9 +1906,9 @@ void TimelineDock::rebuildEventItems()
 	// The lane is considered occupied until the item's right edge has cleared
 	// (event time + item width in ms), not just the event's start time.
 	const double STACK_TOLERANCE_MS = 50.0;
-	const double itemWidthMs = pixelsPerSecond > 0.0
-					 ? (TimelineEventItem::COMPACT_SIZE / pixelsPerSecond) * 1000.0 + 4.0
-					 : STACK_TOLERANCE_MS;
+	const double itemSize = compactMode ? TimelineEventItem::COMPACT_SIZE : TimelineEventItem::ITEM_SIZE;
+	const double itemWidthMs = pixelsPerSecond > 0.0 ? (itemSize / pixelsPerSecond) * 1000.0 + 4.0
+							 : STACK_TOLERANCE_MS;
 	std::vector<double> stackLaneLastTimes;
 
 	for (size_t ii = 0; ii < events.size(); ii++) {

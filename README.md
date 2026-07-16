@@ -1,256 +1,294 @@
 # Timeline for OBS
 
-A timeline-based sequencer plugin for OBS Studio. Schedule and automate
-your stream using a visual, time-based interface.
+Timeline for OBS is an OBS Studio dock plugin for scheduling scene switches,
+source visibility, media control, filter changes, hotkeys, and nested timeline
+files on a visual timeline.
 
-![Timeline dock screenshot](Screenshot.png)
+![Timeline dock with event bubbles, ruler, playhead, and controls](Screenshot.png)
 
+<!-- prettier-ignore -->
 > [!IMPORTANT]
-> Timeline for OBS is an early Linux preview.
-> It currently requires building from source and has not yet been broadly
-> tested across OBS versions or distributions. Back up important scene
-> collections before using it in a production stream.
+> Timeline for OBS is an early Linux preview. It currently requires a source
+> build and has not been broadly tested across OBS versions or distributions.
+> Back up important scene collections before using it in a production stream.
 
----
+## Current status
 
-## Table of Contents
+The current repository release state is `v0.1.0-preview.1`. The plugin builds
+from source and installs locally; packaged releases are not available yet.
 
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Architecture](#architecture)
-- [Development](#development)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
-
----
+The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. The
+primary CI workflow builds and tests on Linux
+(`.github/workflows/linux-build.yml:9-33`).
 
 ## Features
 
-### Visual Timeline
+Timeline for OBS exposes nine event types in the editor. `MediaSeek` remains a
+reserved model value and is not exposed in the UI
+(`src/event-types.h:8-19`, `src/event-editor.cpp:44-53`).
 
-- **Dedicated OBS dock** — appears under **View > Docks > Timeline**.
-- **Circular event bubbles** rendered with high-clarity **SVG icons**
-  for: Scene Switch, Source Show/Hide, Media Start/Stop, Filter
-  Enable/Disable, Hotkey Trigger, and Nested Timeline Trigger.
-- **Smart contrast** — icons automatically switch between black and
-  white for perfect legibility on any bubble color.
-- **Stack layout** — events placed at the same time automatically
-  stack vertically instead of overlapping.
-- **Configurable zoom** — hold `Ctrl` + scroll to zoom from 5 seconds
-  to 10 minutes view, in stepped levels.
-- **BPM-aware grid** — snap events to beat subdivisions when working
-  on music-synced content.
+### Timeline editing
 
-### Automation
+- Add an event at the playhead or at a context-menu position.
+- Drag event bubbles with optional time or BPM snapping.
+- Edit event type, target, color, custom SVG icon, duration, and label.
+- Stack events whose bubbles would overlap visually.
+- Zoom through stepped levels from 5 to 1,000 pixels per second.
+- Scrub the playhead and drag the optional end marker.
+- Import and export timeline JSON documents.
 
-- **9 event types across 6 categories** — Scene Switch, Source
-  Visibility, Media Control, Filter Control, Hotkey Trigger, Nested
-  Timeline.
-- **Duration events** — show a source for 5 s, hide it after 10 s,
-  etc. The end of a duration automatically reverses the start action.
-- **Looping** — set a timeline end time and loop indefinitely for
-  background animations.
-- **Nested timelines** — trigger another timeline file as an event.
-  Cycles are detected and prevented.
-- **Optional transition** — pick a custom OBS transition for each
-  scene switch, applied for that switch and then restored.
-- **WebSocket vendor events** — broadcasts `TimelineEvent` and
-  `PlaybackStatus` events to OBS WebSocket 5.x consumers when the
-  websocket header is available at build time.
+### Scheduled actions
 
-### Editing
+- **Scene switch:** Switch to an OBS scene, optionally using a named transition.
+- **Source show/hide:** Change visibility for a source in the current scene or
+  scene collection.
+- **Media start/stop:** Restart or stop supported media sources.
+- **Filter enable/disable:** Toggle a named filter on a source.
+- **Hotkey trigger:** Trigger a registered OBS hotkey by name.
+- **Nested timeline:** Start another JSON timeline without opening another dock.
 
-- **Double-click to edit** any event.
-- **Color and icon customization** per event, with a context menu for
-  quick color changes.
-- **Show Label** opt-in checkbox — display a text label on a bubble
-  (off by default, keeps the timeline visually clean).
-- **Import/Export** your full timeline to JSON for backup or sharing.
-- **Drag & Drop** with optional grid snapping.
-- **Keyboard shortcuts**:
-  - `Space` — Play / Pause
-  - `Delete` — Remove selected event
-  - `Home` — Jump to start
-  - `←/→` — Nudge selected events by 1 s
-  - `Shift+←/→` — Fine nudge by 100 ms
-  - `Ctrl+C` / `Ctrl+V` — Copy/Paste events
+Events with a positive duration emit an end action where the action has a
+meaningful inverse. Source visibility and filter events reverse their state;
+media events start or stop media. Scene switches, hotkeys, and nested timeline
+triggers do not perform an end action
+(`src/obs-executor.cpp:89-140`).
 
-### Macro Strip (Secondary Dock)
+Named scene transitions are restored after the OBS frontend transition duration,
+with a fallback delay when OBS reports no duration
+(`src/obs-executor.cpp:168-215`).
 
-A separate dock under **View > Docks > Macro Strip** holds reusable
-triggerable buttons. Click a button to fire its associated OBS action
-immediately. Macros are persisted alongside timeline settings and share
-the same `ObsExecutor` as the timeline so behavior is consistent.
+### Playback controls
 
----
+- Set an end time and either stop or loop at that position.
+- Pause, resume, stop, restart, seek, and nudge selected events.
+- Use Time mode for a manual snap interval or BPM mode for beat subdivisions.
+- Persist zoom, snap, end time, loop, BPM, and display settings.
 
-## Screenshots
+### Macro Strip
 
-![Timeline dock](Screenshot.png)
+Macro Strip is a second OBS dock containing reusable, immediate actions. Clicking
+a macro creates a temporary event and sends it through the same `ObsExecutor` as
+the timeline, so the two docks share action behavior
+(`src/plugin-main.cpp:61-68`, `src/macro-strip-dock.cpp:112-125`).
 
-The dock shows the playhead (solid red line), an end marker
-(dashed blue line at the right), one event bubble, and a ruler
-with time labels. The toolbar along the top controls playback and
-editing.
+### Optional WebSocket vendor
 
----
+When the OBS WebSocket vendor header is available at build time, the plugin can
+emit `TimelineEvent` and playback status events. The event payload includes the
+phase, numeric type, source name, and event time; OBS WebSocket remains
+responsible for transport and authentication
+(`src/obs-executor.cpp:49-87`, `src/plugin-main.cpp:106-121`).
 
 ## Installation
 
-### Linux (Source Build)
+The current supported installation path is a Linux source build. The build
+requires the OBS development packages, Qt6 development packages, CMake 3.16 or
+newer, and a C++17 toolchain.
 
-**Prerequisites:**
+### Prerequisites
 
-- OBS Studio development packages (`libobs-dev`)
-- CMake 3.16 or newer
-- Qt6 development packages (`qt6-base-dev` on Debian/Ubuntu)
-- A C++17 toolchain (`build-essential` on Debian/Ubuntu)
-- (Optional) `obs-websocket` headers for WebSocket vendor events
+On Debian or Ubuntu, install the required development packages with your
+distribution’s package manager. The minimum project components are:
 
-**Build & install:**
+- `libobs-dev`
+- `cmake` 3.16 or newer
+- Qt6 Core, Gui, Widgets, and Svg development packages
+- A C++17 compiler and standard build tools
+- Optional: `obs-websocket-api.h` for WebSocket vendor support
+
+The exact CI dependency list is in `.github/workflows/linux-build.yml:15-24`.
+
+### Build and install
+
+Run these commands from the repository root:
 
 ```bash
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 cmake --install build
 ```
 
-This installs the plugin to
-`~/.config/obs-studio/plugins/timeline/`. Open OBS and look for
-**Timeline** under **View > Docks**.
+The default Linux install locations are:
 
-### Other platforms
+- Plugin: `~/.config/obs-studio/plugins/timeline/bin/64bit/timeline.so`
+- Plugin data: `~/.config/obs-studio/plugins/timeline/data/`
 
-> Windows and macOS source builds should work but are not part of the
-> CI matrix yet. The plugin does not yet have packaged releases for
-> any platform. See [Roadmap](#roadmap) for status.
+The install root and destinations are configurable through
+`TIMELINE_PLUGIN_ROOT`, `OBS_PLUGIN_DESTINATION`, and
+`OBS_DATA_DESTINATION` (`CMakeLists.txt:108-130`).
 
----
+Restart OBS after installation, then open **View > Docks > Timeline**. Macro
+Strip appears under **View > Docks > Macro Strip**.
+
+### WebSocket build option
+
+`ENABLE_OBS_WEBSOCKET_VENDOR` defaults to `ON`. When enabled, CMake searches for
+`obs-websocket-api.h`; when disabled, the vendor integration is compiled out
+(`CMakeLists.txt:86-106`). For an explicit build without the integration, run:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DENABLE_OBS_WEBSOCKET_VENDOR=OFF
+cmake --build build
+```
 
 ## Usage
 
-1. **Open the dock**: **View** > **Docks** > **Timeline**.
-2. **Add an event**: click **Add Event** to place a marker at the
-   playhead, or right-click empty timeline space for "Add Event Here".
-3. **Configure the event**: double-click the marker, pick a type and
-   target, optionally check **Show Label** and enter a label text.
-4. **Refine**: drag the marker to position, right-click for color or
-   delete. Use the **Snap** button in the toolbar to enable grid
-   snapping.
-5. **Play**: click Play, or press `Space`.
+Use the following workflow to create and test a timeline in OBS.
 
-Persisted settings (zoom, snap, end time, loop) are saved to
-`~/.config/obs-studio/plugins/timeline/timeline.json` on each change
-(debounced 250 ms).
+1. Open **View > Docks > Timeline**.
+2. Click **Add Event** to place an event at the playhead, or right-click empty
+   timeline space and choose **Add Event Here**.
+3. Select the event type and target in the editor.
+4. Configure an optional duration, color, custom icon, or display label.
+5. Drag the event to refine its position, or enable snapping in the toolbar.
+6. Press **Play** or `Space` to start playback.
 
----
+The Space shortcut is ignored while a line edit or combo box has focus, so text
+and selection controls remain usable (`src/timeline-dock.cpp:683-696`).
 
-## Architecture
+### Keyboard shortcuts
 
-For a comprehensive technical reference covering component design,
-data flow, threading model, design decisions, and reading paths, see:
+| Shortcut | Action |
+| --- | --- |
+| `Space` | Play or pause |
+| `Delete` | Remove selected events |
+| `Home` | Seek to the start |
+| `Left` / `Right` | Nudge selected events by 1 second |
+| `Shift+Left` / `Shift+Right` | Nudge selected events by 100 ms |
+| `Ctrl+C` / `Ctrl+V` | Copy and paste events |
 
-**[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**
+OBS frontend hotkeys are also registered for play/pause, stop, and restart.
 
-### Quick Component Overview
+## Persistence
 
-| Component           | Source                          | Responsibility                            |
-|---------------------|---------------------------------|-------------------------------------------|
-| `TimelineModel`     | `src/timeline-model.cpp`         | Event data store, sort, JSON serialization |
-| `TimelineScheduler` | `src/timeline-scheduler.cpp`     | QTimer playback loop, event firing        |
-| `ObsExecutor`       | `src/obs-executor.cpp`           | Maps events to OBS API calls              |
-| `TimelineDock`      | `src/timeline-dock.cpp`          | Main UI — scene, controls, editor launch  |
-| `TimelineEventItem` | `src/timeline-event-item.cpp`    | Draggable graphics bubble                 |
-| `MacroStripDock`    | `src/macro-strip-dock.cpp`       | Secondary dock of triggerable buttons     |
-| `HeadlessTimeline`  | `src/headless-timeline.cpp`      | Non-UI timeline runner for nesting        |
+Timeline settings are saved automatically with a 250 ms debounce. OBS supplies
+the timeline configuration path through `obs_module_get_config_path()`; on a
+standard Linux OBS installation this is under the OBS plugin configuration
+directory, not the installed plugin data directory
+(`src/timeline-dock.cpp:221-304`).
 
----
+Macro Strip uses a separate file in the installed plugin data path:
+
+```text
+~/.config/obs-studio/plugin_config/timeline/timeline.json
+~/.config/obs-studio/plugins/timeline/data/macro_buttons.json
+```
+
+Timeline JSON accepts both the current root-object format and legacy bare event
+arrays. Saves use a temporary file and rename step
+(`src/timeline-serialization.cpp:31-103`). See
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#persistence-and-file-formats) for
+the current schema and migration behavior.
+
+## Safety and limitations
+
+Timeline files are local configuration, but playing one can switch scenes,
+change source visibility, control media, toggle filters, trigger hotkeys, and
+start nested files. Import only files you trust.
+
+The current preview has these limitations:
+
+- It has been tested primarily on Linux with mocked OBS APIs in automated tests.
+- Automated tests cannot prove every behavior of real OBS scenes, sources,
+  transitions, filters, or media objects.
+- Windows and macOS source builds are not part of the current public preview
+  workflow, and packaged releases are not available.
+- `MediaSeek` exists in the data model but is not exposed by the editor.
+- The plugin does not provide its own authentication or network listener.
+
+For the complete failure-mode, threading, ownership, and deployment reference,
+see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Development
 
-### Build
+The project uses CMake, Qt Test, and mocked OBS frontend functions for headless
+tests. The test target compiles production modules directly with the test
+mocks (`tests/CMakeLists.txt:13-46`).
+
+### Build and test
 
 ```bash
 cmake -S . -B build
 cmake --build build
-cmake --install build
+ctest --test-dir build --output-on-failure
 ```
 
-### Test
-
-The test suite uses Qt Test with mocked OBS and WebSocket APIs so it
-runs headless.
+Run a focused test function with:
 
 ```bash
-cd build && ./tests/run_tests
-# Run a single test function
-cd build && ./tests/run_tests testSceneSwitch
+build/tests/run_tests testSceneSwitch
+build/tests/run_tests testSchedulerStartCursorResets
 ```
 
-### Code Style
+The test harness sets `QT_QPA_PLATFORM=offscreen` and creates an offscreen
+OpenGL context before OBS startup (`tests/main_test.cpp:50-87`). Existing OBS
+graphics-context warnings during mock shutdown do not imply a test failure;
+check the QTest result and CTest status separately.
 
-- C++17, 4-space indent, max 100 chars (prefer 80).
-- `PascalCase` for classes, `camelCase` for functions/variables,
-  `mCamelCase` for private members, `snake_case` for files.
-- All OBS logging via `blog(LOG_LEVEL, ...)` — never `printf` or
-  `std::cout`.
-- Always use OBS allocators (`bmalloc`, `bzalloc`, `bfree`) — mixing
-  with `std::malloc` crashes immediately.
-- Hotkey callbacks run on OBS threads; wrap with
-  `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`.
+### Source layout
 
-See the root `AGENTS.md` for the full developer handbook and the
-folder-specific `AGENTS.md` files (`src/`, `tests/`, `data/`) for
-routing and component-specific rules.
+The core runtime is split into these layers:
 
-### Versioning
+| Layer | Files | Role |
+| --- | --- | --- |
+| Module | `src/plugin-main.cpp` | OBS lifecycle and dock registration |
+| Data | `src/event-types.h`, `src/timeline-model.cpp` | Event values and ordering |
+| Timing | `src/timeline-scheduler.cpp` | Playhead and event timing |
+| Execution | `src/obs-executor.cpp` | OBS operations |
+| Presentation | `src/timeline-dock.cpp`, `src/timeline-event-item.cpp` | Timeline UI |
+| Persistence | `src/timeline-serialization.cpp` | Timeline JSON |
+| Nested runtime | `src/headless-timeline.cpp` | UI-free child timelines |
+| Macro UI | `src/macro-strip-dock.cpp` | Immediate action buttons |
 
-Never edit version strings in source. Edit `project(timeline VERSION ...)`
-in `CMakeLists.txt` line 3.
+Read `AGENTS.md` before editing. The folder-specific instructions in `src/`,
+`tests/`, and `data/` define ownership, threading, test, and asset rules.
 
----
+### Formatting and conventions
+
+- Use C++17, spaces, four-space indentation, and a maximum line length of 100.
+- Use `blog(LOG_LEVEL, ...)`; do not use `printf`, `std::cout`, or similar
+  output streams.
+- Use OBS allocators (`bmalloc`, `bzalloc`, `bfree`) for OBS-owned memory.
+- Use `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` before touching Qt
+  objects from OBS hotkey or frontend callback threads.
+- Add new source files to `PLUGIN_SOURCES` in `CMakeLists.txt`.
+
+## Release checklist
+
+Before tagging a release, run the automated suite and complete the real OBS
+smoke checks in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
+At minimum, verify dock registration, event editing, save/load, all exposed
+event types, looping, duration behavior, nested timelines, and optional
+WebSocket builds.
 
 ## Roadmap
 
-### In progress
+The following items are planned work rather than current capabilities:
 
-- **Undo/Redo** — History stack for reverting timeline changes.
-- **Multi-selection** — Box selection and shift-click for batch
-  operations.
+- Undo and redo for timeline edits.
+- Multi-selection for batch editing.
+- Unified visibility event types.
+- Windows and macOS packaged builds.
+- HTTP action events.
 
-### Planned
-
-- **Unified Visibility events** — merge Source Show/Hide and Filter
-  Enable/Disable into unified event types with an internal toggle
-  state.
-- **Windows + macOS builds** — packaged installers and CI matrices.
-- **HTTP action events** — fire HTTP requests from the timeline.
-
-### Released (v0.1.0)
-
-- Visual dock with 9 event types, duration, loop, snap, zoom, BPM
-  grid, copy/paste, JSON import/export, OBS WebSocket vendor events,
-  macro strip dock, theme support.
-
----
+Do not describe roadmap items as supported features until their implementation,
+tests, and release documentation exist.
 
 ## Contributing
 
-Contributions are welcome. Please:
+Keep changes focused and update the relevant documentation when runtime
+behavior changes.
 
-1. Read `AGENTS.md` (root) and the folder-specific `AGENTS.md` for
-   the area you intend to change (`src/`, `tests/`, or `data/`).
-2. Add or update tests when changing runtime behavior.
-3. Keep commits scoped — one feature or fix per commit.
-4. Avoid `git add .`; stage only the files you changed.
-5. If your change touches a documented feature, update the README or
-   `docs/ARCHITECTURE.md` in the same commit.
-
----
+1. Read `AGENTS.md` and the folder-specific instructions for the files you will
+   change.
+2. Add or update tests for observable runtime behavior.
+3. Run the build and test commands before requesting review.
+4. Keep commits scoped to one feature or fix.
+5. Update `docs/ARCHITECTURE.md` when a change affects system boundaries or
+   lifecycle behavior.
 
 ## License
 
-GPL-2.0-or-later
+Timeline for OBS is licensed under GPL-2.0-or-later.

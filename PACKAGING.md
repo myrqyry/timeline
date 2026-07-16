@@ -19,8 +19,9 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 Optional flags:
 
-- `-DENABLE_OBS_WEBSOCKET_VENDOR=ON|OFF` — toggle WebSocket vendor
-  support (auto-detected when OFF).
+- `-DENABLE_OBS_WEBSOCKET_VENDOR=ON|OFF` — enable or disable WebSocket vendor
+  support. When enabled, CMake uses the vendor header if it is available;
+  when disabled, the integration is compiled out.
 - `-DTIMELINE_PLUGIN_ROOT=/path/to/install/root` — override the
   install location.
 - `-DOBS_PLUGIN_DESTINATION=/custom/bin/64bit` — override the binary
@@ -49,8 +50,11 @@ Default install layout (Linux):
 
 1. Launch OBS.
 2. Open **View > Docks > Timeline** (and optionally **Macro Strip**).
-3. Load one of the example timeline JSON files from `examples/`.
-4. Verify playback controls and event execution.
-5. Stop OBS, then verify the file
-   `~/.config/obs-studio/plugins/timeline/timeline.json` contains
-   your saved events.
+3. Add a test event, save the scene collection, and verify playback controls
+   and event execution.
+4. Stop OBS, then verify the file
+   `~/.config/obs-studio/plugin_config/timeline/timeline.json` contains
+   your saved timeline settings and events.
+5. If you use Macro Strip, verify
+   `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` contains
+   the saved buttons.

@@ -12,6 +12,7 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 		connect(model, &TimelineModel::modelChanged, this, [this]() {
 			double t = getCurrentTime();
 			const auto &evts = this->model->getEvents();
+			nextStartIndex = 0;
 			QSet<QString> newStartFired;
 			QSet<QString> newEndFired;
 
@@ -106,6 +107,7 @@ void TimelineScheduler::seek(double timeMs)
 		const auto &events = model->getEvents();
 		eventStartFired.clear();
 		eventEndFired.clear();
+		nextStartIndex = 0;
 		for (const auto &evt : events) {
 			if (evt.timeMs < timeMs) {
 				eventStartFired.insert(evt.id);
@@ -161,6 +163,7 @@ void TimelineScheduler::onTimerTick()
 			startTime = std::chrono::high_resolution_clock::now();
 			eventStartFired.clear();
 			eventEndFired.clear();
+			nextStartIndex = 0;
 			currentTime = 0.0;
 			justLooped = true;
 			blog(LOG_DEBUG, "[Timeline] Looped back to start");
@@ -182,23 +185,27 @@ void TimelineScheduler::onTimerTick()
 	if (!model)
 		return;
 
-	// Reference to avoid O(n) copy at ~60fps
+	// Reference to avoid an O(n) copy at the 125 Hz timer frequency.
 	const auto &events = model->getEvents();
 
-	// Fire events
-	for (const TimelineEvent &evt : events) {
-
-		if (!eventStartFired.contains(evt.id) && evt.timeMs <= currentTime) {
+	// Fire starts through the sorted cursor so future events are not inspected
+	// on every timer tick.
+	while (nextStartIndex < events.size() && events[nextStartIndex].timeMs <= currentTime) {
+		const TimelineEvent &evt = events[nextStartIndex++];
+		if (!eventStartFired.contains(evt.id)) {
 			emit eventStarted(evt);
 			eventStartFired.insert(evt.id);
 		}
+	}
 
-		if (evt.hasDuration && evt.durationMs > 0) {
-			const double endMs = evt.timeMs + evt.durationMs;
-			if (!eventEndFired.contains(evt.id) && endMs <= currentTime) {
-				emit eventEnded(evt);
-				eventEndFired.insert(evt.id);
-			}
+	// End times are not sorted by start time, so retain a separate scan.
+	for (const TimelineEvent &evt : events) {
+		if (!evt.hasDuration || evt.durationMs <= 0.0)
+			continue;
+		const double endMs = evt.timeMs + evt.durationMs;
+		if (!eventEndFired.contains(evt.id) && endMs <= currentTime) {
+			emit eventEnded(evt);
+			eventEndFired.insert(evt.id);
 		}
 	}
 }

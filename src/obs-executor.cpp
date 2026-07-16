@@ -2,6 +2,7 @@
 #include "headless-timeline.h"
 #include <obs-module.h>
 #include <QFileInfo>
+#include <QTimer>
 #include <obs-frontend-api.h>
 #if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
@@ -14,7 +15,19 @@ ObsExecutor::ObsExecutor(QObject *parent) : QObject(parent)
 
 ObsExecutor::~ObsExecutor()
 {
+	releasePendingTransitions();
 	blog(LOG_INFO, "[Timeline] Executor destroyed");
+}
+
+void ObsExecutor::releasePendingTransitions()
+{
+	for (const PendingTransition &pending : pendingTransitions) {
+		if (pending.oldTransition)
+			obs_source_release(pending.oldTransition);
+		if (pending.transition)
+			obs_source_release(pending.transition);
+	}
+	pendingTransitions.clear();
 }
 
 void ObsExecutor::setObsWebSocketVendor(void *vendor)
@@ -24,7 +37,8 @@ void ObsExecutor::setObsWebSocketVendor(void *vendor)
 
 void ObsExecutor::cancelAll()
 {
-	blog(LOG_INFO, "[Timeline] cancelAll() called - stopping %d active nested timelines", static_cast<int>(activeTimelines.size()));
+	blog(LOG_INFO, "[Timeline] cancelAll() called - stopping %d active nested timelines",
+	     static_cast<int>(activeTimelines.size()));
 	for (HeadlessTimeline *t : activeTimelines) {
 		t->stop();
 		t->deleteLater();
@@ -166,15 +180,14 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 			transition = find_transition(transitionName.toUtf8().constData());
 			if (!transition) {
 				blog(LOG_WARNING, "[Timeline] ┌─ Transition not found");
-				blog(LOG_WARNING, "[Timeline] └─ Name : %s",
-				     transitionName.toUtf8().constData());
+				blog(LOG_WARNING, "[Timeline] └─ Name : %s", transitionName.toUtf8().constData());
 			}
 		}
 
 		if (obs_frontend_preview_program_mode_active())
 			obs_frontend_set_current_preview_scene(scene);
 
-		// Apply requested transition, then restore the original after the switch
+		// Apply requested transition, then restore the original after the switch.
 		obs_source_t *oldTransition = nullptr;
 		if (transition) {
 			oldTransition = obs_frontend_get_current_transition();
@@ -182,16 +195,28 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 		}
 		obs_frontend_set_current_scene(scene);
 		if (transition) {
-			if (oldTransition)
+			pendingTransitions.push_back({oldTransition, transition});
+			const int durationMs = obs_frontend_get_transition_duration();
+			const int restoreDelayMs = durationMs > 0 ? durationMs : 300;
+			QTimer::singleShot(restoreDelayMs, this, [this, oldTransition, transition]() {
 				obs_frontend_set_current_transition(oldTransition);
-			obs_source_release(transition);
+
+				obs_source_release(transition);
+				if (oldTransition)
+					obs_source_release(oldTransition);
+
+				auto it = std::find_if(pendingTransitions.begin(), pendingTransitions.end(),
+						       [oldTransition, transition](const PendingTransition &pending) {
+							       return pending.oldTransition == oldTransition &&
+								      pending.transition == transition;
+						       });
+				if (it != pendingTransitions.end())
+					pendingTransitions.erase(it);
+			});
 		}
-		if (oldTransition)
-			obs_source_release(oldTransition);
 
 		obs_source_release(scene);
-		blog(LOG_INFO, "[Timeline] Scene switch → '%s' [%s]",
-		     evt.sourceName.toUtf8().constData(),
+		blog(LOG_INFO, "[Timeline] Scene switch → '%s' [%s]", evt.sourceName.toUtf8().constData(),
 		     transitionName.isEmpty() ? "default" : transitionName.toUtf8().constData());
 	} else {
 		blog(LOG_WARNING, "[Timeline] ┌─ Scene not found");
@@ -245,8 +270,8 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 		if (!item)
 			return false;
 		obs_sceneitem_set_visible(item, visible);
-		blog(LOG_INFO, "[Timeline] Source '%s' → %s",
-		     evt.sourceName.toUtf8().constData(), visible ? "visible" : "hidden");
+		blog(LOG_INFO, "[Timeline] Source '%s' → %s", evt.sourceName.toUtf8().constData(),
+		     visible ? "visible" : "hidden");
 		return true;
 	};
 
@@ -293,8 +318,7 @@ void ObsExecutor::handleFilterEnable(const TimelineEvent &evt, bool enable)
 		obs_source_t *filter = obs_source_get_filter_by_name(source, filterName.toUtf8().constData());
 		if (filter) {
 			obs_source_set_enabled(filter, enable);
-			blog(LOG_INFO, "[Timeline] Filter '%s' on '%s' → %s",
-			     filterName.toUtf8().constData(),
+			blog(LOG_INFO, "[Timeline] Filter '%s' on '%s' → %s", filterName.toUtf8().constData(),
 			     sourceName.toUtf8().constData(), enable ? "enabled" : "disabled");
 			obs_source_release(filter);
 		} else {
@@ -392,7 +416,7 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 		timeline->start();
 		blog(LOG_INFO, "[Timeline] Nested timeline → '%s'", filePath.toUtf8().constData());
 	} else {
-		timeline->deleteLater();  // Consistent with cancelAll() ownership model
+		timeline->deleteLater(); // Consistent with cancelAll() ownership model
 		blog(LOG_WARNING, "[Timeline] ┌─ Failed to load nested timeline");
 		blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toUtf8().constData());
 	}

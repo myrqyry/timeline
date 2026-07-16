@@ -23,6 +23,11 @@ public slots:
 	void cancelAll();
 
 private:
+	struct PendingTransition {
+		obs_source_t *oldTransition = nullptr;
+		obs_source_t *transition = nullptr;
+	};
+
 	void handleSceneSwitch(const TimelineEvent &evt);
 	void handleMediaStart(const TimelineEvent &evt);
 	void handleMediaStop(const TimelineEvent &evt);
@@ -31,7 +36,9 @@ private:
 	void handleHotkey(const TimelineEvent &evt);
 	void handleTriggerTimeline(const TimelineEvent &evt);
 	void performAction(const TimelineEvent &evt, bool isStartAction);
+	void releasePendingTransitions();
 
 	std::vector<HeadlessTimeline *> activeTimelines;
+	std::vector<PendingTransition> pendingTransitions;
 	void *obsWebSocketVendor = nullptr;
 };

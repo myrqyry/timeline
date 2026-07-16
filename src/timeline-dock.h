@@ -115,6 +115,7 @@ private:
 	QColor computePlayheadColor() const;
 	void refreshPlayheadHandlePixmap();
 	void refreshEndMarkerHandlePixmap(const QColor &color);
+	void placeNewEvent(double timeMs);
 
 	QList<TimelineEvent> clipboard;
 

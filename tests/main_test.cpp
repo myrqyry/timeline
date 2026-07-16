@@ -27,6 +27,7 @@
 extern obs_source_t *g_current_scene;
 extern obs_source_t *g_current_transition;
 extern std::vector<obs_source_t *> g_transitions;
+extern int g_transition_duration_ms;
 
 class ExposedTimelineEventItem : public TimelineEventItem {
 public:
@@ -40,8 +41,10 @@ class TestTimelineMacroButtonAccessor {
 public:
 	static void clickBubble(MacroButtonWidget &w)
 	{
-		QMouseEvent press(QEvent::MouseButtonPress, QPointF(15, 26), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+		QMouseEvent press(QEvent::MouseButtonPress, QPointF(15, 26), Qt::LeftButton, Qt::LeftButton,
+				  Qt::NoModifier);
+		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), Qt::LeftButton, Qt::NoButton,
+				    Qt::NoModifier);
 		w.mousePressEvent(&press);
 		w.mouseReleaseEvent(&release);
 	}
@@ -181,6 +184,7 @@ private slots:
 
 	void init()
 	{
+		g_transition_duration_ms = 300;
 		// Create sources for each test
 		scene1 = obs_source_create("scene", "Scene 1", nullptr, nullptr);
 		scene2 = obs_source_create("scene", "Scene 2", nullptr, nullptr);
@@ -240,10 +244,16 @@ private slots:
 		evt.sourceName = "Scene 2";
 		evt.data = "Cut";
 
+		g_transition_duration_ms = 20;
+		QCOMPARE(obs_frontend_get_transition_duration(), 20);
 		executor.executeEventStart(evt);
 
 		// Verify we switched to Scene 2
 		QCOMPARE(g_current_scene, scene2);
+		QCOMPARE(g_current_transition, trans);
+
+		QTest::qWait(40);
+		QCOMPARE(g_current_transition, static_cast<obs_source_t *>(nullptr));
 	}
 
 	void testMediaStart()
@@ -470,6 +480,39 @@ private slots:
 		QTRY_VERIFY_WITH_TIMEOUT(startedSpy.count() >= 2, 700);
 		QTRY_VERIFY_WITH_TIMEOUT(endedSpy.count() >= 2, 700);
 		scheduler.stop();
+	}
+
+	void testSchedulerStartCursorResets()
+	{
+		TimelineModel model;
+		TimelineEvent first;
+		first.timeMs = 10.0;
+		TimelineEvent second;
+		second.timeMs = 30.0;
+		model.addEvent(first);
+		model.addEvent(second);
+
+		TimelineScheduler scheduler(&model);
+		QSignalSpy startedSpy(&scheduler, SIGNAL(eventStarted(TimelineEvent)));
+
+		scheduler.start();
+		QTRY_COMPARE_WITH_TIMEOUT(startedSpy.count(), 2, 250);
+		scheduler.pause();
+
+		scheduler.seek(0.0);
+		startedSpy.clear();
+		scheduler.start();
+		QTRY_COMPARE_WITH_TIMEOUT(startedSpy.count(), 2, 250);
+		scheduler.pause();
+
+		scheduler.seek(0.0);
+		TimelineEvent inserted;
+		inserted.timeMs = 5.0;
+		model.addEvent(inserted);
+		startedSpy.clear();
+		scheduler.start();
+		QTRY_COMPARE_WITH_TIMEOUT(startedSpy.count(), 3, 250);
+		scheduler.pause();
 	}
 
 	void testSerializationLegacyAndObjectAndRoundTrip()
@@ -737,7 +780,7 @@ private slots:
 		// (controlsLayout uses 2 px margins around 28 px secondary buttons → 32 px).
 		QCOMPARE(dock.height(), 32);
 	}
- };
+};
 
 int main(int argc, char *argv[])
 {
