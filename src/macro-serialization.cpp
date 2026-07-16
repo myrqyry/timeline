@@ -1,6 +1,7 @@
 #include "macro-serialization.h"
 
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonArray>
 #include <QSet>
 #include <QUuid>
@@ -74,11 +75,10 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 bool MacroSerialization::saveToFile(const QString &filePath, const QJsonObject &root,
 				   QString *errorMessage)
 {
-	const QString tempPath = filePath + ".tmp";
-	QFile file(tempPath);
+	QSaveFile file(filePath);
 	if (!file.open(QIODevice::WriteOnly)) {
 		if (errorMessage)
-			*errorMessage = "Failed to open macro file for writing";
+			*errorMessage = "Failed to open macro file for writing: " + file.errorString();
 		return false;
 	}
 	const QJsonDocument doc(root);
@@ -86,16 +86,11 @@ bool MacroSerialization::saveToFile(const QString &filePath, const QJsonObject &
 	if (file.write(json) != json.size()) {
 		if (errorMessage)
 			*errorMessage = "Failed to write macro JSON";
-		file.close();
-		QFile::remove(tempPath);
 		return false;
 	}
-	file.close();
-	QFile::remove(filePath);
-	if (!QFile::rename(tempPath, filePath)) {
+	if (!file.commit()) {
 		if (errorMessage)
-			*errorMessage = "Failed to finalize macro save";
-		QFile::remove(tempPath);
+			*errorMessage = "Failed to commit and finalize save: " + file.errorString();
 		return false;
 	}
 	return true;

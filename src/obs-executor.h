@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QTimer>
 #include <obs-frontend-api.h>
 #include <obs.h>
 #include "event-types.h"
@@ -23,11 +24,6 @@ public slots:
 	void cancelAll();
 
 private:
-	struct PendingTransition {
-		obs_source_t *oldTransition = nullptr;
-		obs_source_t *transition = nullptr;
-	};
-
 	void handleSceneSwitch(const TimelineEvent &evt);
 	void handleMediaStart(const TimelineEvent &evt);
 	void handleMediaStop(const TimelineEvent &evt);
@@ -36,9 +32,12 @@ private:
 	void handleHotkey(const TimelineEvent &evt);
 	void handleTriggerTimeline(const TimelineEvent &evt);
 	void performAction(const TimelineEvent &evt, bool isStartAction);
-	void releasePendingTransitions();
+	void restoreOriginalTransition();
+	void cancelRestoreTimer();
 
 	std::vector<HeadlessTimeline *> activeTimelines;
-	std::vector<PendingTransition> pendingTransitions;
+	obs_source_t *originalTransition = nullptr;
+	obs_source_t *currentTemporaryTransition = nullptr;
+	QTimer *restoreTimer = nullptr;
 	void *obsWebSocketVendor = nullptr;
 };

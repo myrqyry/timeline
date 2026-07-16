@@ -1,5 +1,6 @@
 #include "timeline-serialization.h"
 #include <QFile>
+#include <QSaveFile>
 
 QJsonObject TimelineSerialization::toJsonObject(const TimelineModel &model, bool loop, double endTimeSeconds, bool snap,
 						double snapIntervalMs, double bpm, bool gridToBpm,
@@ -69,11 +70,10 @@ bool TimelineSerialization::fromJsonDocument(const QJsonDocument &doc, TimelineM
 
 bool TimelineSerialization::saveToFile(const QString &filePath, const QJsonObject &root, QString *errorMessage)
 {
-	const QString tempPath = filePath + ".tmp";
-	QFile file(tempPath);
+	QSaveFile file(filePath);
 	if (!file.open(QIODevice::WriteOnly)) {
 		if (errorMessage) {
-			*errorMessage = "Failed to open file for writing";
+			*errorMessage = "Failed to open file for writing: " + file.errorString();
 		}
 		return false;
 	}
@@ -84,19 +84,13 @@ bool TimelineSerialization::saveToFile(const QString &filePath, const QJsonObjec
 		if (errorMessage) {
 			*errorMessage = "Failed to write timeline JSON";
 		}
-		file.close();
-		QFile::remove(tempPath);
 		return false;
 	}
 
-	file.close();
-
-	QFile::remove(filePath);
-	if (!QFile::rename(tempPath, filePath)) {
+	if (!file.commit()) {
 		if (errorMessage) {
-			*errorMessage = "Failed to finalize save";
+			*errorMessage = "Failed to commit and finalize save: " + file.errorString();
 		}
-		QFile::remove(tempPath);
 		return false;
 	}
 

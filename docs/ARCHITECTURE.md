@@ -107,11 +107,11 @@ lifetime, and callback teardown must remain easy to trace.
 | `timeline-scheduler.cpp/.h` | Playhead clock, start/end detection, looping, finish signals | `TimelineModel` in, Qt signals out |
 | `obs-executor.cpp/.h` | Translate timeline actions into OBS API calls | OBS frontend/libobs APIs |
 | `headless-timeline.cpp/.h` | Run a nested timeline without a dock | Model + scheduler + executor |
-| `timeline-serialization.cpp/.h` | Timeline JSON document format and atomic file I/O | `QJsonDocument` and `QFile` |
+| `timeline-serialization.cpp/.h` | Timeline JSON document format and atomic file I/O | `QJsonDocument`, `QSaveFile` (writes), `QFile` (reads) |
 | `timeline-event-item.cpp/.h` | Render and drag one event bubble | `QGraphicsEllipseItem` |
 | `event-editor.cpp/.h` | Modal event creation/editing and OBS target discovery | Qt dialog and OBS enumeration |
 | `macro-strip-dock.cpp/.h` | Macro button UI and separate persistence | `MacroButtonModel` and shared executor |
-| `macro-serialization.cpp/.h` | Macro button JSON format and atomic file I/O | `QJsonDocument` and `QFile` |
+| `macro-serialization.cpp/.h` | Macro button JSON format and atomic file I/O | `QJsonDocument`, `QSaveFile` (writes), `QFile` (reads) |
 | `theme-helpers.h` | Theme-aware SVG paths and default colors | Qt palette and OBS theme widgets |
 | `timecode-display.cpp/.h` | Theme-aware playback clock | Qt custom widget |
 
@@ -249,8 +249,9 @@ end events (`src/timeline-scheduler.cpp:201-210`).
 
 `eventStartFired` and `eventEndFired` prevent repeated signals across timer
 ticks. Seeking clears both sets and marks events strictly before the new
-position as already fired. Model changes rebuild the sets while preserving
-already-fired IDs and marking events strictly behind the playhead as fired
+position as already fired. Model changes rebuild the sets from scratch, marking
+events strictly behind the playhead as fired. This allows events relocated
+ahead of the playhead to fire again naturally
 (`src/timeline-scheduler.cpp:11-39`, `src/timeline-scheduler.cpp:98-128`).
 
 ### End time and looping
@@ -282,17 +283,18 @@ event fires.
 
 ### Scene switching and transitions
 
-For a named transition, the executor finds and retains the matching OBS source,
-retains the current transition, applies the requested transition, and switches
-the scene (`src/obs-executor.cpp:143-196`). It schedules restoration using the
-frontend transition duration, with a 300 ms fallback when OBS reports a
-non-positive duration (`src/obs-executor.cpp:197-215`). Pending source references
-are released when the callback runs or when the executor is destroyed
-(`src/obs-executor.cpp:16-31`).
+For a named transition, the executor finds the matching OBS source, caches the
+original frontend transition, applies the requested transition, and switches
+the scene (`src/obs-executor.cpp:189-227`). A single `restoreTimer` replaces
+any pending restoration, preventing overlapping timers from restoring the wrong
+transition during rapid consecutive switches. The timer uses the frontend
+transition duration, with a 300 ms fallback when OBS reports a non-positive
+duration. Source references are released by `restoreOriginalTransition()` or
+`cancelRestoreTimer()` (`src/obs-executor.cpp:10-50`).
 
 The executor uses `obs_frontend_source_list_free()` after transition
 enumeration. `find_transition()` adds a reference to the selected source before
-freeing the list (`src/obs-executor.cpp:143-165`). This reference pattern is
+freeing the list (`src/obs-executor.cpp:160-187`). This reference pattern is
 required whenever a source survives the list lifetime.
 
 ### Source visibility
@@ -460,10 +462,11 @@ use defaults for omitted settings, while invalid root types and malformed files
 return an error string (`src/timeline-serialization.cpp:31-68`,
 `src/timeline-serialization.cpp:106-126`).
 
-Timeline saves are atomic at the file level: the serializer writes a `.tmp`
-file, closes it, removes the old file, and renames the temporary file into place
-(`src/timeline-serialization.cpp:70-103`). The same pattern is used for Macro
-Strip data (`src/macro-serialization.cpp:74-101`).
+Timeline saves are atomic through `QSaveFile`, which writes to a temporary
+location and commits atomically on `QSaveFile::commit()`, preserving the
+original file intact on any failure
+(`src/timeline-serialization.cpp:71-98`). The same pattern is used for Macro
+Strip data (`src/macro-serialization.cpp:80-101`).
 
 ### Timeline event serialization
 
@@ -536,10 +539,9 @@ The plugin favors warnings and safe no-ops over terminating the OBS process.
 | Macro file malformed | Rename it to a timestamped `.broken-*` file | `src/macro-strip-dock.cpp:229-244` |
 | OBS exit during queued UI work | Queued work uses QObject context and teardown unregisters callbacks | `src/timeline-dock.cpp:99-111`, `src/timeline-dock.cpp:153-211` |
 
-Persistence uses replace-by-rename, but the implementation removes the old
-file before renaming the temporary file. A filesystem failure during that small
-window can lose the previous file; release testing must cover the target
-filesystem and permissions.
+Persistence uses `QSaveFile`, which guarantees atomic commits on all supported
+platforms. If the write or finalization fails, the original file is left
+unharmed.
 
 ## Security and data protection
 

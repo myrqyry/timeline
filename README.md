@@ -54,8 +54,9 @@ triggers do not perform an end action
 (`src/obs-executor.cpp:89-140`).
 
 Named scene transitions are restored after the OBS frontend transition duration,
-with a fallback delay when OBS reports no duration
-(`src/obs-executor.cpp:168-215`).
+with a fallback delay when OBS reports no duration. A single timer prevents
+overlapping restorations from rapid consecutive scene switches
+(`src/obs-executor.cpp:189-227`).
 
 ### Playback controls
 
@@ -177,8 +178,8 @@ Macro Strip uses a separate file in the installed plugin data path:
 ```
 
 Timeline JSON accepts both the current root-object format and legacy bare event
-arrays. Saves use a temporary file and rename step
-(`src/timeline-serialization.cpp:31-103`). See
+arrays. Saves are atomic through `QSaveFile`
+(`src/timeline-serialization.cpp:71-98`). See
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#persistence-and-file-formats) for
 the current schema and migration behavior.
 

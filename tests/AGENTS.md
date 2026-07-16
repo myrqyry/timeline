@@ -19,7 +19,7 @@ No deviations — follow root conventions. Tests use the same memory rules (`bza
 
 ## Dependencies & Side Effects
 
-- Tests compile `src/obs-executor.cpp`, `src/timeline-model.cpp`, `src/timeline-scheduler.cpp`, `src/timeline-event-item.cpp`, and `src/headless-timeline.cpp` directly. Changes to these files may break tests.
+- Tests compile all production sources except `plugin-main.cpp`: `obs-executor.cpp`, `headless-timeline.cpp`, `timeline-scheduler.cpp`, `timeline-model.cpp`, `timeline-event-item.cpp`, `timeline-serialization.cpp`, `macro-button-model.cpp`, `macro-button-widget.cpp`, `macro-serialization.cpp`, `macro-strip-dock.cpp`, and `event-editor.cpp` (`tests/CMakeLists.txt:13-29`). Changes to any of these files may break tests.
 - Mock state is reset in `cleanup()` between tests. New tests that rely on frontend/websocket state must initialize mocks in `init()` or `initTestCase()`.
 
 ## Watch Out For

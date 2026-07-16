@@ -164,9 +164,12 @@ void MacroStripDock::showEditEditor(const QString &id)
 	evt.filterName = existing->filterName;
 	evt.color = existing->color;
 	evt.label = existing->label;
+	evt.data = existing->data;
 	EventEditor editor(evt, this);
 	if (editor.exec() != QDialog::Accepted)
 		return;
+
+	editor.getUpdatedEvent(evt);
 
 	MacroButton updated;
 	updated.id = existing->id;
@@ -175,7 +178,10 @@ void MacroStripDock::showEditEditor(const QString &id)
 	updated.filterName = evt.filterName;
 	updated.color = evt.color;
 	updated.label = evt.label;
-	updated.data = existing->data;
+	if (evt.data.canConvert<QString>())
+		updated.data = evt.data.toString();
+	else
+		updated.data = QString();
 	m_model.replaceButtonById(id, updated);
 }
 

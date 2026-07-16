@@ -17,18 +17,12 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 			QSet<QString> newEndFired;
 
 			for (const auto &evt : evts) {
-				// Preserve fired status for existing events; mark new ones
-				// as fired only if their time is already behind the playhead.
-				if (eventStartFired.contains(evt.id) || evt.timeMs < t) {
+				if (evt.timeMs < t) {
 					newStartFired.insert(evt.id);
 				}
 				if (evt.hasDuration && evt.durationMs > 0) {
 					const double endMs = evt.timeMs + evt.durationMs;
-					if (eventEndFired.contains(evt.id) || endMs < t) {
-						newEndFired.insert(evt.id);
-					}
-				} else {
-					if (eventEndFired.contains(evt.id)) {
+					if (endMs < t) {
 						newEndFired.insert(evt.id);
 					}
 				}

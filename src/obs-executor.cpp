@@ -2,7 +2,6 @@
 #include "headless-timeline.h"
 #include <obs-module.h>
 #include <QFileInfo>
-#include <QTimer>
 #include <obs-frontend-api.h>
 #if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
@@ -10,24 +9,45 @@
 
 ObsExecutor::ObsExecutor(QObject *parent) : QObject(parent)
 {
+	restoreTimer = new QTimer(this);
+	restoreTimer->setSingleShot(true);
+	connect(restoreTimer, &QTimer::timeout, this, &ObsExecutor::restoreOriginalTransition);
 	blog(LOG_INFO, "[Timeline] ├─ Executor created");
 }
 
 ObsExecutor::~ObsExecutor()
 {
-	releasePendingTransitions();
+	cancelRestoreTimer();
 	blog(LOG_INFO, "[Timeline] Executor destroyed");
 }
 
-void ObsExecutor::releasePendingTransitions()
+void ObsExecutor::cancelRestoreTimer()
 {
-	for (const PendingTransition &pending : pendingTransitions) {
-		if (pending.oldTransition)
-			obs_source_release(pending.oldTransition);
-		if (pending.transition)
-			obs_source_release(pending.transition);
+	if (restoreTimer)
+		restoreTimer->stop();
+	if (currentTemporaryTransition) {
+		obs_source_release(currentTemporaryTransition);
+		currentTemporaryTransition = nullptr;
 	}
-	pendingTransitions.clear();
+	if (originalTransition) {
+		obs_source_release(originalTransition);
+		originalTransition = nullptr;
+	}
+}
+
+void ObsExecutor::restoreOriginalTransition()
+{
+	if (originalTransition) {
+		obs_frontend_set_current_transition(originalTransition);
+		obs_source_release(originalTransition);
+	} else {
+		obs_frontend_set_current_transition(nullptr);
+	}
+	originalTransition = nullptr;
+	if (currentTemporaryTransition) {
+		obs_source_release(currentTemporaryTransition);
+		currentTemporaryTransition = nullptr;
+	}
 }
 
 void ObsExecutor::setObsWebSocketVendor(void *vendor)
@@ -37,6 +57,7 @@ void ObsExecutor::setObsWebSocketVendor(void *vendor)
 
 void ObsExecutor::cancelAll()
 {
+	cancelRestoreTimer();
 	blog(LOG_INFO, "[Timeline] cancelAll() called - stopping %d active nested timelines",
 	     static_cast<int>(activeTimelines.size()));
 	for (HeadlessTimeline *t : activeTimelines) {
@@ -172,7 +193,6 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 
 	obs_source_t *scene = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
 	if (scene) {
-		// Check for specific transition
 		QString transitionName = evt.data.toString();
 		obs_source_t *transition = nullptr;
 
@@ -187,34 +207,21 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 		if (obs_frontend_preview_program_mode_active())
 			obs_frontend_set_current_preview_scene(scene);
 
-		// Apply requested transition, then restore the original after the switch.
-		obs_source_t *oldTransition = nullptr;
 		if (transition) {
-			oldTransition = obs_frontend_get_current_transition();
+			if (!originalTransition)
+				originalTransition = obs_frontend_get_current_transition();
+			if (currentTemporaryTransition)
+				obs_source_release(currentTemporaryTransition);
+			currentTemporaryTransition = transition;
+
 			obs_frontend_set_current_transition(transition);
-		}
-		obs_frontend_set_current_scene(scene);
-		if (transition) {
-			pendingTransitions.push_back({oldTransition, transition});
+
 			const int durationMs = obs_frontend_get_transition_duration();
 			const int restoreDelayMs = durationMs > 0 ? durationMs : 300;
-			QTimer::singleShot(restoreDelayMs, this, [this, oldTransition, transition]() {
-				obs_frontend_set_current_transition(oldTransition);
-
-				obs_source_release(transition);
-				if (oldTransition)
-					obs_source_release(oldTransition);
-
-				auto it = std::find_if(pendingTransitions.begin(), pendingTransitions.end(),
-						       [oldTransition, transition](const PendingTransition &pending) {
-							       return pending.oldTransition == oldTransition &&
-								      pending.transition == transition;
-						       });
-				if (it != pendingTransitions.end())
-					pendingTransitions.erase(it);
-			});
+			restoreTimer->start(restoreDelayMs);
 		}
 
+		obs_frontend_set_current_scene(scene);
 		obs_source_release(scene);
 		blog(LOG_INFO, "[Timeline] Scene switch → '%s' [%s]", evt.sourceName.toUtf8().constData(),
 		     transitionName.isEmpty() ? "default" : transitionName.toUtf8().constData());
