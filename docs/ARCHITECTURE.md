@@ -631,7 +631,7 @@ build/tests/run_tests testSceneSwitch
 build/tests/run_tests testSchedulerStartCursorResets
 ```
 
-The test mocks are intentionally incomplete OBS source implementations. They
+The test doubles are intentionally incomplete OBS source implementations. They
 verify dispatch and lifetime paths but cannot prove all behavior of real OBS
 scene, media, filter, transition, or graphics objects (`tests/AGENTS.md:25-30`).
 The release checklist therefore requires a real OBS smoke test in addition to
@@ -758,5 +758,5 @@ provide procedures and local conventions:
 - `docs/RELEASE_CHECKLIST.md` — release acceptance checks.
 - `AGENTS.md` — repository-wide engineering and safety constraints.
 - `src/AGENTS.md` — UI, OBS ownership, and callback rules.
-- `tests/AGENTS.md` — test target structure and mock limitations.
+- `tests/AGENTS.md` — test target structure and test-double limitations.
 - `data/AGENTS.md` — localization and asset rules.

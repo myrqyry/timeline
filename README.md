@@ -190,7 +190,7 @@ start nested files. Import only files you trust.
 
 The current preview has these limitations:
 
-- It has been tested primarily on Linux with mocked OBS APIs in automated tests.
+- It has been tested primarily on Linux with OBS test doubles in automated tests.
 - Automated tests cannot prove every behavior of real OBS scenes, sources,
   transitions, filters, or media objects.
 - Windows and macOS source builds are not part of the current public preview
@@ -203,9 +203,9 @@ see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Development
 
-The project uses CMake, Qt Test, and mocked OBS frontend functions for headless
-tests. The test target compiles production modules directly with the test
-mocks (`tests/CMakeLists.txt:13-46`).
+The project uses CMake, Qt Test, and OBS frontend test doubles for headless
+tests. The test target compiles production modules directly with those test
+implementations (`tests/CMakeLists.txt:13-46`).
 
 ### Build and test
 
