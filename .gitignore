@@ -9,7 +9,6 @@
 !/docs
 !/src
 !/tests
-!obs-frontend-dev
 !.clang-format
 !.gersemirc
 !.gitignore
@@ -26,6 +25,9 @@
 
 # Exclude local superpowers working notes (specs, plans)
 /docs/superpowers/
+
+# Exclude local OBS frontend development notes
+/obs-frontend-dev/
 
 # Exclude macOS legacy resource forks
 .DS_Store
