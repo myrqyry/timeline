@@ -24,10 +24,10 @@ jobs:
             libobs-dev
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: cmake --preset ubuntu-ci-x86_64
 
       - name: Build
-        run: cmake --build build --config RelWithDebInfo
+        run: cmake --build --preset ubuntu-ci-x86_64
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure --verbose
+        run: ctest --test-dir build_x86_64 --output-on-failure --verbose

@@ -51,7 +51,7 @@ Events with a positive duration emit an end action where the action has a
 meaningful inverse. Source visibility and filter events reverse their state;
 media events start or stop media. Scene switches, hotkeys, and nested timeline
 triggers do not perform an end action
-(`src/obs-executor.cpp:89-140`).
+(`src/obs-executor.cpp:110-162`).
 
 Named scene transitions are restored after the OBS frontend transition duration,
 with a fallback delay when OBS reports no duration. A single timer prevents
@@ -78,12 +78,12 @@ When the OBS WebSocket vendor header is available at build time, the plugin can
 emit `TimelineEvent` and playback status events. The event payload includes the
 phase, numeric type, source name, and event time; OBS WebSocket remains
 responsible for transport and authentication
-(`src/obs-executor.cpp:49-87`, `src/plugin-main.cpp:106-121`).
+(`src/obs-executor.cpp:75-88`, `src/plugin-main.cpp:105-125`).
 
 ## Installation
 
 The current supported installation path is a Linux source build. The build
-requires the OBS development packages, Qt6 development packages, CMake 3.16 or
+requires the OBS development packages, Qt6 development packages, CMake 3.28 or
 newer, and a C++17 toolchain.
 
 ### Prerequisites
@@ -92,7 +92,7 @@ On Debian or Ubuntu, install the required development packages with your
 distribution’s package manager. The minimum project components are:
 
 - `libobs-dev`
-- `cmake` 3.16 or newer
+- `cmake` 3.28 or newer
 - Qt6 Core, Gui, Widgets, and Svg development packages
 - A C++17 compiler and standard build tools
 - Optional: `obs-websocket-api.h` for WebSocket vendor support
@@ -104,6 +104,12 @@ The exact CI dependency list is in `.github/workflows/linux-build.yml:15-24`.
 Run these commands from the repository root:
 
 ```bash
+# Using CMake presets (recommended):
+cmake --preset ubuntu-x86_64
+cmake --build --preset ubuntu-x86_64
+cmake --install build_x86_64
+
+# Or without presets:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 cmake --install build
@@ -116,7 +122,7 @@ The default Linux install locations are:
 
 The install root and destinations are configurable through
 `TIMELINE_PLUGIN_ROOT`, `OBS_PLUGIN_DESTINATION`, and
-`OBS_DATA_DESTINATION` (`CMakeLists.txt:108-130`).
+`OBS_DATA_DESTINATION` (`CMakeLists.txt:107-129`).
 
 Restart OBS after installation, then open **View > Docks > Timeline**. Macro
 Strip appears under **View > Docks > Macro Strip**.
@@ -125,13 +131,11 @@ Strip appears under **View > Docks > Macro Strip**.
 
 `ENABLE_OBS_WEBSOCKET_VENDOR` defaults to `ON`. When enabled, CMake searches for
 `obs-websocket-api.h`; when disabled, the vendor integration is compiled out
-(`CMakeLists.txt:86-106`). For an explicit build without the integration, run:
+(`CMakeLists.txt:86-105`). For an explicit build without the integration, run:
 
 ```bash
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DENABLE_OBS_WEBSOCKET_VENDOR=OFF
-cmake --build build
+cmake --preset ubuntu-x86_64 -DENABLE_OBS_WEBSOCKET_VENDOR=OFF
+cmake --build --preset ubuntu-x86_64
 ```
 
 ## Usage
@@ -147,7 +151,7 @@ Use the following workflow to create and test a timeline in OBS.
 6. Press **Play** or `Space` to start playback.
 
 The Space shortcut is ignored while a line edit or combo box has focus, so text
-and selection controls remain usable (`src/timeline-dock.cpp:683-696`).
+and selection controls remain usable (`src/timeline-dock.cpp:684-690`).
 
 ### Keyboard shortcuts
 
@@ -211,6 +215,12 @@ implementations (`tests/CMakeLists.txt:13-46`).
 ### Build and test
 
 ```bash
+# Using CMake presets (recommended):
+cmake --preset ubuntu-x86_64
+cmake --build --preset ubuntu-x86_64
+ctest --test-dir build_x86_64 --output-on-failure
+
+# Or without presets:
 cmake -S . -B build
 cmake --build build
 ctest --test-dir build --output-on-failure
@@ -219,12 +229,12 @@ ctest --test-dir build --output-on-failure
 Run a focused test function with:
 
 ```bash
-build/tests/run_tests testSceneSwitch
-build/tests/run_tests testSchedulerStartCursorResets
+build_x86_64/tests/run_tests testSceneSwitch
+build_x86_64/tests/run_tests testSchedulerStartCursorResets
 ```
 
 The test harness sets `QT_QPA_PLATFORM=offscreen` and creates an offscreen
-OpenGL context before OBS startup (`tests/main_test.cpp:50-87`). Existing OBS
+OpenGL context before OBS startup (`tests/main_test.cpp:55-87`). Existing OBS
 graphics-context warnings during test-harness shutdown do not imply a test failure;
 check the QTest result and CTest status separately.
 

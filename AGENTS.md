@@ -2,7 +2,7 @@
 
 An OBS Studio dock plugin that adds a timeline scheduler for automating scene switches, source visibility, media playback, filter toggles, hotkeys, and nested timeline triggers.
 
-**Tech stack:** C++17, CMake 3.16+, Qt6, libobs (Pure C API)
+**Tech stack:** C++17, CMake 3.28+, Qt6, libobs (Pure C API)
 
 ## Loading Protocol
 
@@ -152,14 +152,14 @@ OBS_MODULE_USE_DEFAULT_LOCALE("timeline", "en-US")
 ## Quick Commands
 
 ```bash
-# Configure, build, and install locally
-cmake -S . -B build
-cmake --build build
-cmake --install build
+# Configure, build, and install locally (using presets)
+cmake --preset ubuntu-x86_64
+cmake --build --preset ubuntu-x86_64
+cmake --install build_x86_64
 
 # Run tests
-cd build && ./tests/run_tests
-cd build && ./tests/run_tests testSceneSwitch
+cd build_x86_64 && ./tests/run_tests
+cd build_x86_64 && ./tests/run_tests testSceneSwitch
 
 # Format code
 clang-format -i src/your-file.cpp

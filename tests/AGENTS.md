@@ -26,7 +26,7 @@ No deviations — follow root conventions. Tests use the same memory rules (`bza
 
 - **Dummy source registration**: Tests register fake source types (`scene`, `cut_transition`, `test_source`, `test_filter`) in `initTestCase()`. These are minimal — they only allocate/free memory. Do not expect full scene/transition behavior.
 - **Offscreen platform**: `QT_QPA_PLATFORM=offscreen` is set in `main()` so tests run headless. GUI interactions that require a real display may fail.
-- **Memory leak noise**: `cleanupTestCase()` reports leaks via `bnum_allocs()` but does not assert on them (commented out) because mock shutdown is not perfect.
+- **Memory leak assertion**: `cleanupTestCase()` asserts on `bnum_allocs() < 4` after mocking all globals and draining OBS source enumeration. Up to 3 residual allocations from OBS source-type registration metadata are expected in headless test environments; a count of 4+ indicates a regression in source reference cleanup.
 - **OBS startup failure**: `obs_startup()` can fail in some CI environments. Tests call `QSKIP()` if sources cannot be created.
 
 ## Commands (Folder-Specific Only)

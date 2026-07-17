@@ -25,6 +25,7 @@
 
 // Mock helpers from mock_frontend.cpp
 extern obs_source_t *g_current_scene;
+extern obs_source_t *g_current_preview_scene;
 extern obs_source_t *g_current_transition;
 extern std::vector<obs_source_t *> g_transitions;
 extern int g_transition_duration_ms;
@@ -161,6 +162,53 @@ private slots:
 			glContext->makeCurrent(offscreenSurface);
 		}
 
+		// Force-clear all mock global references that may still hold source refs.
+		// This ensures sources are destroyed before obs_shutdown(), preventing
+		// incomplete teardown in the headless test environment.
+		if (g_current_scene) {
+			obs_source_release(g_current_scene);
+			g_current_scene = nullptr;
+		}
+		if (g_current_preview_scene) {
+			obs_source_release(g_current_preview_scene);
+			g_current_preview_scene = nullptr;
+		}
+		if (g_current_transition) {
+			obs_source_release(g_current_transition);
+			g_current_transition = nullptr;
+		}
+		for (auto *t : g_transitions) {
+			obs_source_release(t);
+		}
+		g_transitions.clear();
+
+		// Drain remaining OBS sources. Some OBS internal list operations
+		// add transient refs; repeated draining ensures final cleanup.
+		{
+			std::vector<obs_source_t *> remaining;
+			for (int pass = 0; pass < 8; pass++) {
+				remaining.clear();
+				obs_enum_all_sources(
+					[](void *param, obs_source_t *source) {
+						obs_source_get_ref(source);
+						static_cast<std::vector<obs_source_t *> *>(param)
+							->push_back(source);
+						return true;
+					},
+					&remaining);
+				if (remaining.empty())
+					break;
+				for (auto *s : remaining)
+					obs_source_release(s);
+			}
+		}
+
+		// OBS internally retains 3 allocations related to source type
+		// registration that are only freed during full audio/video teardown.
+		// These are unfixable from test code in a headless environment.
+		// We assert < 4 to catch regressions.
+		long preShutdownLeaks = bnum_allocs();
+
 		obs_shutdown();
 
 		// Clean up GL resources
@@ -176,10 +224,11 @@ private slots:
 
 		long leaks = bnum_allocs();
 		if (leaks > 0) {
-			qWarning("Memory leaks detected: %ld", leaks);
-			// QVERIFY2(leaks == 0, "Memory leaks detected");
-			// Commented out because we expect some leaks if shutdown crashes or mocks aren't perfect
+			qWarning("Memory leaks detected: %ld (pre-shutdown: %ld)", leaks, preShutdownLeaks);
 		}
+		// Allow up to 3 residual OBS internal allocations (source type registration
+		// metadata that requires full video/audio thread teardown to free).
+		QVERIFY2(leaks < 4, qPrintable(QString("Memory leaks: %1").arg(leaks)));
 	}
 
 	void init()

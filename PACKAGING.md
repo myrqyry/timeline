@@ -5,7 +5,7 @@ plugin (project name: `timeline`) for local installation in OBS Studio.
 
 ## Prerequisites
 
-- CMake 3.16+
+- CMake 3.28+
 - C++17 toolchain
 - Qt6 (`Core`, `Gui`, `Widgets`, `Svg`)
 - `libobs` development headers/libraries (via `pkg-config`)
@@ -14,6 +14,10 @@ plugin (project name: `timeline`) for local installation in OBS Studio.
 ## Configure
 
 ```bash
+# Using CMake presets (recommended):
+cmake --preset ubuntu-x86_64
+
+# Or without presets:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ```
 
@@ -32,12 +36,18 @@ Optional flags:
 ## Build
 
 ```bash
+# When using presets:
+cmake --build --preset ubuntu-x86_64
+# Or without presets:
 cmake --build build
 ```
 
 ## Install
 
 ```bash
+# When using presets:
+cmake --install build_x86_64
+# Or without presets:
 cmake --install build
 ```
 

@@ -4,15 +4,15 @@ Use this checklist before tagging a release.
 
 ## Build & Install
 
-- [ ] Clean configure: `cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo`
-- [ ] Clean build: `cmake --build build`
-- [ ] Clean install: `cmake --install build`
+- [ ] Clean configure: `cmake --preset ubuntu-x86_64`
+- [ ] Clean build: `cmake --build --preset ubuntu-x86_64`
+- [ ] Clean install: `cmake --install build_x86_64`
 
 ## Automated Tests
 
 - [ ] Run the test suite: `ctest --test-dir build --output-on-failure`
 - [ ] Run a focused test when diagnosing a regression:
-  `build/tests/run_tests testSceneSwitch`
+  `build_x86_64/tests/run_tests testSceneSwitch`
 
 ## OBS Runtime Smoke
 

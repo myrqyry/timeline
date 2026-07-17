@@ -28,9 +28,9 @@ OBS loads the module
 ```
 
 The plugin is currently a source-built Linux preview. CMake declares project
-version `0.1.0` in `CMakeLists.txt:1-3`; the repository release state is
+version `0.1.0` in `CMakeLists.txt:3`; the repository release state is
 `v0.1.0-preview.1`. The module banner currently contains a hard-coded `1.0.0`
-string in `src/plugin-main.cpp:55-78`, so that log message is not authoritative
+string in `src/plugin-main.cpp:54-58`, so that log message is not authoritative
 for release identity.
 
 ## Audience and reading paths
@@ -41,12 +41,12 @@ matches the work you are doing.
 | Audience | Start here | Then read |
 | --- | --- | --- |
 | New contributor | `README.md` | `AGENTS.md`, this document |
-| UI contributor | `src/timeline-dock.h:29-236` | `src/timeline-dock.cpp:341-2241`, `src/timeline-event-item.cpp:16-454` |
-| Scheduler or action contributor | `src/timeline-scheduler.h:9-58` | `src/timeline-scheduler.cpp:4-211`, `src/obs-executor.cpp:49-423` |
-| Persistence contributor | `src/timeline-serialization.h:9-40` | `src/timeline-serialization.cpp:4-127`, `src/timeline-model.cpp:75-180` |
-| Nested timeline contributor | `src/headless-timeline.h:11-52` | `src/headless-timeline.cpp:8-90`, `src/obs-executor.cpp:373-423` |
-| Release maintainer | `PACKAGING.md` | `docs/RELEASE_CHECKLIST.md`, `.github/workflows/linux-build.yml:15-33` |
-| Test contributor | `tests/AGENTS.md` | `tests/CMakeLists.txt:13-46`, `tests/main_test.cpp:56-789` |
+| UI contributor | `src/timeline-dock.h:29-96` | `src/timeline-dock.cpp:341-2234`, `src/timeline-event-item.cpp:16-454` |
+| Scheduler or action contributor | `src/timeline-scheduler.h:9-57` | `src/timeline-scheduler.cpp:4-198`, `src/obs-executor.cpp:49-430` |
+| Persistence contributor | `src/timeline-serialization.h:9-40` | `src/timeline-serialization.cpp:4-121`, `src/timeline-model.cpp:9-181` |
+| Nested timeline contributor | `src/headless-timeline.h:11-48` | `src/headless-timeline.cpp:8-84`, `src/obs-executor.cpp:373-430` |
+| Release maintainer | `PACKAGING.md` | `docs/RELEASE_CHECKLIST.md`, `CMakePresets.json` |
+| Test contributor | `tests/AGENTS.md` | `tests/CMakeLists.txt:13-46`, `tests/main_test.cpp:56-841` |
 
 ## System boundary
 
@@ -87,11 +87,11 @@ implementing different OBS action semantics (`src/plugin-main.cpp:55-72`).
 
 ### External dependencies
 
-The build requires CMake, C++17, Qt6 Core/Gui/Widgets/Svg, and the OBS libraries
+The build requires CMake 3.28+, C++17, Qt6 Core/Gui/Widgets/Svg, and the OBS libraries
 discovered through `pkg-config` (`CMakeLists.txt:1-18`). WebSocket vendor support
 is optional. When `ENABLE_OBS_WEBSOCKET_VENDOR` is enabled and
 `obs-websocket-api.h` is found, CMake defines `OBS_TIMELINE_HAS_WEBSOCKET=1`;
-otherwise it compiles the integration out (`CMakeLists.txt:86-106`).
+otherwise it compiles the integration out (`CMakeLists.txt:86-105`).
 
 ## Module map
 
@@ -115,7 +115,7 @@ lifetime, and callback teardown must remain easy to trace.
 | `theme-helpers.h` | Theme-aware SVG paths and default colors | Qt palette and OBS theme widgets |
 | `timecode-display.cpp/.h` | Theme-aware playback clock | Qt custom widget |
 
-The source list is maintained manually in `CMakeLists.txt:27-62`. Adding a new
+The source list is maintained manually in `CMakeLists.txt:28-61`. Adding a new
 `.cpp` file requires adding it to `PLUGIN_SOURCES`; adding a header to
 `PLUGIN_HEADERS` keeps it visible to the target and IDEs.
 
@@ -130,23 +130,23 @@ their targets are destroyed.
 `obs_module_load()` logs startup, creates `TimelineDock`, registers it as the
 `timeline_dock` dock, creates `MacroStripDock`, registers it as
 `timeline_macro_strip`, and gives Macro Strip the Timeline dock's executor
-(`src/plugin-main.cpp:55-72`). `TimelineDock` constructs its model, scheduler,
+(`src/plugin-main.cpp:54-78`). `TimelineDock` constructs its model, scheduler,
 executor, UI, callbacks, hotkeys, and initial configuration in that order
-(`src/timeline-dock.cpp:49-97`).
+(`src/timeline-dock.cpp:49-96`).
 
 ### Post-load
 
 `obs_module_post_load()` registers the optional `timeline` WebSocket vendor and
 passes the vendor handle into the Timeline dock. It then loads Macro Strip data
-after the dock exists (`src/plugin-main.cpp:106-126`).
+after the dock exists (`src/plugin-main.cpp:105-125`).
 
 ### Unload
 
 `obs_module_unload()` unregisters the Macro Strip frontend and save callbacks,
 saves the Macro Strip, removes both docks, and schedules both widgets for Qt
-destruction (`src/plugin-main.cpp:82-104`). `TimelineDock::~TimelineDock()` saves
+destruction (`src/plugin-main.cpp:81-103`). `TimelineDock::~TimelineDock()` saves
 the timeline, removes its frontend callbacks, unregisters its hotkeys, and clears
-scene-owned ruler objects (`src/timeline-dock.cpp:99-111`).
+scene-owned ruler objects (`src/timeline-dock.cpp:98-112`).
 
 ### Frontend events
 
@@ -199,7 +199,7 @@ The executor interprets duration and instant events differently:
 | `TriggerTimeline` | Start nested file | No end action |
 
 The mapping is implemented in `ObsExecutor::performAction()`
-(`src/obs-executor.cpp:89-140`).
+(`src/obs-executor.cpp:110-162`).
 
 ### TimelineModel
 
@@ -225,19 +225,19 @@ Macro buttons are not scheduled. Clicking one creates a temporary
 
 The scheduler owns playback time, not OBS behavior. It uses a Qt timer with an
 8 ms target interval, approximately 125 Hz, to reduce timing quantization for
-fine BPM subdivisions (`src/timeline-scheduler.cpp:4-10`,
-`src/timeline-scheduler.h:47-58`).
+fine BPM subdivisions (`src/timeline-scheduler.cpp:4-9`,
+`src/timeline-scheduler.h:56`).
 
 ### Clock model
 
 `currentOffsetMs` stores the paused or stopped playhead position. `startTime`
 stores the wall-clock reference captured when playback resumes. While playing,
 `getCurrentTime()` returns `currentOffsetMs` plus elapsed high-resolution clock
-time (`src/timeline-scheduler.cpp:48-67`, `src/timeline-scheduler.cpp:131-139`).
+time (`src/timeline-scheduler.cpp:118-126`).
 
 This design means pause and resume preserve the playhead without accumulating
 timer drift. `stop()` preserves the current position; `restart()` stops the
-timer and seeks to zero (`src/timeline-scheduler.cpp:60-75`).
+timer and seeks to zero (`src/timeline-scheduler.cpp:54-78`).
 
 ### Start and end detection
 
@@ -272,7 +272,7 @@ the `looped()` signal so the dock can update its visual state in order.
 | `looped()` | `TimelineDock` | Persist or refresh loop state |
 
 The Timeline dock connects these signals during construction
-(`src/timeline-dock.cpp:60-64`). Headless timelines make the same scheduler to
+(`src/timeline-dock.cpp:59-63`). Headless timelines make the same scheduler to
 executor connections without a UI (`src/headless-timeline.cpp:8-21`).
 
 ## OBS executor
@@ -326,7 +326,7 @@ mutating the hotkey table while it is being enumerated.
 When compiled with WebSocket support and given a vendor handle, the executor
 emits `TimelineEvent` notifications on event start and end. The payload contains
 the event phase, numeric type, source name, and start time; it does not serialize
-the complete QVariant payload (`src/obs-executor.cpp:49-87`). Playback status
+the complete QVariant payload (`src/obs-executor.cpp:75-88`). Playback status
 notifications are emitted by the dock for started, paused, stopped, and finished
 states (`src/timeline-dock.cpp:1259-1308`). Authentication and transport access
 remain responsibilities of OBS WebSocket.
@@ -371,7 +371,7 @@ re-scheduled on mouse release (`src/timeline-dock.cpp:1231-1253`).
 
 `rebuildEventItems()` sorts indices by event time, assigns stack lanes, creates
 or updates `TimelineEventItem` objects keyed by event ID, removes stale items,
-and updates labels and tooltips (`src/timeline-dock.cpp:1874-2050`). The map is
+and updates labels and tooltips (`src/timeline-dock.cpp:1876-2057`). The map is
 keyed by UUID so multiple events at the same time remain distinct.
 
 ### Timeline interaction
@@ -488,10 +488,10 @@ or missing IDs are regenerated, and malformed files are renamed with a
 
 | Data | Path or API | Owner |
 | --- | --- | --- |
-| Installed binary | `${TIMELINE_PLUGIN_ROOT}/bin/64bit/timeline.so` on Linux | CMake install (`CMakeLists.txt:108-126`) |
-| Installed plugin data | `${TIMELINE_PLUGIN_ROOT}/data/` | CMake install (`CMakeLists.txt:118-130`) |
-| Timeline settings | `obs_module_get_config_path(..., "timeline.json")` | OBS module config API (`src/timeline-dock.cpp:221-253`) |
-| Macro buttons | `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` | Macro Strip (`src/macro-strip-dock.cpp:213-227`) |
+| Installed binary | `${TIMELINE_PLUGIN_ROOT}/bin/64bit/timeline.so` on Linux | CMake install (`CMakeLists.txt:122-129`) |
+| Installed plugin data | `${TIMELINE_PLUGIN_ROOT}/data/` | CMake install (`CMakeLists.txt:127-129`) |
+| Timeline settings | `obs_module_get_config_path(..., "timeline.json")` | OBS module config API (`src/timeline-dock.cpp:222-304`) |
+| Macro buttons | `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` | Macro Strip (`src/plugin-main.cpp:22-27`) |
 | Manual timeline export | User-selected JSON path | Timeline dock (`src/timeline-dock.cpp:1373-1395`) |
 
 ## Threading and ownership
@@ -530,14 +530,14 @@ The plugin favors warnings and safe no-ops over terminating the OBS process.
 
 | Failure | Current behavior | Evidence |
 | --- | --- | --- |
-| Timeline file missing | Create a default document directory/file | `src/timeline-dock.cpp:285-297` |
-| Timeline JSON malformed | Log a warning and leave the current load operation | `src/timeline-dock.cpp:260-272`, `src/timeline-serialization.cpp:106-126` |
+| Timeline file missing | Create a default document directory/file | `src/timeline-dock.cpp:284-296` |
+| Timeline JSON malformed | Log a warning and leave the current load operation | `src/timeline-dock.cpp:264-272`, `src/timeline-serialization.cpp:106-121` |
 | Scene/source/filter missing | Log a warning; continue scheduler operation | `src/obs-executor.cpp:221-334` |
-| Transition name missing | Log a warning and use the normal scene switch path | `src/obs-executor.cpp:175-185` |
-| Nested file missing or invalid | Schedule child deletion and log a warning | `src/obs-executor.cpp:397-422` |
-| Nested recursion | Reject the canonical path already active | `src/obs-executor.cpp:387-395` |
+| Transition name missing | Log a warning and use the normal scene switch path | `src/obs-executor.cpp:201-204` |
+| Nested file missing or invalid | Schedule child deletion and log a warning | `src/obs-executor.cpp:407-427` |
+| Nested recursion | Reject the canonical path already active | `src/obs-executor.cpp:396-401` |
 | Macro file malformed | Rename it to a timestamped `.broken-*` file | `src/macro-strip-dock.cpp:229-244` |
-| OBS exit during queued UI work | Queued work uses QObject context and teardown unregisters callbacks | `src/timeline-dock.cpp:99-111`, `src/timeline-dock.cpp:153-211` |
+| OBS exit during queued UI work | Queued work uses QObject context and teardown unregisters callbacks | `src/timeline-dock.cpp:98-112`, `src/timeline-dock.cpp:153-211` |
 
 Persistence uses `QSaveFile`, which guarantees atomic commits on all supported
 platforms. If the write or finalization fails, the original file is left
@@ -587,50 +587,52 @@ render callback.
 ## Deployment architecture
 
 The plugin builds as a CMake `MODULE` named `timeline` with no `lib` prefix and
-links Qt6 and OBS libraries (`CMakeLists.txt:64-84`). CMake installs the module
+links Qt6 and OBS libraries (`CMakeLists.txt:64-76`). CMake installs the module
 and `data/` directory under the configured plugin root
-(`CMakeLists.txt:108-130`).
+(`CMakeLists.txt:107-129`).
 
 The default Linux workflow uses Ninja, RelWithDebInfo, and CTest
 (`.github/workflows/linux-build.yml:15-33`). The repository also defines CMake
-presets for Ubuntu, macOS, and Windows, but the current public preview and CI
-workflow documented for contributors is Linux source build
-(`CMakePresets.json:18-100`, `README.md:101-129`).
+presets for Ubuntu, macOS, and Windows
+(`CMakePresets.json:1-117`, `README.md:102-136`). The `ubuntu-ci-x86_64` preset
+adds ccache and warnings-as-errors for CI builds.
 
 ### Build switches
 
 | Switch | Default | Effect |
 | --- | --- | --- |
-| `CMAKE_CXX_STANDARD` | `17` | Required language standard |
-| `ENABLE_OBS_WEBSOCKET_VENDOR` | `ON` | Attempt optional vendor-header integration |
-| `TIMELINE_PLUGIN_ROOT` | `$HOME/.config/obs-studio/plugins/timeline` | Root for installed binary and data |
-| `OBS_PLUGIN_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/bin/64bit` | Installed module directory |
-| `OBS_DATA_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/data` | Installed data directory |
+| `CMAKE_CXX_STANDARD` | `17` (set in `CMakeLists.txt:11-12`) | Required language standard |
+| `ENABLE_OBS_WEBSOCKET_VENDOR` | `ON` | Attempt optional vendor-header integration (`CMakeLists.txt:8`) |
+| `TIMELINE_PLUGIN_ROOT` | `$HOME/.config/obs-studio/plugins/timeline` | Root for installed binary and data (`CMakeLists.txt:107-109`) |
+| `OBS_PLUGIN_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/bin/64bit` | Installed module directory (`CMakeLists.txt:112-114`) |
+| `OBS_DATA_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/data` | Installed data directory (`CMakeLists.txt:117-119`) |
 
-The test target compiles the executor, headless timeline, scheduler, model,
-event item, serialization, macro, and editor sources with mocked frontend and
-WebSocket functions (`tests/CMakeLists.txt:13-46`).
+Additional preset options are available in `CMakePresets.json`. The test target
+compiles the executor, headless timeline, scheduler, model, event item,
+serialization, macro, and editor sources with mocked frontend and WebSocket
+functions (`tests/CMakeLists.txt:13-46`).
 
 ## Testing strategy
 
 Tests run through Qt Test with an offscreen platform and a headless OpenGL
-context for OBS startup (`tests/main_test.cpp:50-87`). The suite covers executor
+context for OBS startup (`tests/main_test.cpp:55-87`). The suite covers executor
 dispatch, model operations, scheduler signals and loops, serialization,
 graphics-item behavior, Macro Strip behavior, and dock layout checks
-(`tests/main_test.cpp:231-789`).
+(`tests/main_test.cpp:231-841`). Memory leaks are asserted at `< 4` residual
+OBS internal allocations (`tests/main_test.cpp:225-228`).
 
 Run the full suite from a configured build:
 
 ```bash
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake --build --preset ubuntu-x86_64
+ctest --test-dir build_x86_64 --output-on-failure
 ```
 
 Run an individual QTest function when narrowing a regression:
 
 ```bash
-build/tests/run_tests testSceneSwitch
-build/tests/run_tests testSchedulerStartCursorResets
+build_x86_64/tests/run_tests testSceneSwitch
+build_x86_64/tests/run_tests testSchedulerStartCursorResets
 ```
 
 The test doubles are intentionally incomplete OBS source implementations. They
@@ -682,8 +684,8 @@ When adding a new event type, update all of the following surfaces together:
 2. Add an editor option and target discovery path in
    `src/event-editor.cpp:44-53` and `src/event-editor.cpp:193-355`.
 3. Define start/end semantics in `ObsExecutor::performAction()` at
-   `src/obs-executor.cpp:89-140`.
-4. Add the event icon and default color in `src/theme-helpers.h:283-361`.
+   `src/obs-executor.cpp:110-162`.
+4. Add the event icon and default color in `src/theme-helpers.h:283-356`.
 5. Add display text and tooltip handling in
    `src/timeline-dock.cpp:1966-2018`.
 6. Confirm JSON enum validation accepts the value in
@@ -731,7 +733,7 @@ or object document, and that its canonical path is not already active
 
 The test harness creates an offscreen surface and OpenGL context before OBS
 startup, but test-harness shutdown can still emit graphics-context warnings in some
-environments (`tests/main_test.cpp:65-87`, `tests/AGENTS.md:27-30`). Treat test
+environments (`tests/main_test.cpp:69-87`, `tests/AGENTS.md:27-30`). Treat test
 failures separately from known shutdown warnings.
 
 ## Glossary
@@ -758,6 +760,7 @@ provide procedures and local conventions:
 - `README.md` — user-facing features, installation, and usage.
 - `PACKAGING.md` — configure, build, install, and smoke validation.
 - `docs/RELEASE_CHECKLIST.md` — release acceptance checks.
+- `CMakePresets.json` — declarative build presets for all platforms.
 - `AGENTS.md` — repository-wide engineering and safety constraints.
 - `src/AGENTS.md` — UI, OBS ownership, and callback rules.
 - `tests/AGENTS.md` — test target structure and test-double limitations.
