@@ -21,7 +21,6 @@ public slots:
 	void stop();
 	void restart();
 	void pause();
-	void resume();
 	void seek(double timeMs);
 
 	// End time and looping

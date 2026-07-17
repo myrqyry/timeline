@@ -2,7 +2,6 @@
 #include <obs-module.h>
 
 #include <QGraphicsLineItem>
-#include <QGraphicsPolygonItem>
 #include <QGraphicsRectItem>
 #include <QResizeEvent>
 #include <obs-frontend-api.h>
@@ -378,7 +377,6 @@ void TimelineDock::setupUi()
 	};
 	settingsSeparator = createSeparator();
 	playbackSeparator = createSeparator();
-	timeSeparator = createSeparator();
 	zoomSeparator = createSeparator();
 	addSeparator = createSeparator();
 	modeSeparator = createSeparator();
@@ -1090,7 +1088,7 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				QMenu menu(this);
 				QAction *addAction = menu.addAction("Add Event Here");
 				connect(addAction, &QAction::triggered,
-					[this, clickedTimeMs]() { addEventAtTime(clickedTimeMs); });
+					[this, clickedTimeMs]() { placeNewEvent(clickedTimeMs); });
 				menu.exec(ctxEvent->globalPos());
 				return true;
 			}
@@ -1828,11 +1826,6 @@ void TimelineDock::placeNewEvent(double timeMs)
 void TimelineDock::onAddEventClicked()
 {
 	placeNewEvent(scheduler ? scheduler->getCurrentTime() : 0.0);
-}
-
-void TimelineDock::addEventAtTime(double timeMs)
-{
-	placeNewEvent(timeMs);
 }
 
 void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &eventId)

@@ -34,11 +34,8 @@ void obs_frontend_get_transitions(struct obs_frontend_source_list *source_list)
 	}
 }
 
-// obs_frontend_source_list_free is defined inline in the header in some versions or we are seeing it being pulled in?
-// The error says "previously defined here".
-// If it's inline in the header, we don't need to define it.
-// We just need to make sure our mock implementation of obs_frontend_get_transitions sets up the struct correctly.
-// The header version uses da_free which uses bfree.
+// obs_frontend_source_list_free is inline in the OBS header (da_free via bfree).
+// Our mock only sets up the struct; the caller frees via the inline header function.
 
 obs_source_t *obs_frontend_get_current_scene(void)
 {

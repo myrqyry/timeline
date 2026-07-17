@@ -49,13 +49,6 @@ void MacroButtonWidget::rebuildRenderer()
 	}
 }
 
-void MacroButtonWidget::refreshIcon(const QString &colorName)
-{
-	Q_UNUSED(colorName);
-	rebuildRenderer();
-	update();
-}
-
 void MacroButtonWidget::setPressedAppearance(bool pressed)
 {
 	m_isPressed = pressed;

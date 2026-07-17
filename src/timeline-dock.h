@@ -4,7 +4,6 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QPushButton>
-#include <QToolButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -12,10 +11,8 @@
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QHash>
-#include <QSet>
 #include <QFrame>
 #include <QPixmap>
-#include <map>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "obs-executor.h"
@@ -64,7 +61,6 @@ private slots:
 	void onStopClicked();
 	void onTick(double currentTimeMs);
 	void onAddEventClicked();
-	void addEventAtTime(double timeMs);
 	void onEventDoubleClicked(TimelineEventItem *item, const QString &eventId);
 	void onLoopToggled(bool checked);
 	void onEndTimeChanged(double value);
@@ -145,7 +141,6 @@ private:
 	QWidget *zoomToggleContainer = nullptr;
 	QFrame *settingsSeparator = nullptr;
 	QFrame *playbackSeparator = nullptr;
-	QFrame *timeSeparator = nullptr;
 	QFrame *zoomSeparator = nullptr;
 	QFrame *addSeparator = nullptr;
 	QFrame *modeSeparator = nullptr;

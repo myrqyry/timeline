@@ -27,11 +27,6 @@ HeadlessTimeline::~HeadlessTimeline()
 	stop();
 }
 
-void HeadlessTimeline::load(const QJsonArray &json)
-{
-	model->fromJson(json);
-}
-
 bool HeadlessTimeline::loadFromFile(const QString &filePath)
 {
 	currentPath = filePath;

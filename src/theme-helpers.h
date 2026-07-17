@@ -8,7 +8,7 @@
 #include <obs-frontend-api.h>
 #include "event-types.h"
 
-// Material Design Icons paths (filled)
+// IconaMoon Bold icon paths
 namespace ThemeIcons {
 
 // Returns the color OBS uses for the lowest audio level (meter green),
@@ -274,11 +274,6 @@ inline QByteArray getMoonNumberSvg(int digit, const QString &color)
 	return wrapIconMoon(inners[digit], color);
 }
 
-// Mode toggle icons (keep old filled for now, or we can swap to moon versions too)
-inline const char *PATH_CLOCK =
-	"<path d=\"M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z\"/>";
-inline const char *PATH_MUSIC_NOTE =
-	"<path d=\"M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z\"/>";
 
 inline QByteArray getIconSvg(TimelineEventType type, const QString &color = "white")
 {

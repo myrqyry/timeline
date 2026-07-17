@@ -1,5 +1,6 @@
 #include "timeline-model.h"
 #include "theme-helpers.h"
+#include <QJsonObject>
 #include <obs-module.h>
 
 TimelineModel::TimelineModel(QObject *parent) : QObject(parent) {

@@ -49,7 +49,6 @@ set(PLUGIN_HEADERS
     src/obs-executor.h
     src/event-types.h
     src/timeline-event-item.h
-    src/timeline-hit-testing.h
     src/theme-helpers.h
     src/headless-timeline.h
     src/timeline-serialization.h

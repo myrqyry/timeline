@@ -6,9 +6,8 @@
 #include <optional>
 #include "event-types.h"
 
-#include <QVariant>
 #include <QJsonArray>
-#include <QJsonObject>
+
 
 class TimelineModel : public QObject {
     Q_OBJECT

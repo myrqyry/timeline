@@ -5,7 +5,6 @@
 #include <QAction>
 #include <QPointer>
 #include <QFile>
-#include <QDateTime>
 #include <QDir>
 #include "timeline-dock.h"
 #include "macro-strip-dock.h"

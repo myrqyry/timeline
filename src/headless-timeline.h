@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QObject>
-#include <QJsonArray>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 
@@ -25,9 +24,6 @@ class HeadlessTimeline : public QObject {
 public:
 	explicit HeadlessTimeline(QObject *parent = nullptr);
 	~HeadlessTimeline();
-
-	// Load timeline from JSON array
-	void load(const QJsonArray &json);
 
 	// Load from file path (returns false if failed)
 	bool loadFromFile(const QString &filePath);

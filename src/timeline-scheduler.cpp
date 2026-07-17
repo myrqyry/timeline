@@ -82,13 +82,6 @@ void TimelineScheduler::pause()
 	blog(LOG_INFO, "[Timeline] Playback paused at %.1f ms", currentOffsetMs);
 }
 
-void TimelineScheduler::resume()
-{
-	// start() will continue from currentOffsetMs
-	start();
-	blog(LOG_INFO, "[Timeline] Playback resumed");
-}
-
 void TimelineScheduler::seek(double timeMs)
 {
 	currentOffsetMs = timeMs;
