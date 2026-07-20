@@ -1561,7 +1561,6 @@ void TimelineDock::copySelectedEvents()
 {
 	clipboard.clear();
 
-	// Find selected items
 	QList<TimelineEventItem *> selectedItems;
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item && item->isSelected()) {
@@ -1572,7 +1571,6 @@ void TimelineDock::copySelectedEvents()
 	if (selectedItems.isEmpty())
 		return;
 
-	// Get corresponding events from model
 	for (TimelineEventItem *item : selectedItems) {
 		auto evt = model->findEventById(item->getEventId());
 		if (evt) {
@@ -1665,7 +1663,6 @@ void TimelineDock::drawGrid()
 	cachedAlternatingBg = alternatingBg;
 	cachedGridSceneHeight = sceneHeight;
 
-	// Clear existing grid
 	for (QGraphicsItem *item : gridItems) {
 		scene->removeItem(item);
 		delete item;
@@ -2039,7 +2036,6 @@ void TimelineDock::rebuildEventItems()
 		item->setShowLabel(evt.showLabel);
 	}
 
-	// Remove items no longer in the model
 	auto it = eventItemMap.begin();
 	while (it != eventItemMap.end()) {
 		if (!currentIds.contains(it.key())) {
