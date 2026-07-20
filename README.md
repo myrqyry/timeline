@@ -29,7 +29,8 @@ reserved model value and is not exposed in the UI
 
 ### Timeline editing
 
-- Add an event at the playhead or at a context-menu position.
+- Add an event at the playhead, a context-menu position, or an empty-area
+  double-click position.
 - Drag event bubbles with optional time or BPM snapping.
 - Edit event type, target, color, custom SVG icon, duration, and label.
 - Stack events whose bubbles would overlap visually.
@@ -143,8 +144,9 @@ cmake --build --preset ubuntu-x86_64
 Use the following workflow to create and test a timeline in OBS.
 
 1. Open **View > Docks > Timeline**.
-2. Click **Add Event** to place an event at the playhead, or right-click empty
-   timeline space and choose **Add Event Here**.
+2. Click **Add Event** to place an event at the playhead, double-click empty
+   timeline space, or right-click empty timeline space and choose **Add Event
+   Here**.
 3. Select the event type and target in the editor.
 4. Configure an optional duration, color, custom icon, or display label.
 5. Drag the event to refine its position, or enable snapping in the toolbar.

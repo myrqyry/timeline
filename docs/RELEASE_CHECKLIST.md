@@ -10,7 +10,7 @@ Use this checklist before tagging a release.
 
 ## Automated Tests
 
-- [ ] Run the test suite: `ctest --test-dir build --output-on-failure`
+- [ ] Run the test suite: `ctest --test-dir build_x86_64 --output-on-failure`
 - [ ] Run a focused test when diagnosing a regression:
   `build_x86_64/tests/run_tests testSceneSwitch`
 

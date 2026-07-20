@@ -29,9 +29,8 @@ OBS loads the module
 
 The plugin is currently a source-built Linux preview. CMake declares project
 version `0.1.0` in `CMakeLists.txt:3`; the repository release state is
-`v0.1.0-preview.1`. The module banner currently contains a hard-coded `1.0.0`
-string in `src/plugin-main.cpp:54-58`, so that log message is not authoritative
-for release identity.
+`v0.1.0-preview.1`. The module banner reports load status but does not duplicate
+the release version.
 
 ## Audience and reading paths
 

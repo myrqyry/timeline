@@ -54,7 +54,7 @@ static void macroStripFrontendEvent(enum obs_frontend_event event, void *private
 bool obs_module_load(void)
 {
 	blog(LOG_INFO, "[Timeline] ╔══════════════════════════════════════╗");
-	blog(LOG_INFO, "[Timeline] ║  Timeline for OBS v1.0.0              ║");
+	blog(LOG_INFO, "[Timeline] ║  Timeline for OBS                    ║");
 	blog(LOG_INFO, "[Timeline] ╚══════════════════════════════════════╝");
 
 	g_timelineDock = new TimelineDock();
@@ -73,7 +73,7 @@ bool obs_module_load(void)
 	blog(LOG_INFO, "[Timeline] Runtime status:");
 	blog(LOG_INFO, "[Timeline]  ├─ Timeline Dock    : registered");
 	blog(LOG_INFO, "[Timeline]  ├─ Macro Strip Dock : registered");
-	blog(LOG_INFO, "[Timeline]  └─ Version          : 1.0.0");
+	blog(LOG_INFO, "[Timeline]  └─ Status           : loaded");
 
 	return true;
 }

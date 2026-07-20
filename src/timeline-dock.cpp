@@ -688,10 +688,10 @@ void TimelineDock::setupUi()
 		}
 		onPlayClicked();
 	});
-	new QShortcut(QKeySequence(Qt::Key_Delete), this, SLOT(deleteSelectedEvents()));
+	new QShortcut(QKeySequence(Qt::Key_Delete), this, [this]() { deleteSelectedEvents(); });
 	new QShortcut(QKeySequence(Qt::Key_Home), this, [this]() { scheduler->seek(0); });
-	new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this, SLOT(copySelectedEvents()));
-	new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_V), this, SLOT(pasteEvents()));
+	new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this, [this]() { copySelectedEvents(); });
+	new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_V), this, [this]() { pasteEvents(); });
 
 	// Initial layout
 	blog(LOG_INFO, "[Timeline] ├─ UI layout initialized");
@@ -707,8 +707,9 @@ void TimelineDock::updateControlsLayout()
 
 	struct UpdatesGuard {
 		QWidget *widget;
-		~UpdatesGuard() { widget->setUpdatesEnabled(true); }
-	} updatesGuard{this};
+		bool updatesEnabled;
+		~UpdatesGuard() { widget->setUpdatesEnabled(updatesEnabled); }
+	} updatesGuard{this, updatesEnabled()};
 	setUpdatesEnabled(false); // Prevent flicker from hide/show cycle
 
 	// Clear layout (but don't delete widgets!)
@@ -1175,6 +1176,23 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			}
 		}
 
+		if (event->type() == QEvent::MouseButtonDblClick) {
+			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+			if (mouseEvent->button() == Qt::LeftButton) {
+				const QPointF scenePos = view->mapToScene(mouseEvent->pos());
+				const QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
+				const bool onItem =
+					std::any_of(itemsAt.cbegin(), itemsAt.cend(), [](QGraphicsItem *item) {
+						return item && (item->flags() & QGraphicsItem::ItemIsMovable);
+					});
+				if (!onItem) {
+					double clickedTimeMs = (scenePos.x() / pixelsPerSecond) * 1000.0;
+					placeNewEvent(std::max(0.0, clickedTimeMs));
+					return true;
+				}
+			}
+		}
+
 		if (event->type() == QEvent::MouseMove) {
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			QPointF scenePos = view->mapToScene(mouseEvent->pos());
@@ -1475,7 +1493,8 @@ void TimelineDock::updateEndMarker()
 	endMarkerGrabHandle->setVisible(true);
 
 	// Dimming overlay — create once, resize thereafter
-	double sceneW = std::max(scene->width(), x + 20000.0);
+	const QRectF sceneRect = scene->sceneRect();
+	double sceneW = std::max(sceneRect.right(), x);
 	if (!postEndOverlay) {
 		QColor dimColor = Qt::black;
 		dimColor.setAlpha(120);
