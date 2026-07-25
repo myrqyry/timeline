@@ -61,6 +61,18 @@ bool HeadlessTimeline::loadFromFile(const QString &filePath)
 		return false;
 	}
 
+	// Fallback: if no non-zero endTime was set, compute one from the event data
+	// to prevent infinite background ticking (legacy bare-array files, missing settings, etc.)
+	if (scheduler->getEndTime() <= 0.0) {
+		double maxTimeMs = 0.0;
+		for (const auto &evt : model->getEvents()) {
+			double evtEnd = evt.timeMs + (evt.hasDuration ? evt.durationMs : 0.0);
+			if (evtEnd > maxTimeMs)
+				maxTimeMs = evtEnd;
+		}
+		scheduler->setEndTime(maxTimeMs > 0.0 ? maxTimeMs + 100.0 : 100.0);
+	}
+
 	blog(LOG_INFO, "[Timeline] Headless timeline loaded: %s", filePath.toUtf8().constData());
 	return true;
 }

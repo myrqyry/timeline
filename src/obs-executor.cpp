@@ -17,7 +17,7 @@ ObsExecutor::ObsExecutor(QObject *parent) : QObject(parent)
 
 ObsExecutor::~ObsExecutor()
 {
-	cancelRestoreTimer();
+	cancelAll();
 	blog(LOG_INFO, "[Timeline] Executor destroyed");
 }
 
