@@ -8,6 +8,9 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        obsCompatibility: [obs31, obs32]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,15 +22,15 @@ jobs:
             cmake \
             ninja-build \
             pkg-config \
+            zsh \
             qt6-base-dev \
             qt6-svg-dev \
             libobs-dev
 
       - name: Configure
-        run: cmake --preset ubuntu-ci-x86_64
-
-      - name: Build
-        run: cmake --build --preset ubuntu-ci-x86_64
+        env:
+          TIMELINE_OBS_COMPATIBILITY: ${{ matrix.obsCompatibility }}
+        run: .github/scripts/build-ubuntu --target ubuntu-x86_64 --config RelWithDebInfo
 
       - name: Test
         run: ctest --test-dir build_x86_64 --output-on-failure --verbose

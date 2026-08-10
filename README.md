@@ -18,7 +18,8 @@ The current repository release state is `v0.1.0-preview.1`. The plugin builds
 from source and installs locally; packaged releases are not available yet.
 
 The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. The
-primary CI workflow builds and tests on Linux
+plugin provides separate artifacts for OBS Studio 31.1.2 and 32.2.1. The
+primary CI workflow builds and tests both targets on Linux
 (`.github/workflows/linux-build.yml:9-33`).
 
 ## Features
@@ -102,19 +103,32 @@ The exact CI dependency list is in `.github/workflows/linux-build.yml:15-24`.
 
 ### Build and install
 
+Select the OBS major version before configuring. Each compatibility target uses
+its own OBS headers and libraries, so don't reuse a build directory when
+switching targets.
+
 Run these commands from the repository root:
 
 ```bash
 # Using CMake presets (recommended):
-cmake --preset ubuntu-x86_64
+cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32
 cmake --build --preset ubuntu-x86_64
 cmake --install build_x86_64
 
 # Or without presets:
-cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DTIMELINE_OBS_COMPATIBILITY=obs32
 cmake --build build
 cmake --install build
 ```
+
+Use `obs31` instead of `obs32` to build the OBS 31 artifact. CI enables
+`TIMELINE_BUILD_OBS_FROM_SOURCE=ON` to build the selected OBS SDK from its
+pinned source archive. Local builds use the installed OBS SDK by default and
+fail if its major version doesn't match the selected target.
+
+OBS 31 artifacts support macOS 12 and newer. OBS 32 artifacts require macOS 13
+or newer because OBS 32.2.1 uses a Qt version that no longer supports macOS 12.
 
 The default Linux install locations are:
 

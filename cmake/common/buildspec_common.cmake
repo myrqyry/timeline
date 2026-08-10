@@ -60,6 +60,9 @@ function(_setup_obs_studio)
     set(_cmake_generator "Xcode")
     set(_cmake_arch "-DCMAKE_OSX_ARCHITECTURES:STRING='arm64;x86_64'")
     set(_cmake_extra "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+  elseif(OS_LINUX)
+    set(_cmake_generator "Ninja")
+    set(_cmake_extra "-DCMAKE_BUILD_TYPE=Release")
   endif()
 
   message(STATUS "Configure ${label} (${arch})")
@@ -124,10 +127,14 @@ function(_check_dependencies)
 
   foreach(dependency IN LISTS dependencies_list)
     string(JSON data GET ${dependency_data} ${dependency})
-    string(JSON version GET ${data} version)
-    string(JSON hash GET ${data} hashes ${platform})
     string(JSON url GET ${data} baseUrl)
     string(JSON label GET ${data} label)
+    string(JSON target_type ERROR_VARIABLE target_error TYPE ${data} targets)
+    if(NOT target_error)
+      string(JSON data GET ${data} targets ${OBS_COMPATIBILITY_TARGET})
+    endif()
+    string(JSON version GET ${data} version)
+    string(JSON hash GET ${data} hashes ${platform})
     string(JSON revision ERROR_VARIABLE error GET ${data} revision ${platform})
 
     message(STATUS "Setting up ${label} (${arch})")
@@ -146,10 +153,13 @@ function(_check_dependencies)
       string(REPLACE "-REVISION" "" file "${file}")
     endif()
 
-    if(EXISTS "${dependencies_dir}/.dependency_${dependency}_${arch}.sha256")
+    set(dependency_hash_file
+      "${dependencies_dir}/.dependency_${dependency}_${arch}_${OBS_COMPATIBILITY_TARGET}.sha256"
+    )
+    if(EXISTS "${dependency_hash_file}")
       file(
         READ
-        "${dependencies_dir}/.dependency_${dependency}_${arch}.sha256"
+        "${dependency_hash_file}"
         OBS_DEPENDENCY_${dependency}_${arch}_HASH
       )
     endif()
@@ -176,7 +186,15 @@ function(_check_dependencies)
       set(url ${url}/${version}/${file})
     endif()
 
-    if(NOT EXISTS "${dependencies_dir}/${file}")
+    set(download_required TRUE)
+    if(EXISTS "${dependencies_dir}/${file}")
+      file(SHA256 "${dependencies_dir}/${file}" existing_file_hash)
+      if(existing_file_hash STREQUAL hash)
+        set(download_required FALSE)
+      endif()
+    endif()
+
+    if(download_required)
       message(STATUS "Downloading ${url}")
       file(DOWNLOAD "${url}" "${dependencies_dir}/${file}" STATUS download_status EXPECTED_HASH SHA256=${hash})
 
@@ -195,7 +213,7 @@ function(_check_dependencies)
       file(REMOVE_RECURSE "${dependencies_dir}/${destination}")
     endif()
 
-    if(NOT EXISTS "${dependencies_dir}/${destination}")
+    if(NOT EXISTS "${dependencies_dir}/${destination}/CMakeLists.txt")
       file(MAKE_DIRECTORY "${dependencies_dir}/${destination}")
       if(dependency STREQUAL obs-studio)
         file(ARCHIVE_EXTRACT INPUT "${dependencies_dir}/${file}" DESTINATION "${dependencies_dir}")
@@ -204,7 +222,7 @@ function(_check_dependencies)
       endif()
     endif()
 
-    file(WRITE "${dependencies_dir}/.dependency_${dependency}_${arch}.sha256" "${hash}")
+    file(WRITE "${dependency_hash_file}" "${hash}")
 
     if(dependency STREQUAL prebuilt)
       list(APPEND CMAKE_PREFIX_PATH "${dependencies_dir}/${destination}")

@@ -3,7 +3,9 @@ param(
     [ValidateSet('x64')]
     [string] $Target = 'x64',
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release', 'MinSizeRel')]
-    [string] $Configuration = 'RelWithDebInfo'
+    [string] $Configuration = 'RelWithDebInfo',
+    [ValidateSet('obs31', 'obs32')]
+    [string] $ObsCompatibility = 'obs32'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,7 +49,7 @@ function Package {
     $ProductName = $BuildSpec.name
     $ProductVersion = $BuildSpec.version
 
-    $OutputName = "${ProductName}-${ProductVersion}-windows-${Target}"
+    $OutputName = "${ProductName}-${ProductVersion}-${ObsCompatibility}-windows-${Target}"
 
     $RemoveArgs = @{
         ErrorAction = 'SilentlyContinue'

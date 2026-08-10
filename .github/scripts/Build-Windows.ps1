@@ -3,7 +3,9 @@ param(
     [ValidateSet('x64')]
     [string] $Target = 'x64',
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release', 'MinSizeRel')]
-    [string] $Configuration = 'RelWithDebInfo'
+    [string] $Configuration = 'RelWithDebInfo',
+    [ValidateSet('obs31', 'obs32')]
+    [string] $ObsCompatibility = 'obs32'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,7 +49,7 @@ function Build {
     Push-Location -Stack BuildTemp
     Ensure-Location $ProjectRoot
 
-    $CmakeArgs = @('--preset', "windows-ci-${Target}")
+    $CmakeArgs = @('--fresh', '--preset', "windows-ci-${Target}", "-DTIMELINE_OBS_COMPATIBILITY=${ObsCompatibility}")
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 

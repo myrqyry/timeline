@@ -86,11 +86,15 @@ implementing different OBS action semantics (`src/plugin-main.cpp:55-72`).
 
 ### External dependencies
 
-The build requires CMake 3.28+, C++17, Qt6 Core/Gui/Widgets/Svg, and the OBS libraries
-discovered through `pkg-config` (`CMakeLists.txt:1-18`). WebSocket vendor support
-is optional. When `ENABLE_OBS_WEBSOCKET_VENDOR` is enabled and
-`obs-websocket-api.h` is found, CMake defines `OBS_TIMELINE_HAS_WEBSOCKET=1`;
-otherwise it compiles the integration out (`CMakeLists.txt:86-105`).
+The build requires CMake 3.28+, C++17, Qt6 Core/Gui/Widgets/Svg, and the OBS
+libraries exposed through the official OBS plugin-template CMake targets
+(`CMakeLists.txt:1-35`). Select `obs31` or `obs32` with
+`TIMELINE_OBS_COMPATIBILITY`; the selected target is pinned to OBS 31.1.2 or
+OBS 32.2.1 in `buildspec.json`. CI can build that SDK from source with
+`TIMELINE_BUILD_OBS_FROM_SOURCE=ON`. WebSocket vendor support is optional. When
+`ENABLE_OBS_WEBSOCKET_VENDOR` is enabled and `obs-websocket-api.h` is found,
+CMake defines `OBS_TIMELINE_HAS_WEBSOCKET=1`; otherwise it compiles the
+integration out (`CMakeLists.txt:86-105`).
 
 ## Module map
 

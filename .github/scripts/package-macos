@@ -97,7 +97,7 @@ package() {
   read -r product_name product_version <<< \
     "$(jq -r '. | {name, version} | join(" ")' ${buildspec_file})"
 
-  local output_name="${product_name}-${product_version}-${host_os}-universal"
+  local output_name="${product_name}-${product_version}-${TIMELINE_OBS_COMPATIBILITY:-obs32}-${host_os}-universal"
 
   if [[ ! -d ${project_root}/release/${config}/${product_name}.plugin ]] {
     log_error 'No release artifact found. Run the build script or the CMake install procedure first.'

@@ -28,6 +28,7 @@ static QString macroDataPath()
 
 static void macroStripSaveCallback(obs_data_t *save_data, bool saving, void *private_data)
 {
+	(void)private_data;
 	if (!g_macroStripDock)
 		return;
 	if (saving) {
@@ -47,6 +48,7 @@ static void macroStripSaveCallback(obs_data_t *save_data, bool saving, void *pri
 
 static void macroStripFrontendEvent(enum obs_frontend_event event, void *private_data)
 {
+	(void)private_data;
 	if (g_macroStripDock)
 		g_macroStripDock->onFrontendEvent(event);
 }

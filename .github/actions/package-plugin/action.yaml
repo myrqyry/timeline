@@ -44,6 +44,10 @@ inputs:
     description: Working directory for packaging
     required: false
     default: ${{ github.workspace }}
+  obsCompatibility:
+    description: OBS compatibility target (obs31 or obs32)
+    required: false
+    default: obs32
 runs:
   using: composite
   steps:
@@ -57,6 +61,7 @@ runs:
         CODESIGN_TEAM: ${{ inputs.codesignTeam }}
         CODESIGN_IDENT_USER: ${{ inputs.codesignUser }}
         CODESIGN_IDENT_PASS: ${{ inputs.codesignPass }}
+        TIMELINE_OBS_COMPATIBILITY: ${{ inputs.obsCompatibility }}
       run: |
         : Run macOS Packaging
 
@@ -90,6 +95,7 @@ runs:
           --target ubuntu-${{ inputs.target }}
           --config ${{ inputs.config }}
         )
+        export TIMELINE_OBS_COMPATIBILITY='${{ inputs.obsCompatibility }}'
         if (( ${+RUNNER_DEBUG} )) build_args+=(--debug)
 
         if [[ '${{ inputs.package }}' == 'true' ]] package_args+=(--package)
@@ -108,6 +114,7 @@ runs:
         $PackageArgs = @{
           Target = '${{ inputs.target }}'
           Configuration = '${{ inputs.config }}'
+          ObsCompatibility = '${{ inputs.obsCompatibility }}'
         }
 
         .github/scripts/Package-Windows.ps1 @PackageArgs

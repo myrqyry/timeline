@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <obs-frontend-api.h>
 #include <obs.h>
+#include "obs-compatibility.h"
 #include "event-types.h"
 #include <vector>
 

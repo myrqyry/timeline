@@ -1,21 +1,35 @@
 cmake_minimum_required(VERSION 3.28...3.30)
 
-project(timeline VERSION 0.1.0)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCOPE)
+
+project(${_name} VERSION ${_version})
 
 # OBS expects plugin .so without 'lib' prefix
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
 option(ENABLE_OBS_WEBSOCKET_VENDOR "Enable obs-websocket vendor integration" ON)
+option(TIMELINE_BUILD_OBS_FROM_SOURCE
+    "Build the selected OBS compatibility target from source" OFF
+)
+
+if(TIMELINE_OBS_COMPATIBILITY STREQUAL "obs31")
+    set(TIMELINE_EXPECTED_OBS_MAJOR 31)
+else()
+    set(TIMELINE_EXPECTED_OBS_MAJOR 32)
+endif()
 
 # C++ Standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find packages
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg)
+# Match the official OBS plugin template's platform setup and imported targets.
+include(compilerconfig)
+include(defaults)
+include(helpers)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(OBS REQUIRED libobs obs-frontend-api)
+find_package(libobs REQUIRED)
+find_package(obs-frontend-api REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg)
 
 # Auto-generate Qt MOC files
 set(CMAKE_AUTOMOC ON)
@@ -47,6 +61,7 @@ set(PLUGIN_HEADERS
     src/timeline-model.h
     src/timeline-scheduler.h
     src/obs-executor.h
+    src/obs-compatibility.h
     src/event-types.h
     src/timeline-event-item.h
     src/theme-helpers.h
@@ -72,14 +87,16 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 # Link libraries
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
-    ${OBS_LIBRARIES} Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg
+    OBS::libobs OBS::obs-frontend-api Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg
 )
 
 # Include directories
 target_include_directories(${PROJECT_NAME} 
     PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${OBS_INCLUDE_DIRS}
+)
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    TIMELINE_EXPECTED_OBS_MAJOR=${TIMELINE_EXPECTED_OBS_MAJOR}
 )
 
 # Optional obs-websocket vendor integration

@@ -113,6 +113,7 @@ TimelineDock::~TimelineDock()
 
 void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *private_data)
 {
+	(void)save_data;
 	TimelineDock *dock = static_cast<TimelineDock *>(private_data);
 	if (saving) {
 		QMetaObject::invokeMethod(dock, &TimelineDock::save, Qt::QueuedConnection);
@@ -129,6 +130,8 @@ void TimelineDock::setObsWebSocketVendor(void *vendor)
 
 void TimelineDock::hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
 {
+	(void)id;
+	(void)hotkey;
 	if (!pressed)
 		return;
 	TimelineDock *dock = static_cast<TimelineDock *>(data);
@@ -137,6 +140,8 @@ void TimelineDock::hotkeyPlayPause(void *data, obs_hotkey_id id, obs_hotkey_t *h
 
 void TimelineDock::hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
 {
+	(void)id;
+	(void)hotkey;
 	if (!pressed)
 		return;
 	TimelineDock *dock = static_cast<TimelineDock *>(data);
@@ -145,6 +150,8 @@ void TimelineDock::hotkeyStop(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey
 
 void TimelineDock::hotkeyRestart(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
 {
+	(void)id;
+	(void)hotkey;
 	if (!pressed)
 		return;
 	TimelineDock *dock = static_cast<TimelineDock *>(data);

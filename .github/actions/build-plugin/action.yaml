@@ -24,6 +24,10 @@ inputs:
     description: Working directory for packaging
     required: false
     default: ${{ github.workspace }}
+  obsCompatibility:
+    description: OBS compatibility target (obs31 or obs32)
+    required: false
+    default: obs32
 runs:
   using: composite
   steps:
@@ -35,6 +39,7 @@ runs:
         CCACHE_DIR: ${{ inputs.workingDirectory }}/.ccache
         CODESIGN_IDENT: ${{ inputs.codesignIdent }}
         CODESIGN_TEAM: ${{ inputs.codesignTeam }}
+        TIMELINE_OBS_COMPATIBILITY: ${{ inputs.obsCompatibility }}
       run: |
         : Run macOS Build
 
@@ -62,6 +67,7 @@ runs:
       working-directory: ${{ inputs.workingDirectory }}
       env:
         CCACHE_DIR: ${{ inputs.workingDirectory }}/.ccache
+        TIMELINE_OBS_COMPATIBILITY: ${{ inputs.obsCompatibility }}
       run: |
         : Run Ubuntu Build
 
@@ -85,6 +91,7 @@ runs:
         $BuildArgs = @{
           Target = '${{ inputs.target }}'
           Configuration = '${{ inputs.config }}'
+          ObsCompatibility = '${{ inputs.obsCompatibility }}'
         }
 
         .github/scripts/Build-Windows.ps1 @BuildArgs

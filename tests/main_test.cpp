@@ -42,10 +42,10 @@ class TestTimelineMacroButtonAccessor {
 public:
 	static void clickBubble(MacroButtonWidget &w)
 	{
-		QMouseEvent press(QEvent::MouseButtonPress, QPointF(15, 26), Qt::LeftButton, Qt::LeftButton,
-				  Qt::NoModifier);
-		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), Qt::LeftButton, Qt::NoButton,
-				    Qt::NoModifier);
+		QMouseEvent press(QEvent::MouseButtonPress, QPointF(15, 26), QPointF(15, 26), Qt::LeftButton,
+				  Qt::LeftButton, Qt::NoModifier);
+		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), QPointF(15, 26),
+				    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
 		w.mousePressEvent(&press);
 		w.mouseReleaseEvent(&release);
 	}

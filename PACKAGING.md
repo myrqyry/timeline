@@ -13,13 +13,22 @@ plugin (project name: `timeline`) for local installation in OBS Studio.
 
 ## Configure
 
+The build produces one binary for one OBS major version. Select `obs31` or
+`obs32` before configuring, and use separate build directories for the two
+targets.
+
 ```bash
 # Using CMake presets (recommended):
-cmake --preset ubuntu-x86_64
+cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32
 
 # Or without presets:
-cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DTIMELINE_OBS_COMPATIBILITY=obs32
 ```
+
+The supported targets are OBS 31.1.2 and OBS 32.2.1. CI builds the matching
+OBS SDK from source. A local build uses the installed SDK unless
+`TIMELINE_BUILD_OBS_FROM_SOURCE=ON` is set.
 
 Optional flags:
 
@@ -32,6 +41,9 @@ Optional flags:
   destination.
 - `-DOBS_DATA_DESTINATION=/custom/data` — override the data
   destination.
+- `-DTIMELINE_OBS_COMPATIBILITY=obs31|obs32` — select the OBS major version.
+- `-DTIMELINE_BUILD_OBS_FROM_SOURCE=ON` — build the selected OBS SDK from its
+  pinned source archive on Linux.
 
 ## Build
 
@@ -55,6 +67,9 @@ Default install layout (Linux):
 
 - Binary: `~/.config/obs-studio/plugins/timeline/bin/64bit/timeline.so`
 - Data: `~/.config/obs-studio/plugins/timeline/data/`
+
+OBS 31 macOS packages require macOS 12 or newer. OBS 32 macOS packages require
+macOS 13 or newer.
 
 ## Quick Validation
 

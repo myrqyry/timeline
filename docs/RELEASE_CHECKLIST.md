@@ -40,6 +40,11 @@ Use this checklist before tagging a release.
 
 ## Compatibility
 
+- [ ] Build and test the OBS 31.1.2 artifact with `TIMELINE_OBS_COMPATIBILITY=obs31`
+- [ ] Build and test the OBS 32.2.1 artifact with `TIMELINE_OBS_COMPATIBILITY=obs32`
+- [ ] Verify each artifact is labeled with its OBS compatibility target
+- [ ] Verify the OBS 31 macOS package targets macOS 12 or newer
+- [ ] Verify the OBS 32 macOS package targets macOS 13 or newer
 - [ ] Legacy array-only JSON loads
 - [ ] Object JSON with settings loads
 - [ ] Invalid JSON fails gracefully (warning shown/logged)

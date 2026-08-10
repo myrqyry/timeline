@@ -45,6 +45,31 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/common")
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/buildspec.json" buildspec)
 
+set(TIMELINE_OBS_COMPATIBILITY "obs32" CACHE STRING
+  "OBS compatibility target (obs31 or obs32)"
+)
+set_property(CACHE TIMELINE_OBS_COMPATIBILITY PROPERTY STRINGS obs31 obs32)
+
+if(NOT TIMELINE_OBS_COMPATIBILITY STREQUAL "obs31" AND
+   NOT TIMELINE_OBS_COMPATIBILITY STREQUAL "obs32")
+  message(
+    FATAL_ERROR
+    "TIMELINE_OBS_COMPATIBILITY must be obs31 or obs32, got '${TIMELINE_OBS_COMPATIBILITY}'"
+  )
+endif()
+
+string(
+  JSON OBS_COMPATIBILITY_VERSION
+  GET ${buildspec} dependencies obs-studio targets ${TIMELINE_OBS_COMPATIBILITY} version
+)
+set(OBS_COMPATIBILITY_TARGET "${TIMELINE_OBS_COMPATIBILITY}" CACHE INTERNAL
+  "Selected OBS compatibility target"
+)
+set(OBS_COMPATIBILITY_VERSION "${OBS_COMPATIBILITY_VERSION}" CACHE INTERNAL
+  "Selected OBS compatibility version"
+)
+message(STATUS "OBS compatibility target: ${OBS_COMPATIBILITY_TARGET} (${OBS_COMPATIBILITY_VERSION})")
+
 string(JSON _name GET ${buildspec} name)
 string(JSON _website GET ${buildspec} website)
 string(JSON _author GET ${buildspec} author)
