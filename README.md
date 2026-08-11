@@ -14,8 +14,8 @@ files on a visual timeline.
 
 ## Current status
 
-The current repository release state is `v0.1.0-preview.1`. The plugin builds
-from source and installs locally; packaged releases are not available yet.
+The current development milestone is `v0.1.0-preview.1`. The plugin builds
+from source and installs locally; no packaged GitHub Release is published yet.
 
 The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. The
 plugin provides separate artifacts for OBS Studio 31.1.2 and 32.2.1. The
