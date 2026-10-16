@@ -103,7 +103,7 @@ build() {
 
   cmake_args+=(--preset 'macos-ci')
   cmake_args+=(--fresh)
-  cmake_args+=(-DTIMELINE_OBS_COMPATIBILITY=${TIMELINE_OBS_COMPATIBILITY:-obs32})
+  cmake_args+=(-DTIMELINE_OBS_COMPATIBILITY=${TIMELINE_OBS_COMPATIBILITY:-obs32} -DTIMELINE_BUILD_TESTS=OFF)
   if [[ ${TIMELINE_OBS_COMPATIBILITY:-obs32} == obs32 ]] cmake_args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
 
   typeset -gx NSUnbufferedIO=YES

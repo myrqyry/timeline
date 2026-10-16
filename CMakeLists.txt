@@ -35,8 +35,12 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-enable_testing()
-add_subdirectory(tests)
+option(TIMELINE_BUILD_TESTS "Build Qt Test regression suite" ON)
+
+if(TIMELINE_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 # Plugin source files
 set(PLUGIN_SOURCES

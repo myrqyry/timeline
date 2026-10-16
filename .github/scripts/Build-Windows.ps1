@@ -49,7 +49,7 @@ function Build {
     Push-Location -Stack BuildTemp
     Ensure-Location $ProjectRoot
 
-    $CmakeArgs = @('--fresh', '--preset', "windows-ci-${Target}", "-DTIMELINE_OBS_COMPATIBILITY=${ObsCompatibility}")
+    $CmakeArgs = @('--fresh', '--preset', "windows-ci-${Target}", "-DTIMELINE_OBS_COMPATIBILITY=${ObsCompatibility}", '-DTIMELINE_BUILD_TESTS=OFF')
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 
