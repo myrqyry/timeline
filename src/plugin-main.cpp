@@ -4,8 +4,6 @@
 #include <QDockWidget>
 #include <QAction>
 #include <QPointer>
-#include <QFile>
-#include <QDir>
 #include "timeline-dock.h"
 #include "macro-strip-dock.h"
 #if OBS_TIMELINE_HAS_WEBSOCKET
@@ -19,13 +17,6 @@ static obs_frontend_event_cb g_macroStripEventCb = nullptr;
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("timeline", "en-US")
 
-static QString macroDataPath()
-{
-	const QString dir = QDir::homePath() + "/.config/obs-studio/plugins/timeline/data";
-	QDir().mkpath(dir);
-	return dir + "/macro_buttons.json";
-}
-
 static void macroStripSaveCallback(obs_data_t *save_data, bool saving, void *private_data)
 {
 	(void)private_data;
@@ -38,11 +29,7 @@ static void macroStripSaveCallback(obs_data_t *save_data, bool saving, void *pri
 		const char *json = obs_data_get_string(save_data, "timeline_macro_strip_json");
 		if (!json || !*json)
 			return;
-		QFile f(macroDataPath());
-		if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-			f.write(json);
-			f.close();
-		}
+		g_macroStripDock->restoreFromObsJson(QByteArray(json));
 	}
 }
 
@@ -123,5 +110,6 @@ void obs_module_post_load(void)
 
 	if (g_macroStripDock) {
 		g_macroStripDock->loadNow();
+		g_macroStripDock->activateAutoSave();
 	}
 }

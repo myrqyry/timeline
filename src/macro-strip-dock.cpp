@@ -17,10 +17,20 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QJsonParseError>
 #include <QUuid>
 
-MacroStripDock::MacroStripDock(QWidget *parent) : QWidget(parent)
+MacroStripDock::MacroStripDock(QWidget *parent, const QString &storageFilePath)
+	: QWidget(parent),
+	  m_storageFilePath(storageFilePath)
 {
+	m_saveTimer.setSingleShot(true);
+	m_saveTimer.setInterval(300);
+	connect(&m_saveTimer, &QTimer::timeout, this, [this]() { saveNow(); });
+	connect(this, &MacroStripDock::saveRequested, this, [this]() {
+		if (m_autoSaveReady)
+			m_saveTimer.start();
+	});
 	setupUi();
 	connectModel();
 	rebuildFromModel();
@@ -66,7 +76,10 @@ void MacroStripDock::connectModel()
 	connect(&m_model, &MacroButtonModel::modelChanged, this, &MacroStripDock::rebuildFromModel);
 }
 
-void MacroStripDock::setObsExecutor(ObsExecutor *executor) { m_executor = executor; }
+void MacroStripDock::setObsExecutor(ObsExecutor *executor)
+{
+	m_executor = executor;
+}
 
 void MacroStripDock::rebuildFromModel()
 {
@@ -90,8 +103,7 @@ void MacroStripDock::rebuildFromModel()
 			QAction *right = menu.addAction(QObject::tr("Move Right"));
 			menu.addSeparator();
 			QAction *del = menu.addAction(QObject::tr("Delete"));
-			QAction *picked =
-				menu.exec(static_cast<QWidget *>(QObject::sender())->mapToGlobal(pos));
+			QAction *picked = menu.exec(static_cast<QWidget *>(QObject::sender())->mapToGlobal(pos));
 			if (!safeThis || !picked)
 				return;
 			if (picked == edit)
@@ -124,7 +136,10 @@ void MacroStripDock::onButtonFired(const MacroButton &button)
 	m_executor->executeEventStart(evt);
 }
 
-void MacroStripDock::addButtonAtEnd() { showAddEditor(); }
+void MacroStripDock::addButtonAtEnd()
+{
+	showAddEditor();
+}
 
 void MacroStripDock::showAddEditor()
 {
@@ -149,7 +164,10 @@ void MacroStripDock::showAddEditor()
 	m_model.addButton(b);
 }
 
-void MacroStripDock::editButton(const QString &id) { showEditEditor(id); }
+void MacroStripDock::editButton(const QString &id)
+{
+	showEditEditor(id);
+}
 
 void MacroStripDock::showEditEditor(const QString &id)
 {
@@ -207,9 +225,15 @@ void MacroStripDock::moveRight(const QString &id)
 	}
 }
 
-void MacroStripDock::removeButton(const QString &id) { m_model.removeButton(id); }
+void MacroStripDock::removeButton(const QString &id)
+{
+	m_model.removeButton(id);
+}
 
-QJsonObject MacroStripDock::toJson() const { return MacroSerialization::toJsonObject(m_model); }
+QJsonObject MacroStripDock::toJson() const
+{
+	return MacroSerialization::toJsonObject(m_model);
+}
 
 bool MacroStripDock::fromJson(const QJsonObject &root, QString *errorMessage)
 {
@@ -218,6 +242,8 @@ bool MacroStripDock::fromJson(const QJsonObject &root, QString *errorMessage)
 
 QString MacroStripDock::dataFilePath() const
 {
+	if (!m_storageFilePath.isEmpty())
+		return m_storageFilePath;
 	const QString dir = QDir::homePath() + "/.config/obs-studio/plugins/timeline/data";
 	QDir().mkpath(dir);
 	return dir + "/macro_buttons.json";
@@ -230,6 +256,30 @@ bool MacroStripDock::saveNow()
 	if (!ok)
 		blog(LOG_WARNING, "[MacroStrip] save failed: %s", err.toUtf8().constData());
 	return ok;
+}
+
+void MacroStripDock::activateAutoSave()
+{
+	// Delay autosaving until the OBS profile and on-disk macro state have loaded.
+	m_autoSaveReady = true;
+}
+
+bool MacroStripDock::restoreFromObsJson(const QByteArray &json)
+{
+	QJsonParseError parseError;
+	const QJsonDocument document = QJsonDocument::fromJson(json, &parseError);
+	if (parseError.error != QJsonParseError::NoError) {
+		blog(LOG_WARNING, "[MacroStrip] Invalid OBS profile macro JSON: %s",
+		     parseError.errorString().toUtf8().constData());
+		return false;
+	}
+	QString error;
+	if (!MacroSerialization::fromJsonDocument(document, m_model, &error)) {
+		blog(LOG_WARNING, "[MacroStrip] Ignoring invalid OBS profile macros: %s", error.toUtf8().constData());
+		return false;
+	}
+	m_saveTimer.stop();
+	return saveNow(); // QSaveFile commits the verified snapshot atomically.
 }
 
 bool MacroStripDock::loadNow()

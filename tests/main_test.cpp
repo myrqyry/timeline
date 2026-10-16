@@ -50,8 +50,8 @@ public:
 	{
 		QMouseEvent press(QEvent::MouseButtonPress, QPointF(15, 26), QPointF(15, 26), Qt::LeftButton,
 				  Qt::LeftButton, Qt::NoModifier);
-		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), QPointF(15, 26),
-				    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), QPointF(15, 26), Qt::LeftButton,
+				    Qt::NoButton, Qt::NoModifier);
 		w.mousePressEvent(&press);
 		w.mouseReleaseEvent(&release);
 	}
@@ -197,8 +197,7 @@ private slots:
 				obs_enum_all_sources(
 					[](void *param, obs_source_t *source) {
 						obs_source_get_ref(source);
-						static_cast<std::vector<obs_source_t *> *>(param)
-							->push_back(source);
+						static_cast<std::vector<obs_source_t *> *>(param)->push_back(source);
 						return true;
 					},
 					&remaining);
@@ -315,9 +314,9 @@ private slots:
 	{
 		if (!scene2 || !trans)
 			QSKIP("OBS Startup failed, skipping test");
-		std::shared_ptr<obs_source_t> original(
-			obs_source_create("cut_transition", "Default Transition", nullptr, nullptr),
-			obs_source_release);
+		std::shared_ptr<obs_source_t> original(obs_source_create("cut_transition", "Default Transition",
+									 nullptr, nullptr),
+						       obs_source_release);
 		QVERIFY(original);
 		g_current_transition = obs_source_get_ref(original.get());
 
@@ -426,8 +425,9 @@ private slots:
 		const QString a = dir.filePath("a.timeline.json");
 		const QString b = dir.filePath("b.timeline.json");
 		auto writeTimeline = [](const QString &path, const QString &next) {
-			QJsonObject event{{"time", 0}, {"type", static_cast<int>(TimelineEventType::TriggerTimeline)},
-			                  {"data", next}};
+			QJsonObject event{{"time", 0},
+					  {"type", static_cast<int>(TimelineEventType::TriggerTimeline)},
+					  {"data", next}};
 			QJsonObject root{{"events", QJsonArray{event}}, {"settings", QJsonObject{{"endTime", 2.0}}}};
 			QFile f(path);
 			if (!f.open(QIODevice::WriteOnly))
@@ -849,8 +849,8 @@ private slots:
 		original.label = "Kept button";
 		model.addButton(original);
 		QString error;
-		QVERIFY(!MacroSerialization::fromJsonDocument(
-			QJsonDocument(QJsonObject{{"version", 1}}), model, &error));
+		QVERIFY(!MacroSerialization::fromJsonDocument(QJsonDocument(QJsonObject{{"version", 1}}), model,
+							      &error));
 		QVERIFY(!error.isEmpty());
 		QCOMPARE(model.count(), 1);
 		QCOMPARE(model.buttons().first().label, QString("Kept button"));
@@ -930,6 +930,63 @@ private slots:
 		dock.onFrontendEvent(OBS_FRONTEND_EVENT_THEME_CHANGED);
 		QCOMPARE(dock.buttonModel()->count(), 1);
 		QCOMPARE(dock.buttonModel()->buttons()[0].id, QString("a"));
+	}
+
+	void testMacroAutosaveOnlyAfterInitialization()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+
+		MacroButton first;
+		first.id = "first";
+		first.label = "Prepared before load";
+		dock.buttonModel()->addButton(first);
+		QTest::qWait(400);
+		QVERIFY(!QFile::exists(path));
+
+		dock.activateAutoSave();
+		MacroButton second;
+		second.id = "second";
+		second.label = "Edited after load";
+		dock.buttonModel()->addButton(second);
+		QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(path), 1500);
+
+		QJsonDocument saved;
+		QString error;
+		QVERIFY2(MacroSerialization::loadFromFile(path, saved, &error), qPrintable(error));
+		QCOMPARE(saved.object()["buttons"].toArray().size(), 2);
+		QCOMPARE(saved.object()["buttons"].toArray()[1].toObject()["label"].toString(),
+			 QString("Edited after load"));
+	}
+
+	void testMacroSceneRestoreUpdatesDockAndRejectsCorruptBackup()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+
+		MacroButtonModel backup;
+		MacroButton button;
+		button.label = "Restored button";
+		button.id = "restore-1";
+		backup.addButton(button);
+
+		const QByteArray json = QJsonDocument(MacroSerialization::toJsonObject(backup)).toJson();
+		QVERIFY(dock.restoreFromObsJson(json));
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons()[0].label, QString("Restored button"));
+
+		QFile saved(path);
+		QVERIFY(saved.open(QIODevice::ReadOnly));
+		const QByteArray before = saved.readAll();
+		saved.close();
+		QVERIFY(!dock.restoreFromObsJson("{broken JSON"));
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QVERIFY(saved.open(QIODevice::ReadOnly));
+		QCOMPARE(saved.readAll(), before);
 	}
 
 	void testStripDockHeightMatchesToolbar()
