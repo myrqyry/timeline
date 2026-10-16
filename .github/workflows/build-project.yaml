@@ -270,6 +270,10 @@ jobs:
           fi
           dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/obs-plugins/timeline.so' > /dev/null
           dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-plugins/timeline/locale/en-US.ini' > /dev/null
+          if dpkg-deb --contents "${packages[0]}" | grep '/AGENTS\.md$' > /dev/null; then
+            echo '::error::Development-only AGENTS.md leaked into Debian package'
+            exit 1
+          fi
 
       - name: Upload Source Tarball
         uses: actions/upload-artifact@v4
