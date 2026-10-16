@@ -191,12 +191,18 @@ standard Linux OBS installation this is under the OBS plugin configuration
 directory, not the installed plugin data directory
 (`src/timeline-dock.cpp:221-304`).
 
-Macro Strip uses a separate file in the installed plugin data path:
+Timeline and Macro Strip settings are stored in OBS's writable per-plugin
+configuration directory (Linux default paths):
 
 ```text
 ~/.config/obs-studio/plugin_config/timeline/timeline.json
-~/.config/obs-studio/plugins/timeline/data/macro_buttons.json
+~/.config/obs-studio/plugin_config/timeline/macro_buttons.json
 ```
+
+Existing Linux Macro Strip files under
+`~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` are imported
+when the new config file does not exist. The original file is preserved.
+Windows and macOS use their respective OBS plugin-configuration directories.
 
 Timeline JSON accepts both the current root-object format and legacy bare event
 arrays. Saves are atomic through `QSaveFile`

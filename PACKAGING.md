@@ -81,5 +81,6 @@ macOS 13 or newer.
    `~/.config/obs-studio/plugin_config/timeline/timeline.json` contains
    your saved timeline settings and events.
 5. If you use Macro Strip, verify
-   `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` contains
-   the saved buttons.
+   `~/.config/obs-studio/plugin_config/timeline/macro_buttons.json` contains
+   the saved buttons (Linux default). Older Linux files in the plugin's
+   installed `data/` directory are imported without deleting the original.
