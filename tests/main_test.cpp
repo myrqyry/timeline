@@ -60,7 +60,9 @@ public:
 // Helper to set QT_QPA_PLATFORM to offscreen
 void setOffscreenPlatform()
 {
-	qputenv("QT_QPA_PLATFORM", "offscreen");
+	// Honor an explicit platform override (e.g. xcb under xvfb-run in CI).
+	if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+		qputenv("QT_QPA_PLATFORM", "offscreen");
 }
 
 class TestTimeline : public QObject {
@@ -89,12 +91,10 @@ private slots:
 		glContext = new QOpenGLContext();
 		glContext->setFormat(offscreenSurface->format());
 		glContext->create();
-		if (!glContext->makeCurrent(offscreenSurface)) {
-			qWarning("Failed to make GL context current for OBS tests");
-		}
-
-		if (!obs_startup("en-US", nullptr, nullptr))
-			qWarning("Failed to startup OBS - Tests might crash or fail");
+		QVERIFY2(glContext->makeCurrent(offscreenSurface),
+			 "Failed to create a GL context for OBS regression tests");
+		QVERIFY2(obs_startup("en-US", nullptr, nullptr),
+			 "OBS startup failed; run CI tests with a virtual display");
 
 		// Register a dummy source type for scene
 		struct obs_source_info dummy_scene_info = {};
