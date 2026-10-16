@@ -27,6 +27,22 @@ jobs:
             zsh \
             qt6-base-dev \
             qt6-svg-dev \
+            libavcodec-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libswresample-dev \
+            libswscale-dev \
+            libjansson-dev \
+            libsimde-dev \
+            libdrm-dev \
+            libegl-dev \
+            libgl-dev \
+            uthash-dev \
+            uuid-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            zlib1g-dev \
             libobs-dev
 
       - name: Configure

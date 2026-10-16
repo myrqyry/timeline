@@ -60,7 +60,12 @@ runs:
         echo "/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin" >> $GITHUB_PATH
         brew install --quiet zsh
         sudo apt-get update
-        sudo apt-get install -y extra-cmake-modules
+        sudo apt-get install -y --no-install-recommends \
+          extra-cmake-modules \
+          libavcodec-dev libavformat-dev libavutil-dev \
+          libswresample-dev libswscale-dev \
+          libjansson-dev libsimde-dev libdrm-dev libegl-dev libgl-dev \
+          uthash-dev uuid-dev libx11-dev libx11-xcb-dev libxcb1-dev zlib1g-dev
         echo ::endgroup::
 
     - name: Run Ubuntu Build
