@@ -18,4 +18,4 @@ No deviations.
 
 - New UI strings added in `src/` should have corresponding entries in `locale/en-US.ini`.
 - Additional locales can be added as `locale/<lang>.ini` files.
-- The CMake install step copies this directory to the plugin data path.
+- The CMake install step packages runtime assets only. This `AGENTS.md` file stays in source control and must not be copied into user-facing plugin data or macOS bundles.
