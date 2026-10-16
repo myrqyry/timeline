@@ -26,7 +26,21 @@ set(
 )
 
 set(CPACK_GENERATOR "DEB")
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+if(TIMELINE_BUILD_OBS_FROM_SOURCE)
+  # The pinned CI SDK is built but not installed as Debian packages.
+  # dpkg-shlibdeps cannot resolve libobs or obs-frontend-api on the runner,
+  # even though both are supplied by the user's installed OBS Studio.
+  # Require the matching OBS major explicitly instead of dropping the package.
+  math(EXPR _timeline_next_obs_major "${TIMELINE_EXPECTED_OBS_MAJOR} + 1")
+  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+  set(
+    CPACK_DEBIAN_PACKAGE_DEPENDS
+    "obs-studio (>= ${TIMELINE_EXPECTED_OBS_MAJOR}.0), obs-studio (<< ${_timeline_next_obs_major}.0)"
+  )
+else()
+  # Distro-provided OBS libraries have dpkg metadata, so use native scanning.
+  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+endif()
 if(PLUGIN_EMAIL)
   set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${PLUGIN_AUTHOR} <${PLUGIN_EMAIL}>")
 else()

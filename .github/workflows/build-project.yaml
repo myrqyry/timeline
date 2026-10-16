@@ -260,6 +260,14 @@ jobs:
             exit 1
           fi
           test -n "$(dpkg-deb --field "${packages[0]}" Maintainer)"
+          obs_major='${{ matrix.obsCompatibility }}'
+          obs_major="${obs_major#obs}"
+          next_major="$((obs_major + 1))"
+          depends="$(dpkg-deb --field "${packages[0]}" Depends)"
+          if [[ "$depends" != *"obs-studio (>= ${obs_major}.0)"* || "$depends" != *"obs-studio (<< ${next_major}.0)"* ]]; then
+            echo "::error::Missing version-bounded OBS dependency in Debian package: $depends"
+            exit 1
+          fi
           dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/obs-plugins/timeline.so' > /dev/null
           dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-plugins/timeline/locale/en-US.ini' > /dev/null
 
