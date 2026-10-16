@@ -46,8 +46,7 @@ jobs:
             libx11-dev \
             libx11-xcb-dev \
             libxcb1-dev \
-            zlib1g-dev \
-            libobs-dev
+            zlib1g-dev
 
       - name: Configure
         env:
