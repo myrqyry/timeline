@@ -200,6 +200,8 @@ ${_usage_host:-}"
           -DCMAKE_INSTALL_PREFIX=/usr
           -DTIMELINE_OBS_COMPATIBILITY=${TIMELINE_OBS_COMPATIBILITY:-obs32}
           -DTIMELINE_BUILD_OBS_FROM_SOURCE=ON
+          -DOBS_PLUGIN_DESTINATION=lib/obs-plugins
+          -DOBS_DATA_DESTINATION=share/obs/obs-plugins/timeline
         )
 
         local cmake_version

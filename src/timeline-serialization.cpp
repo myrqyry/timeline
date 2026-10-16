@@ -47,6 +47,11 @@ bool TimelineSerialization::fromJsonDocument(const QJsonDocument &doc, TimelineM
 	}
 
 	const QJsonObject root = doc.object();
+	if (!root["events"].isArray()) {
+		if (errorMessage)
+			*errorMessage = "Timeline JSON requires an events array";
+		return false;
+	}
 	const QJsonArray events = root["events"].toArray();
 	model.fromJson(events);
 

@@ -27,7 +27,7 @@ No deviations — follow root conventions. Tests use the same memory rules (`bza
 - **Dummy source registration**: Tests register fake source types (`scene`, `cut_transition`, `test_source`, `test_filter`) in `initTestCase()`. These are minimal — they only allocate/free memory. Do not expect full scene/transition behavior.
 - **Offscreen platform**: `QT_QPA_PLATFORM=offscreen` is set in `main()` so tests run headless. GUI interactions that require a real display may fail.
 - **Memory leak assertion**: `cleanupTestCase()` asserts on `bnum_allocs() < 4` after mocking all globals and draining OBS source enumeration. Up to 3 residual allocations from OBS source-type registration metadata are expected in headless test environments; a count of 4+ indicates a regression in source reference cleanup.
-- **OBS startup failure**: `obs_startup()` can fail in some CI environments. Tests call `QSKIP()` if sources cannot be created.
+- **OBS runtime availability**: Local tests can skip when headless OpenGL or OBS startup is unavailable, but `TIMELINE_REQUIRE_OBS_RUNTIME=1` makes that a hard failure. The Linux CI workflow enables this flag under Xvfb; skipped runtime tests must never count as a green required CI job.
 
 ## Commands (Folder-Specific Only)
 

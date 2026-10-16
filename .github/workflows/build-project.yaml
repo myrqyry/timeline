@@ -73,9 +73,16 @@ jobs:
   macos-build:
     name: Build for macOS
     strategy:
+      fail-fast: false
       matrix:
-        obsCompatibility: [obs31, obs32]
-    runs-on: macos-15
+        include:
+          - obsCompatibility: obs31
+            runner: macos-15
+            xcode: '16.1.0'
+          - obsCompatibility: obs32
+            runner: macos-26
+            xcode: '26.5.0'
+    runs-on: ${{ matrix.runner }}
     needs: check-event
     defaults:
       run:
@@ -91,8 +98,8 @@ jobs:
         run: |
           if (( ${+RUNNER_DEBUG} )) setopt XTRACE
 
-          print '::group::Enable Xcode 16.1'
-          sudo xcode-select --switch /Applications/Xcode_16.1.0.app/Contents/Developer
+          print '::group::Select Xcode ${{ matrix.xcode }}'
+          sudo xcode-select --switch /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
           print '::endgroup::'
 
           print '::group::Clean Homebrew Environment'
@@ -163,6 +170,7 @@ jobs:
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-macos-universal-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-macos-universal.*
+          if-no-files-found: error
 
       - name: Upload Debug Symbol Artifacts
         uses: actions/upload-artifact@v4
@@ -180,6 +188,7 @@ jobs:
   ubuntu-build:
     name: Build for Ubuntu
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04]
         obsCompatibility: [obs31, obs32]
@@ -228,24 +237,61 @@ jobs:
           config: ${{ needs.check-event.outputs.config }}
           package: ${{ fromJSON(needs.check-event.outputs.package) }}
 
+      - name: Verify source tarball is clean
+        shell: bash
+        run: |
+          archive="release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-source.tar.xz"
+          test -s "$archive"
+          if tar -tJf "$archive" | grep '/\.deps/' > /dev/null; then
+            echo '::error::Source tarball contains downloaded OBS SDKs'
+            exit 1
+          fi
+
+      - name: Verify release-mode Debian package
+        # Pull requests normally create tarballs only; exercise the release
+        # branch too so missing Debian metadata/layout cannot reach tags.
+        if: ${{ !fromJSON(needs.check-event.outputs.package) }}
+        shell: bash
+        run: |
+          cmake --build build_x86_64 --config ${{ needs.check-event.outputs.config }} --target package
+          packages=(release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*.deb)
+          if [[ ${#packages[@]} != 1 || ! -s ${packages[0]} ]]; then
+            echo '::error::Expected exactly one compatibility-labeled Debian package'
+            exit 1
+          fi
+          test -n "$(dpkg-deb --field "${packages[0]}" Maintainer)"
+          obs_major='${{ matrix.obsCompatibility }}'
+          obs_major="${obs_major#obs}"
+          next_major="$((obs_major + 1))"
+          depends="$(dpkg-deb --field "${packages[0]}" Depends)"
+          if [[ "$depends" != *"obs-studio (>= ${obs_major}.0)"* || "$depends" != *"obs-studio (<< ${next_major}.0)"* ]]; then
+            echo "::error::Missing version-bounded OBS dependency in Debian package: $depends"
+            exit 1
+          fi
+          dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/obs-plugins/timeline.so' > /dev/null
+          dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-plugins/timeline/locale/en-US.ini' > /dev/null
+
       - name: Upload Source Tarball
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-${{ matrix.os }}-sources-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-source.*
+          if-no-files-found: error
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64*.*
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*.*
+          if-no-files-found: error
 
       - name: Upload debug symbol artifacts
         uses: actions/upload-artifact@v4
         if: ${{ fromJSON(needs.check-event.outputs.package) }}
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}-dbgsym
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64*-dbgsym.ddeb
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*-dbgsym.ddeb
+          if-no-files-found: error
 
       - uses: actions/cache/save@v4
         if: github.event_name != 'pull_request' && steps.ccache-cache.outputs.cache-hit != 'true'
@@ -256,6 +302,7 @@ jobs:
   windows-build:
     name: Build for Windows
     strategy:
+      fail-fast: false
       matrix:
         obsCompatibility: [obs31, obs32]
     runs-on: windows-2022
@@ -302,4 +349,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-windows-x64-${{ needs.check-event.outputs.commitHash }}
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64*.*
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-windows-x64*.*
+          if-no-files-found: error

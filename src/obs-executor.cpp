@@ -57,7 +57,9 @@ void ObsExecutor::setObsWebSocketVendor(void *vendor)
 
 void ObsExecutor::cancelAll()
 {
-	cancelRestoreTimer();
+	// Children may have captured this executor's temporary transition as
+	// their original. Stop children first, then restore this executor's
+	// original transition last (innermost -> outermost).
 	blog(LOG_INFO, "[Timeline] cancelAll() called - stopping %d active nested timelines",
 	     static_cast<int>(activeTimelines.size()));
 	for (HeadlessTimeline *t : activeTimelines) {
@@ -65,6 +67,15 @@ void ObsExecutor::cancelAll()
 		t->deleteLater();
 	}
 	activeTimelines.clear();
+
+	// Do not change OBS's current transition when this executor has no
+	// active override.
+	if (restoreTimer && restoreTimer->isActive()) {
+		restoreTimer->stop();
+		restoreOriginalTransition();
+	} else {
+		cancelRestoreTimer();
+	}
 }
 
 void ObsExecutor::executeEventStart(const TimelineEvent &evt)
@@ -112,31 +123,28 @@ void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 	switch (evt.type) {
 	case TimelineEventType::SourceShow:
 	case TimelineEventType::SourceHide: {
-		// If duration event: Start = visible, End = hidden
-		// If instant event: SourceShow = visible, SourceHide = hidden
-		bool visible = evt.hasDuration ? isStartAction : (evt.type == TimelineEventType::SourceShow);
+		bool visible = evt.type == TimelineEventType::SourceShow;
+		if (evt.hasDuration && !isStartAction)
+			visible = !visible;
 		handleSourceVisibility(evt, visible);
 		break;
 	}
 	case TimelineEventType::MediaStart:
-	case TimelineEventType::MediaStop:
-		if (evt.hasDuration) {
-			if (isStartAction)
-				handleMediaStart(evt);
-			else
-				handleMediaStop(evt);
-		} else {
-			if (evt.type == TimelineEventType::MediaStart)
-				handleMediaStart(evt);
-			else
-				handleMediaStop(evt);
-		}
+	case TimelineEventType::MediaStop: {
+		bool startMedia = evt.type == TimelineEventType::MediaStart;
+		if (evt.hasDuration && !isStartAction)
+			startMedia = !startMedia;
+		if (startMedia)
+			handleMediaStart(evt);
+		else
+			handleMediaStop(evt);
 		break;
+	}
 	case TimelineEventType::FilterEnable:
 	case TimelineEventType::FilterDisable: {
-		// If duration event: Start = enable, End = disable
-		// If instant event: FilterEnable = enable, FilterDisable = disable
-		bool enable = evt.hasDuration ? isStartAction : (evt.type == TimelineEventType::FilterEnable);
+		bool enable = evt.type == TimelineEventType::FilterEnable;
+		if (evt.hasDuration && !isStartAction)
+			enable = !enable;
 		handleFilterEnable(evt, enable);
 		break;
 	}
@@ -391,8 +399,18 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 		return;
 	}
 
-	// Prevent recursive execution (normalize path to handle symlinks and case differences)
-	QString canonicalPath = QFileInfo(filePath).canonicalFilePath();
+	// A child inherits its ancestors so A -> B -> A is rejected even though
+	// each nested timeline owns a separate ObsExecutor.
+	const QString canonicalPath = QFileInfo(filePath).canonicalFilePath();
+	if (canonicalPath.isEmpty()) {
+		blog(LOG_WARNING, "[Timeline] Nested timeline file not found: %s", filePath.toUtf8().constData());
+		return;
+	}
+	if (timelineAncestry.contains(canonicalPath)) {
+		blog(LOG_WARNING, "[Timeline] Recursive timeline trigger prevented: %s",
+		     canonicalPath.toUtf8().constData());
+		return;
+	}
 	for (auto *t : activeTimelines) {
 		if (QFileInfo(t->getFilePath()).canonicalFilePath() == canonicalPath) {
 			blog(LOG_WARNING, "[Timeline] ┌─ Recursive timeline trigger prevented");
@@ -403,6 +421,9 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 
 	// Create headless timeline
 	HeadlessTimeline *timeline = new HeadlessTimeline(this);
+	QStringList childAncestry = timelineAncestry;
+	childAncestry.append(canonicalPath);
+	timeline->setAncestorPaths(childAncestry);
 	timeline->setFilePath(filePath);
 	if (timeline->loadFromFile(filePath)) {
 		activeTimelines.push_back(timeline);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QStringList>
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 
@@ -29,6 +30,7 @@ public:
 	bool loadFromFile(const QString &filePath);
 	QString getFilePath() const { return currentPath; }
 	void setFilePath(const QString &path) { currentPath = path; }
+	void setAncestorPaths(const QStringList &paths);
 
 public slots:
 	// Start playback

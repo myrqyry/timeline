@@ -9,6 +9,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         obsCompatibility: [obs31, obs32]
     steps:
@@ -21,16 +22,43 @@ jobs:
           sudo apt-get install -y \
             cmake \
             ninja-build \
+            xvfb \
+            xauth \
+            libgl1-mesa-dri \
+            extra-cmake-modules \
             pkg-config \
             zsh \
             qt6-base-dev \
             qt6-svg-dev \
-            libobs-dev
+            libavcodec-dev \
+            libavformat-dev \
+            libavutil-dev \
+            libswresample-dev \
+            libswscale-dev \
+            libpulse-dev \
+            libasound2-dev \
+            libjansson-dev \
+            libsimde-dev \
+            libdrm-dev \
+            libegl-dev \
+            libgl-dev \
+            libwayland-dev \
+            wayland-protocols \
+            uthash-dev \
+            uuid-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            zlib1g-dev
 
       - name: Configure
         env:
           TIMELINE_OBS_COMPATIBILITY: ${{ matrix.obsCompatibility }}
         run: .github/scripts/build-ubuntu --target ubuntu-x86_64 --config RelWithDebInfo
 
-      - name: Test
-        run: ctest --test-dir build_x86_64 --output-on-failure --verbose
+      - name: Test under virtual X display
+        env:
+          QT_QPA_PLATFORM: xcb
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          TIMELINE_REQUIRE_OBS_RUNTIME: '1'
+        run: xvfb-run -a ctest --test-dir build_x86_64 --output-on-failure --verbose

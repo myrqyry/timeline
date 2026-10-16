@@ -30,21 +30,24 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 	return root;
 }
 
-bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonModel &model,
-					 QString *errorMessage)
+bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonModel &model, QString *errorMessage)
 {
-	model.clear();
 	if (!doc.isObject()) {
 		if (errorMessage)
 			*errorMessage = "Macro buttons JSON must be an object";
 		return false;
 	}
 	const QJsonObject root = doc.object();
+	if (!root["buttons"].isArray()) {
+		if (errorMessage)
+			*errorMessage = "Macro buttons JSON requires a buttons array";
+		return false;
+	}
 	const QJsonArray array = root["buttons"].toArray();
 	QSet<QString> seen;
 	QList<MacroButton> buttons;
 	constexpr int maxTypeValue = static_cast<int>(TimelineEventType::TriggerTimeline);
-	for (const auto &val : array) {
+	for (const auto val : array) {
 		const QJsonObject obj = val.toObject();
 		MacroButton b;
 		b.id = obj["id"].toString();
@@ -72,8 +75,7 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 	return true;
 }
 
-bool MacroSerialization::saveToFile(const QString &filePath, const QJsonObject &root,
-				   QString *errorMessage)
+bool MacroSerialization::saveToFile(const QString &filePath, const QJsonObject &root, QString *errorMessage)
 {
 	QSaveFile file(filePath);
 	if (!file.open(QIODevice::WriteOnly)) {
@@ -96,8 +98,7 @@ bool MacroSerialization::saveToFile(const QString &filePath, const QJsonObject &
 	return true;
 }
 
-bool MacroSerialization::loadFromFile(const QString &filePath, QJsonDocument &outDoc,
-				     QString *errorMessage)
+bool MacroSerialization::loadFromFile(const QString &filePath, QJsonDocument &outDoc, QString *errorMessage)
 {
 	QFile file(filePath);
 	if (!file.exists() || !file.open(QIODevice::ReadOnly)) {

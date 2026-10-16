@@ -484,8 +484,12 @@ Macro data uses an object with `buttons` and `version`. Each button stores its
 ID, label, type, source, optional filter, optional data, and color
 (`src/macro-serialization.cpp:9-29`). Invalid event types are skipped, duplicate
 or missing IDs are regenerated, and malformed files are renamed with a
-`.broken-<timestamp>` suffix by Macro Strip loading
-(`src/macro-serialization.cpp:32-72`, `src/macro-strip-dock.cpp:229-244`).
+`.broken-<timestamp>` suffix by Macro Strip loading. Macro Strip stores the
+current file in the writable OBS plugin configuration directory; if absent,
+it migrates a valid legacy file without deleting that source. OBS scene-collection
+copies are validated recovery fallbacks; a newer canonical file or pending
+in-memory edits take precedence.
+(`src/macro-serialization.cpp`, `src/macro-strip-dock.cpp`).
 
 ### Storage locations
 
@@ -494,7 +498,7 @@ or missing IDs are regenerated, and malformed files are renamed with a
 | Installed binary | `${TIMELINE_PLUGIN_ROOT}/bin/64bit/timeline.so` on Linux | CMake install (`CMakeLists.txt:122-129`) |
 | Installed plugin data | `${TIMELINE_PLUGIN_ROOT}/data/` | CMake install (`CMakeLists.txt:127-129`) |
 | Timeline settings | `obs_module_get_config_path(..., "timeline.json")` | OBS module config API (`src/timeline-dock.cpp:222-304`) |
-| Macro buttons | `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` | Macro Strip (`src/plugin-main.cpp:22-27`) |
+| Macro buttons | `obs_module_get_config_path(..., "macro_buttons.json")` | Macro Strip (`src/plugin-main.cpp`, `src/macro-strip-dock.cpp`) |
 | Manual timeline export | User-selected JSON path | Timeline dock (`src/timeline-dock.cpp:1373-1395`) |
 
 ## Threading and ownership

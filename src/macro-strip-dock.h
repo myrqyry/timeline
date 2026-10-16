@@ -6,6 +6,7 @@
 #include <QString>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QTimer>
 #include <obs-frontend-api.h>
 #include "macro-button.h"
 #include "macro-button-model.h"
@@ -18,7 +19,8 @@ class QScrollArea;
 class MacroStripDock : public QWidget {
 	Q_OBJECT
 public:
-	explicit MacroStripDock(QWidget *parent = nullptr);
+	explicit MacroStripDock(QWidget *parent = nullptr, const QString &storageFilePath = QString(),
+				const QString &legacyFilePath = QString());
 	~MacroStripDock() override;
 
 	void setObsExecutor(ObsExecutor *executor);
@@ -38,6 +40,8 @@ public:
 	QString dataFilePath() const;
 	bool saveNow();
 	bool loadNow();
+	void activateAutoSave();
+	bool restoreFromObsJson(const QByteArray &json);
 
 public slots:
 	void addButtonAtEnd();
@@ -63,6 +67,11 @@ private:
 
 	MacroButtonModel m_model;
 	QPointer<ObsExecutor> m_executor;
+	QString m_storageFilePath;
+	QString m_legacyFilePath;
+	QTimer m_saveTimer;
+	bool m_autoSaveReady = false;
+	bool m_dirty = false;
 
 	void setupUi();
 	void connectModel();

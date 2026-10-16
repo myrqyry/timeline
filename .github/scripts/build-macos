@@ -103,8 +103,9 @@ build() {
 
   cmake_args+=(--preset 'macos-ci')
   cmake_args+=(--fresh)
-  cmake_args+=(-DTIMELINE_OBS_COMPATIBILITY=${TIMELINE_OBS_COMPATIBILITY:-obs32})
-  if [[ ${TIMELINE_OBS_COMPATIBILITY:-obs32} == obs32 ]] cmake_args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
+  cmake_args+=(-DTIMELINE_OBS_COMPATIBILITY=${TIMELINE_OBS_COMPATIBILITY:-obs32} -DTIMELINE_BUILD_TESTS=OFF)
+  # Xcode 26 injects conflicting *_DEPLOYMENT_TARGET values through ccache wrappers.
+  if [[ ${TIMELINE_OBS_COMPATIBILITY:-obs32} == obs32 ]] cmake_args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DENABLE_CCACHE=OFF)
 
   typeset -gx NSUnbufferedIO=YES
 

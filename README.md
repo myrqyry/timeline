@@ -8,8 +8,9 @@ files on a visual timeline.
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> Timeline for OBS is an early Linux preview. It currently requires a source
-> build and has not been broadly tested across OBS versions or distributions.
+> Timeline for OBS is an early preview. Linux source builds and CI-generated
+> packages for Windows/macOS are available for testing, but a tagged release
+> and real-OBS runtime validation across platforms are still outstanding.
 > Back up important scene collections before using it in a production stream.
 
 ## Current status
@@ -17,10 +18,10 @@ files on a visual timeline.
 The current development milestone is `v0.1.0-preview.1`. The plugin builds
 from source and installs locally; no packaged GitHub Release is published yet.
 
-The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. The
-plugin provides separate artifacts for OBS Studio 31.1.2 and 32.2.1. The
-primary CI workflow builds and tests both targets on Linux
-(`.github/workflows/linux-build.yml:9-33`).
+The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. CI
+builds separate OBS Studio 31.1.2 and 32.2.1 artifacts for Linux, Windows,
+and macOS. The Linux workflow also runs the Qt regression suite using a
+virtual X display. CI compilation does not establish real OBS runtime support.
 
 ## Features
 
@@ -190,12 +191,21 @@ standard Linux OBS installation this is under the OBS plugin configuration
 directory, not the installed plugin data directory
 (`src/timeline-dock.cpp:221-304`).
 
-Macro Strip uses a separate file in the installed plugin data path:
+Timeline and Macro Strip settings are stored in OBS's writable per-plugin
+configuration directory (Linux default paths):
 
 ```text
 ~/.config/obs-studio/plugin_config/timeline/timeline.json
-~/.config/obs-studio/plugins/timeline/data/macro_buttons.json
+~/.config/obs-studio/plugin_config/timeline/macro_buttons.json
 ```
+
+Existing Linux Macro Strip files under
+`~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` are imported
+when the new config file does not exist. The original file is preserved.
+Windows and macOS use their respective OBS plugin-configuration directories.
+The current Macro Strip file is authoritative: copies stored in OBS scene
+collections are recovery backups, not replacements for newer saved buttons or
+edits awaiting autosave.
 
 Timeline JSON accepts both the current root-object format and legacy bare event
 arrays. Saves are atomic through `QSaveFile`
@@ -214,8 +224,8 @@ The current preview has these limitations:
 - It has been tested primarily on Linux with OBS test doubles in automated tests.
 - Automated tests cannot prove every behavior of real OBS scenes, sources,
   transitions, filters, or media objects.
-- Windows and macOS source builds are not part of the current public preview
-  workflow, and packaged releases are not available.
+- Windows and macOS CI packages exist for testing, but have not yet passed
+  real OBS runtime smoke tests; there is no tagged public release.
 - `MediaSeek` exists in the data model but is not exposed by the editor.
 - The plugin does not provide its own authentication or network listener.
 
@@ -297,7 +307,7 @@ The following items are planned work rather than current capabilities:
 - Undo and redo for timeline edits.
 - Multi-selection for batch editing.
 - Unified visibility event types.
-- Windows and macOS packaged builds.
+- Tested, release-grade Windows and macOS installers.
 - HTTP action events.
 
 Do not describe roadmap items as supported features until their implementation,

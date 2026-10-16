@@ -5,6 +5,12 @@
 #include <QMetaObject>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <memory>
+#include "headless-timeline.h"
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
@@ -44,8 +50,8 @@ public:
 	{
 		QMouseEvent press(QEvent::MouseButtonPress, QPointF(15, 26), QPointF(15, 26), Qt::LeftButton,
 				  Qt::LeftButton, Qt::NoModifier);
-		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), QPointF(15, 26),
-				    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(15, 26), QPointF(15, 26), Qt::LeftButton,
+				    Qt::NoButton, Qt::NoModifier);
 		w.mousePressEvent(&press);
 		w.mouseReleaseEvent(&release);
 	}
@@ -54,7 +60,9 @@ public:
 // Helper to set QT_QPA_PLATFORM to offscreen
 void setOffscreenPlatform()
 {
-	qputenv("QT_QPA_PLATFORM", "offscreen");
+	// Honor an explicit platform override (e.g. xcb under xvfb-run in CI).
+	if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+		qputenv("QT_QPA_PLATFORM", "offscreen");
 }
 
 class TestTimeline : public QObject {
@@ -69,6 +77,7 @@ private:
 	// Headless graphics context for tests
 	QOffscreenSurface *offscreenSurface = nullptr;
 	QOpenGLContext *glContext = nullptr;
+	bool obsStarted = false;
 
 private slots:
 	void initTestCase()
@@ -84,11 +93,16 @@ private slots:
 		glContext->setFormat(offscreenSurface->format());
 		glContext->create();
 		if (!glContext->makeCurrent(offscreenSurface)) {
-			qWarning("Failed to make GL context current for OBS tests");
+			if (qEnvironmentVariableIsSet("TIMELINE_REQUIRE_OBS_RUNTIME"))
+				QFAIL("Failed to initialize OpenGL; CI requires OBS runtime tests");
+			QSKIP("OpenGL unavailable locally; run under Xvfb to execute OBS tests");
 		}
-
-		if (!obs_startup("en-US", nullptr, nullptr))
-			qWarning("Failed to startup OBS - Tests might crash or fail");
+		obsStarted = obs_startup("en-US", nullptr, nullptr);
+		if (!obsStarted) {
+			if (qEnvironmentVariableIsSet("TIMELINE_REQUIRE_OBS_RUNTIME"))
+				QFAIL("OBS startup failed; CI requires the runtime tests");
+			QSKIP("OBS startup unavailable locally; run under Xvfb to execute OBS tests");
+		}
 
 		// Register a dummy source type for scene
 		struct obs_source_info dummy_scene_info = {};
@@ -156,6 +170,15 @@ private slots:
 
 	void cleanupTestCase()
 	{
+		if (!obsStarted) {
+			// initTestCase may have skipped before starting OBS. Do not call
+			// obs_shutdown() or check libobs allocations in that case.
+			delete glContext;
+			glContext = nullptr;
+			delete offscreenSurface;
+			offscreenSurface = nullptr;
+			return;
+		}
 		// Re-make GL context current before OBS shutdown to ensure texture
 		// destruction happens on a valid context, avoiding "No active swap" warnings.
 		if (glContext && offscreenSurface) {
@@ -191,8 +214,7 @@ private slots:
 				obs_enum_all_sources(
 					[](void *param, obs_source_t *source) {
 						obs_source_get_ref(source);
-						static_cast<std::vector<obs_source_t *> *>(param)
-							->push_back(source);
+						static_cast<std::vector<obs_source_t *> *>(param)->push_back(source);
 						return true;
 					},
 					&remaining);
@@ -305,6 +327,73 @@ private slots:
 		QCOMPARE(g_current_transition, static_cast<obs_source_t *>(nullptr));
 	}
 
+	void testCancelActiveTransitionRestoresOriginal()
+	{
+		if (!scene2 || !trans)
+			QSKIP("OBS Startup failed, skipping test");
+		std::shared_ptr<obs_source_t> original(obs_source_create("cut_transition", "Default Transition",
+									 nullptr, nullptr),
+						       obs_source_release);
+		QVERIFY(original);
+		g_current_transition = obs_source_get_ref(original.get());
+
+		ObsExecutor executor;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::SceneSwitch;
+		evt.sourceName = "Scene 2";
+		evt.data = "Cut";
+		g_transition_duration_ms = 1000;
+		executor.executeEventStart(evt);
+		QCOMPARE(g_current_transition, trans);
+
+		executor.cancelAll(); // stop or pause before the restore timer fires
+		QCOMPARE(g_current_transition, original.get());
+	}
+
+	void testStoppingParentAndNestedOverridesRestoresOriginalTransition()
+	{
+		QVERIFY(scene2 && trans);
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString nestedPath = dir.filePath("child.timeline.json");
+		QJsonObject childEvent{{"time", 0},
+				       {"type", static_cast<int>(TimelineEventType::SceneSwitch)},
+				       {"source", "Scene 2"},
+				       {"data", "Child Transition"}};
+		QJsonObject root{{"events", QJsonArray{childEvent}}, {"settings", QJsonObject{{"endTime", 5.0}}}};
+		QFile file(nestedPath);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		QVERIFY(file.write(QJsonDocument(root).toJson()) > 0);
+		file.close();
+
+		obs_source_t *original = obs_source_create("cut_transition", "Original Transition", nullptr, nullptr);
+		obs_source_t *child = obs_source_create("cut_transition", "Child Transition", nullptr, nullptr);
+		QVERIFY(original && child);
+		g_transitions.push_back(obs_source_get_ref(child));
+		obs_frontend_set_current_transition(original);
+		g_transition_duration_ms = 3000;
+
+		{
+			ObsExecutor parent;
+			TimelineEvent parentEvent;
+			parentEvent.type = TimelineEventType::SceneSwitch;
+			parentEvent.sourceName = "Scene 2";
+			parentEvent.data = "Cut";
+			parent.executeEventStart(parentEvent);
+			QCOMPARE(g_current_transition, trans);
+
+			TimelineEvent nested;
+			nested.type = TimelineEventType::TriggerTimeline;
+			nested.data = nestedPath;
+			parent.executeEventStart(nested);
+			QTRY_COMPARE_WITH_TIMEOUT(g_current_transition, child, 1000);
+			parent.cancelAll();
+			QCOMPARE(g_current_transition, original);
+		}
+		obs_source_release(original);
+		obs_source_release(child);
+	}
+
 	void testMediaStart()
 	{
 		if (!source_item)
@@ -365,6 +454,58 @@ private slots:
 		evt.type = TimelineEventType::FilterDisable;
 		executor.executeEventStart(evt);
 		QVERIFY(!obs_source_enabled(filter_item));
+	}
+
+	void testDurationFilterDisableReenablesOnEnd()
+	{
+		if (!source_item)
+			QSKIP("OBS Startup failed, skipping test");
+		filter_item = obs_source_create("test_filter", "MyFilter", nullptr, nullptr);
+		QVERIFY(filter_item);
+		obs_source_filter_add(source_item, filter_item);
+		obs_source_set_enabled(filter_item, true);
+
+		ObsExecutor executor;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::FilterDisable;
+		evt.sourceName = "MySource";
+		evt.filterName = "MyFilter";
+		evt.hasDuration = true;
+		evt.durationMs = 200.0;
+
+		executor.executeEventStart(evt);
+		QVERIFY(!obs_source_enabled(filter_item));
+		executor.executeEventEnd(evt);
+		QVERIFY(obs_source_enabled(filter_item));
+	}
+
+	void testNestedTimelineCycleDoesNotCreateRecursiveChildren()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString a = dir.filePath("a.timeline.json");
+		const QString b = dir.filePath("b.timeline.json");
+		auto writeTimeline = [](const QString &path, const QString &next) {
+			QJsonObject event{{"time", 0},
+					  {"type", static_cast<int>(TimelineEventType::TriggerTimeline)},
+					  {"data", next}};
+			QJsonObject root{{"events", QJsonArray{event}}, {"settings", QJsonObject{{"endTime", 2.0}}}};
+			QFile f(path);
+			if (!f.open(QIODevice::WriteOnly))
+				return false;
+			return f.write(QJsonDocument(root).toJson()) > 0;
+		};
+		QVERIFY(writeTimeline(a, b));
+		QVERIFY(writeTimeline(b, a));
+
+		ObsExecutor executor;
+		TimelineEvent start;
+		start.type = TimelineEventType::TriggerTimeline;
+		start.data = a;
+		executor.executeEventStart(start);
+		QTest::qWait(100);
+		// Root -> A -> B is allowed. B -> A must not spawn another A.
+		QCOMPARE(executor.findChildren<HeadlessTimeline *>().size(), 2);
 	}
 
 	void testModelGeneratesUniqueIds()
@@ -600,6 +741,22 @@ private slots:
 		QVERIFY(loadedDoc.isObject());
 	}
 
+	void testInvalidTimelineObjectDoesNotEraseExistingEvents()
+	{
+		TimelineModel model;
+		TimelineEvent existing;
+		existing.type = TimelineEventType::SceneSwitch;
+		existing.sourceName = "Original scene";
+		model.addEvent(existing);
+		TimelineDocument out;
+		QString error;
+		const QJsonDocument malformed(QJsonObject{{"settings", QJsonObject{{"loop", true}}}});
+		QVERIFY(!TimelineSerialization::fromJsonDocument(malformed, model, out, &error));
+		QVERIFY(!error.isEmpty());
+		QCOMPARE(model.getEvents().size(), size_t(1));
+		QCOMPARE(model.getEvents()[0].id, existing.id);
+	}
+
 	void testSerializationInvalidJson()
 	{
 		QTemporaryFile file;
@@ -746,6 +903,20 @@ private slots:
 		QCOMPARE(buttons[1].label, QString("Dup"));
 	}
 
+	void testInvalidMacroDocumentDoesNotEraseExistingButtons()
+	{
+		MacroButtonModel model;
+		MacroButton original;
+		original.label = "Kept button";
+		model.addButton(original);
+		QString error;
+		QVERIFY(!MacroSerialization::fromJsonDocument(QJsonDocument(QJsonObject{{"version", 1}}), model,
+							      &error));
+		QVERIFY(!error.isEmpty());
+		QCOMPARE(model.count(), 1);
+		QCOMPARE(model.buttons().first().label, QString("Kept button"));
+	}
+
 	void testMacroSerializationInvalidJson()
 	{
 		QTemporaryFile file;
@@ -820,6 +991,201 @@ private slots:
 		dock.onFrontendEvent(OBS_FRONTEND_EVENT_THEME_CHANGED);
 		QCOMPARE(dock.buttonModel()->count(), 1);
 		QCOMPARE(dock.buttonModel()->buttons()[0].id, QString("a"));
+	}
+
+	void testMacroAutosaveOnlyAfterInitialization()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+
+		MacroButton first;
+		first.id = "first";
+		first.label = "Prepared before load";
+		dock.buttonModel()->addButton(first);
+		QTest::qWait(400);
+		QVERIFY(!QFile::exists(path));
+
+		dock.activateAutoSave();
+		MacroButton second;
+		second.id = "second";
+		second.label = "Edited after load";
+		dock.buttonModel()->addButton(second);
+		QTRY_VERIFY_WITH_TIMEOUT(QFile::exists(path), 1500);
+
+		QJsonDocument saved;
+		QString error;
+		QVERIFY2(MacroSerialization::loadFromFile(path, saved, &error), qPrintable(error));
+		QCOMPARE(saved.object()["buttons"].toArray().size(), 2);
+		QCOMPARE(saved.object()["buttons"].toArray()[1].toObject()["label"].toString(),
+			 QString("Edited after load"));
+	}
+
+	void testMacroSceneRestoreUpdatesDockAndRejectsCorruptBackup()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+
+		MacroButtonModel backup;
+		MacroButton button;
+		button.label = "Restored button";
+		button.id = "restore-1";
+		backup.addButton(button);
+
+		const QByteArray json = QJsonDocument(MacroSerialization::toJsonObject(backup)).toJson();
+		QVERIFY(dock.restoreFromObsJson(json));
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons()[0].label, QString("Restored button"));
+
+		QFile saved(path);
+		QVERIFY(saved.open(QIODevice::ReadOnly));
+		const QByteArray before = saved.readAll();
+		saved.close();
+		QVERIFY(!dock.restoreFromObsJson("{broken JSON"));
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QVERIFY(saved.open(QIODevice::ReadOnly));
+		QCOMPARE(saved.readAll(), before);
+	}
+
+	void testMacroSaveCreatesMissingPluginConfigDirectory()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("plugin_config/timeline/macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+		MacroButton button;
+		button.id = "test-button";
+		button.label = "Preserved";
+		dock.buttonModel()->addButton(button);
+		QVERIFY(dock.saveNow());
+		QJsonDocument saved;
+		QString error;
+		QVERIFY2(MacroSerialization::loadFromFile(path, saved, &error), qPrintable(error));
+		QCOMPARE(saved.object()["buttons"].toArray().size(), 1);
+	}
+
+	void testMacroMigratesLegacyStorageWithoutLosingButtons()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString oldPath = dir.filePath("old/data/macro_buttons.json");
+		const QString newPath = dir.filePath("plugin_config/timeline/macro_buttons.json");
+		QVERIFY(QDir().mkpath(QFileInfo(oldPath).absolutePath()));
+		MacroButtonModel legacy;
+		MacroButton oldButton;
+		oldButton.id = "legacy";
+		oldButton.label = "Keep my existing buttons";
+		legacy.addButton(oldButton);
+		QVERIFY(MacroSerialization::saveToFile(oldPath, MacroSerialization::toJsonObject(legacy)));
+
+		MacroStripDock migrated(nullptr, newPath, oldPath);
+		QVERIFY(migrated.loadNow());
+		QCOMPARE(migrated.buttonModel()->count(), 1);
+		QCOMPARE(migrated.buttonModel()->buttons().first().label, QString("Keep my existing buttons"));
+		QVERIFY(QFile::exists(newPath));
+		QVERIFY(QFile::exists(oldPath)); // Preserve the original during migration.
+
+		MacroButtonModel replacement;
+		MacroButton latest;
+		latest.id = "latest";
+		latest.label = "New profile state";
+		replacement.addButton(latest);
+		QVERIFY(MacroSerialization::saveToFile(newPath, MacroSerialization::toJsonObject(replacement)));
+		MacroStripDock reopened(nullptr, newPath, oldPath);
+		QVERIFY(reopened.loadNow());
+		QCOMPARE(reopened.buttonModel()->buttons().first().label, QString("New profile state"));
+	}
+
+	void testMacroAutosaveFailurePreservesDirtyButtonsAcrossSceneReload()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroButtonModel original;
+		MacroButton oldButton;
+		oldButton.id = "old";
+		oldButton.label = "Previous saved version";
+		original.addButton(oldButton);
+		QVERIFY(MacroSerialization::saveToFile(path, MacroSerialization::toJsonObject(original)));
+		MacroStripDock dock(nullptr, path);
+		QVERIFY(dock.loadNow());
+		dock.activateAutoSave();
+
+		MacroButton edited;
+		edited.id = "new";
+		edited.label = "Unsaved edit";
+		dock.buttonModel()->addButton(edited);
+		QVERIFY(QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+		QTest::qWait(450); // Timer has fired, but atomic write cannot create its staging file.
+		QJsonDocument staleOnDisk;
+		QVERIFY(MacroSerialization::loadFromFile(path, staleOnDisk));
+		QCOMPARE(staleOnDisk.object()["buttons"].toArray().size(), 1);
+		const QByteArray sceneCopy = staleOnDisk.toJson();
+		QVERIFY(!dock.restoreFromObsJson(sceneCopy));
+		QCOMPARE(dock.buttonModel()->count(), 2);
+		QCOMPARE(dock.buttonModel()->buttons().last().label, QString("Unsaved edit"));
+		QVERIFY(QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+								  QFileDevice::ExeOwner));
+		QVERIFY(dock.saveNow());
+		QJsonDocument recovered;
+		QVERIFY(MacroSerialization::loadFromFile(path, recovered));
+		QCOMPARE(recovered.object()["buttons"].toArray().size(), 2);
+	}
+
+	void testMacroSceneBackupCannotOverwriteValidLocalButtons()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroButtonModel latest;
+		MacroButton button;
+		button.id = "fresh";
+		button.label = "Current saved buttons";
+		latest.addButton(button);
+		QVERIFY(MacroSerialization::saveToFile(path, MacroSerialization::toJsonObject(latest)));
+
+		MacroButtonModel backup;
+		button.id = "stale";
+		button.label = "Old scene backup";
+		backup.addButton(button);
+		const QByteArray json = QJsonDocument(MacroSerialization::toJsonObject(backup)).toJson();
+
+		MacroStripDock dock(nullptr, path);
+		QVERIFY(dock.restoreFromObsJson(json));
+		QCOMPARE(dock.buttonModel()->buttons().first().label, QString("Current saved buttons"));
+		QJsonDocument onDisk;
+		QVERIFY(MacroSerialization::loadFromFile(path, onDisk));
+		QCOMPARE(onDisk.object()["buttons"].toArray().first().toObject()["label"].toString(),
+			 QString("Current saved buttons"));
+	}
+
+	void testMacroSceneBackupCannotDiscardPendingAutosave()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+		dock.activateAutoSave();
+		MacroButton pending;
+		pending.id = "pending";
+		pending.label = "Edited moments ago";
+		dock.buttonModel()->addButton(pending);
+
+		MacroButtonModel stale;
+		MacroButton old;
+		old.id = "old";
+		old.label = "Old backup";
+		stale.addButton(old);
+		const QByteArray json = QJsonDocument(MacroSerialization::toJsonObject(stale)).toJson();
+		QVERIFY(dock.restoreFromObsJson(json));
+		QCOMPARE(dock.buttonModel()->buttons().first().label, QString("Edited moments ago"));
+		QJsonDocument onDisk;
+		QVERIFY(MacroSerialization::loadFromFile(path, onDisk));
+		QCOMPARE(onDisk.object()["buttons"].toArray().first().toObject()["label"].toString(),
+			 QString("Edited moments ago"));
 	}
 
 	void testStripDockHeightMatchesToolbar()

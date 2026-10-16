@@ -9,12 +9,6 @@
 #include <QApplication>
 #include <QSvgRenderer>
 
-namespace {
-constexpr int kHeight = 32;
-constexpr int kPaddingX = 8;
-constexpr int kPaddingY = 2;
-}
-
 TimecodeDisplay::TimecodeDisplay(QWidget *parent) : QWidget(parent)
 {
 	setObjectName("OBSAudioMeter");
@@ -25,10 +19,9 @@ TimecodeDisplay::TimecodeDisplay(QWidget *parent) : QWidget(parent)
 	// Prefer a real monospace; fall back to default
 	QFont mono;
 	const QStringList families = QFontDatabase::families();
-	const QStringList prefs = {"Cascadia Mono PL", "Cascadia Mono", "Cascadia Code",
-				   "JetBrains Mono", "Fira Code", "Source Code Pro",
-				   "Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono",
-				   "Consolas", "Courier New", "monospace"};
+	const QStringList prefs = {"Cascadia Mono PL", "Cascadia Mono",   "Cascadia Code", "JetBrains Mono",
+				   "Fira Code",        "Source Code Pro", "Ubuntu Mono",   "DejaVu Sans Mono",
+				   "Liberation Mono",  "Consolas",        "Courier New",   "monospace"};
 	for (const QString &name : prefs) {
 		if (families.contains(name)) {
 			mono.setFamily(name);
@@ -124,7 +117,7 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 		p.setPen(QPen(glow, 3.0));
 		p.drawRoundedRect(r.adjusted(1.0, 1.0, -1.0, -1.0), 6.0, 6.0);
 	}
-	
+
 	p.setPen(QPen(border, 1.5));
 	p.setBrush(Qt::NoBrush);
 	p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 6.0, 6.0);
@@ -132,7 +125,8 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 	// Current color for the numbers - use the centralized OBS-theme-aware resolver
 	QColor textColor = ThemeIcons::iconColorFor(this);
 	QColor accent = palette().color(QPalette::Highlight);
-	if (mPlaying) accent = accent.lighter(118);
+	if (mPlaying)
+		accent = accent.lighter(118);
 	QString colorName = textColor.name();
 
 	// Build digits
@@ -141,15 +135,12 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 	int minutes = totalSeconds / 60;
 	int seconds = totalSeconds % 60;
 
-	int digits[7] = {
-		minutes / 10, minutes % 10,
-		seconds / 10, seconds % 10,
-		msPart / 100, (msPart / 10) % 10, msPart % 10
-	};
+	int digits[7] = {minutes / 10, minutes % 10,       seconds / 10, seconds % 10,
+			 msPart / 100, (msPart / 10) % 10, msPart % 10};
 
 	// Make the numbers use up more of the box (taller digits)
 	double digitH = r.height() * 0.80;
-	double digitW = digitH;   // keep square to match the icon design
+	double digitW = digitH; // keep square to match the icon design
 
 	// Tighter horizontal packing so characters aren't spread apart
 	double digitAdvance = digitW * 0.82;
@@ -176,18 +167,18 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 		if (i == 1 || i == 3) {
 			// Draw a nice small vertical colon or dot separator in accent/dim color
 			// If playing, we can also make the separators thematic for high visibility
-			QColor sepColor = mPlaying ? mStatusColor : (i==1 ? textColor : accent);
+			QColor sepColor = mPlaying ? mStatusColor : (i == 1 ? textColor : accent);
 			p.setPen(QPen(sepColor, 2.0, Qt::SolidLine, Qt::RoundCap));
 			double cy = r.center().y();
 			if (i == 1) {
 				// colon ":"
 				double off = digitH * 0.22;
-				p.drawPoint(QPointF(x + sepW*0.5, cy - off));
-				p.drawPoint(QPointF(x + sepW*0.5, cy + off));
+				p.drawPoint(QPointF(x + sepW * 0.5, cy - off));
+				p.drawPoint(QPointF(x + sepW * 0.5, cy + off));
 			} else {
 				// dot "."
 				p.setPen(QPen(sepColor, 2.5, Qt::SolidLine, Qt::RoundCap));
-				p.drawPoint(QPointF(x + sepW*0.5, cy));
+				p.drawPoint(QPointF(x + sepW * 0.5, cy));
 			}
 			x += sepW + 1;
 		}

@@ -35,14 +35,13 @@ if (( ! (${skips[(Ie)all]} + ${skips[(Ie)deps]}) )) {
     sudo apt-get install ${apt_args} gcc-${${target##*-}//_/-}-linux-gnu g++-${${target##*-}//_/-}-linux-gnu
   }
 
-  sudo add-apt-repository --yes ppa:obsproject/obs-studio
-  sudo apt update
-
+  # This workflow builds its OBS compatibility SDK from the pinned source.
+  # Installing a system OBS first can inject mismatched /usr/include/obs
+  # headers (e.g. OBS 32 headers into an OBS 31 artifact).
   sudo apt-get install ${apt_args} \
     build-essential \
     libgles2-mesa-dev \
-    libsimde-dev \
-    obs-studio
+    libsimde-dev
 
   local -a _qt_packages=()
 

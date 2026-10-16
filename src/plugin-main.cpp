@@ -1,11 +1,11 @@
 #include <obs-module.h>
 #include <obs-frontend-api.h>
+#include <util/bmem.h>
 #include <QMainWindow>
+#include <QDir>
 #include <QDockWidget>
 #include <QAction>
 #include <QPointer>
-#include <QFile>
-#include <QDir>
 #include "timeline-dock.h"
 #include "macro-strip-dock.h"
 #if OBS_TIMELINE_HAS_WEBSOCKET
@@ -19,13 +19,6 @@ static obs_frontend_event_cb g_macroStripEventCb = nullptr;
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("timeline", "en-US")
 
-static QString macroDataPath()
-{
-	const QString dir = QDir::homePath() + "/.config/obs-studio/plugins/timeline/data";
-	QDir().mkpath(dir);
-	return dir + "/macro_buttons.json";
-}
-
 static void macroStripSaveCallback(obs_data_t *save_data, bool saving, void *private_data)
 {
 	(void)private_data;
@@ -38,11 +31,7 @@ static void macroStripSaveCallback(obs_data_t *save_data, bool saving, void *pri
 		const char *json = obs_data_get_string(save_data, "timeline_macro_strip_json");
 		if (!json || !*json)
 			return;
-		QFile f(macroDataPath());
-		if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-			f.write(json);
-			f.close();
-		}
+		g_macroStripDock->restoreFromObsJson(QByteArray(json));
 	}
 }
 
@@ -62,7 +51,16 @@ bool obs_module_load(void)
 	g_timelineDock = new TimelineDock();
 	obs_frontend_add_dock_by_id("timeline_dock", "Timeline", g_timelineDock);
 
-	g_macroStripDock = new MacroStripDock();
+	// Store editable macro state in OBS's per-plugin config directory, never
+	// in installed plugin data (read-only on some platforms).
+	char *macroPath = obs_module_config_path("macro_buttons.json");
+	const QString macroStoragePath = macroPath ? QString::fromUtf8(macroPath) : QString();
+	bfree(macroPath);
+	if (macroStoragePath.isEmpty())
+		blog(LOG_WARNING, "[MacroStrip] OBS config path unavailable; falling back to legacy path");
+	const QString legacyMacroPath =
+		QDir::homePath() + "/.config/obs-studio/plugins/timeline/data/macro_buttons.json";
+	g_macroStripDock = new MacroStripDock(nullptr, macroStoragePath, legacyMacroPath);
 	obs_frontend_add_dock_by_id("timeline_macro_strip", "Macro Strip", g_macroStripDock);
 	if (g_timelineDock) {
 		g_macroStripDock->setObsExecutor(g_timelineDock->obsExecutor());
@@ -123,5 +121,6 @@ void obs_module_post_load(void)
 
 	if (g_macroStripDock) {
 		g_macroStripDock->loadNow();
+		g_macroStripDock->activateAutoSave();
 	}
 }

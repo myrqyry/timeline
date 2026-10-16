@@ -16,11 +16,25 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonParseError>
 #include <QUuid>
 
-MacroStripDock::MacroStripDock(QWidget *parent) : QWidget(parent)
+MacroStripDock::MacroStripDock(QWidget *parent, const QString &storageFilePath, const QString &legacyFilePath)
+	: QWidget(parent),
+	  m_storageFilePath(storageFilePath),
+	  m_legacyFilePath(legacyFilePath)
 {
+	m_saveTimer.setSingleShot(true);
+	m_saveTimer.setInterval(300);
+	connect(&m_saveTimer, &QTimer::timeout, this, [this]() { saveNow(); });
+	connect(this, &MacroStripDock::saveRequested, this, [this]() {
+		if (m_autoSaveReady) {
+			m_dirty = true;
+			m_saveTimer.start();
+		}
+	});
 	setupUi();
 	connectModel();
 	rebuildFromModel();
@@ -66,7 +80,10 @@ void MacroStripDock::connectModel()
 	connect(&m_model, &MacroButtonModel::modelChanged, this, &MacroStripDock::rebuildFromModel);
 }
 
-void MacroStripDock::setObsExecutor(ObsExecutor *executor) { m_executor = executor; }
+void MacroStripDock::setObsExecutor(ObsExecutor *executor)
+{
+	m_executor = executor;
+}
 
 void MacroStripDock::rebuildFromModel()
 {
@@ -90,8 +107,7 @@ void MacroStripDock::rebuildFromModel()
 			QAction *right = menu.addAction(QObject::tr("Move Right"));
 			menu.addSeparator();
 			QAction *del = menu.addAction(QObject::tr("Delete"));
-			QAction *picked =
-				menu.exec(static_cast<QWidget *>(QObject::sender())->mapToGlobal(pos));
+			QAction *picked = menu.exec(static_cast<QWidget *>(QObject::sender())->mapToGlobal(pos));
 			if (!safeThis || !picked)
 				return;
 			if (picked == edit)
@@ -124,7 +140,10 @@ void MacroStripDock::onButtonFired(const MacroButton &button)
 	m_executor->executeEventStart(evt);
 }
 
-void MacroStripDock::addButtonAtEnd() { showAddEditor(); }
+void MacroStripDock::addButtonAtEnd()
+{
+	showAddEditor();
+}
 
 void MacroStripDock::showAddEditor()
 {
@@ -149,7 +168,10 @@ void MacroStripDock::showAddEditor()
 	m_model.addButton(b);
 }
 
-void MacroStripDock::editButton(const QString &id) { showEditEditor(id); }
+void MacroStripDock::editButton(const QString &id)
+{
+	showEditEditor(id);
+}
 
 void MacroStripDock::showEditEditor(const QString &id)
 {
@@ -207,9 +229,15 @@ void MacroStripDock::moveRight(const QString &id)
 	}
 }
 
-void MacroStripDock::removeButton(const QString &id) { m_model.removeButton(id); }
+void MacroStripDock::removeButton(const QString &id)
+{
+	m_model.removeButton(id);
+}
 
-QJsonObject MacroStripDock::toJson() const { return MacroSerialization::toJsonObject(m_model); }
+QJsonObject MacroStripDock::toJson() const
+{
+	return MacroSerialization::toJsonObject(m_model);
+}
 
 bool MacroStripDock::fromJson(const QJsonObject &root, QString *errorMessage)
 {
@@ -218,6 +246,8 @@ bool MacroStripDock::fromJson(const QJsonObject &root, QString *errorMessage)
 
 QString MacroStripDock::dataFilePath() const
 {
+	if (!m_storageFilePath.isEmpty())
+		return m_storageFilePath;
 	const QString dir = QDir::homePath() + "/.config/obs-studio/plugins/timeline/data";
 	QDir().mkpath(dir);
 	return dir + "/macro_buttons.json";
@@ -225,18 +255,71 @@ QString MacroStripDock::dataFilePath() const
 
 bool MacroStripDock::saveNow()
 {
+	const QString path = dataFilePath();
+	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+		blog(LOG_WARNING, "[MacroStrip] cannot create config directory for %s", path.toUtf8().constData());
+		return false;
+	}
 	QString err;
-	const bool ok = MacroSerialization::saveToFile(dataFilePath(), toJson(), &err);
+	const bool ok = MacroSerialization::saveToFile(path, toJson(), &err);
 	if (!ok)
 		blog(LOG_WARNING, "[MacroStrip] save failed: %s", err.toUtf8().constData());
+	else
+		m_dirty = false; // Timer activity alone cannot tell us whether a write succeeded.
 	return ok;
+}
+
+void MacroStripDock::activateAutoSave()
+{
+	// Delay autosaving until the OBS profile and on-disk macro state have loaded.
+	m_autoSaveReady = true;
+}
+
+bool MacroStripDock::restoreFromObsJson(const QByteArray &json)
+{
+	QJsonParseError parseError;
+	const QJsonDocument document = QJsonDocument::fromJson(json, &parseError);
+	if (parseError.error != QJsonParseError::NoError) {
+		blog(LOG_WARNING, "[MacroStrip] Invalid OBS profile macro JSON: %s",
+		     parseError.errorString().toUtf8().constData());
+		return false;
+	}
+	QString error;
+	MacroButtonModel backup;
+	if (!MacroSerialization::fromJsonDocument(document, backup, &error)) {
+		blog(LOG_WARNING, "[MacroStrip] Ignoring invalid OBS profile macros: %s", error.toUtf8().constData());
+		return false;
+	}
+
+	// The OBS scene-collection copy is a recovery fallback, not the canonical
+	// Macro Strip state. Flush any pending edits before reading the on-disk file.
+	if (m_dirty) {
+		m_saveTimer.stop();
+		if (!saveNow())
+			return false; // Keep dirty in-memory edits; never load older backup/disk state.
+	}
+	if (loadNow()) {
+		m_saveTimer.stop(); // Loading triggers modelChanged; no rewrite is needed.
+		return true;
+	}
+
+	// No usable canonical (or migrated legacy) file: restore the validated backup.
+	if (!fromJson(document.object(), &error))
+		return false;
+	m_saveTimer.stop();
+	return saveNow(); // QSaveFile commits the fallback snapshot atomically.
 }
 
 bool MacroStripDock::loadNow()
 {
-	const QString path = dataFilePath();
-	if (!QFile::exists(path))
-		return false;
+	QString path = dataFilePath();
+	bool migrating = false;
+	if (!QFile::exists(path)) {
+		if (m_legacyFilePath.isEmpty() || !QFile::exists(m_legacyFilePath))
+			return false;
+		path = m_legacyFilePath;
+		migrating = true;
+	}
 	QJsonDocument doc;
 	QString err;
 	if (!MacroSerialization::loadFromFile(path, doc, &err)) {
@@ -246,7 +329,20 @@ bool MacroStripDock::loadNow()
 		     broken.toUtf8().constData());
 		return false;
 	}
-	return fromJson(doc.object(), &err);
+	if (!fromJson(doc.object(), &err)) {
+		blog(LOG_WARNING, "[MacroStrip] Invalid macro document: %s", err.toUtf8().constData());
+		return false;
+	}
+	m_saveTimer.stop();
+	m_dirty = false; // Loaded state is already persisted, not a user edit.
+	if (migrating) {
+		// Keep the original file untouched; a verified save at the new location
+		// takes precedence over this fallback on subsequent launches.
+		if (!saveNow())
+			return false;
+		blog(LOG_INFO, "[MacroStrip] Imported legacy buttons from %s", path.toUtf8().constData());
+	}
+	return true;
 }
 
 void MacroStripDock::onFrontendEvent(enum obs_frontend_event event)
