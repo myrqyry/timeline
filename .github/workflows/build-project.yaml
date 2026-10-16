@@ -237,6 +237,16 @@ jobs:
           config: ${{ needs.check-event.outputs.config }}
           package: ${{ fromJSON(needs.check-event.outputs.package) }}
 
+      - name: Verify source tarball is clean
+        shell: bash
+        run: |
+          archive="release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-source.tar.xz"
+          test -s "$archive"
+          if tar -tJf "$archive" | grep -q '/\.deps/'; then
+            echo '::error::Source tarball contains downloaded OBS SDKs'
+            exit 1
+          fi
+
       - name: Upload Source Tarball
         uses: actions/upload-artifact@v4
         with:

@@ -8,8 +8,9 @@ files on a visual timeline.
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> Timeline for OBS is an early Linux preview. It currently requires a source
-> build and has not been broadly tested across OBS versions or distributions.
+> Timeline for OBS is an early preview. Linux source builds and CI-generated
+> packages for Windows/macOS are available for testing, but a tagged release
+> and real-OBS runtime validation across platforms are still outstanding.
 > Back up important scene collections before using it in a production stream.
 
 ## Current status
@@ -17,10 +18,10 @@ files on a visual timeline.
 The current development milestone is `v0.1.0-preview.1`. The plugin builds
 from source and installs locally; no packaged GitHub Release is published yet.
 
-The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. The
-plugin provides separate artifacts for OBS Studio 31.1.2 and 32.2.1. The
-primary CI workflow builds and tests both targets on Linux
-(`.github/workflows/linux-build.yml:9-33`).
+The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. CI
+builds separate OBS Studio 31.1.2 and 32.2.1 artifacts for Linux, Windows,
+and macOS. The Linux workflow also runs the Qt regression suite using a
+virtual X display. CI compilation does not establish real OBS runtime support.
 
 ## Features
 
@@ -214,8 +215,8 @@ The current preview has these limitations:
 - It has been tested primarily on Linux with OBS test doubles in automated tests.
 - Automated tests cannot prove every behavior of real OBS scenes, sources,
   transitions, filters, or media objects.
-- Windows and macOS source builds are not part of the current public preview
-  workflow, and packaged releases are not available.
+- Windows and macOS CI packages exist for testing, but have not yet passed
+  real OBS runtime smoke tests; there is no tagged public release.
 - `MediaSeek` exists in the data model but is not exposed by the editor.
 - The plugin does not provide its own authentication or network listener.
 
@@ -297,7 +298,7 @@ The following items are planned work rather than current capabilities:
 - Undo and redo for timeline edits.
 - Multi-selection for batch editing.
 - Unified visibility event types.
-- Windows and macOS packaged builds.
+- Tested, release-grade Windows and macOS installers.
 - HTTP action events.
 
 Do not describe roadmap items as supported features until their implementation,

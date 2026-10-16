@@ -12,9 +12,7 @@ endif()
 # Enable find_package targets to become globally available targets
 set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL TRUE)
 
-option(TIMELINE_BUILD_OBS_FROM_SOURCE
-  "Build the selected OBS compatibility target from source" OFF
-)
+option(TIMELINE_BUILD_OBS_FROM_SOURCE "Build the selected OBS compatibility target from source" OFF)
 
 if(TIMELINE_BUILD_OBS_FROM_SOURCE)
   include(buildspec)
@@ -43,6 +41,7 @@ set(
   \\.github/
   \\.gitignore
   \\.ccache/
+  \\.deps/
   build_.*
   cmake/\\.CMakeBuildNumber
   release/
