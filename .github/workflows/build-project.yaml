@@ -229,6 +229,13 @@ jobs:
           obsCompatibility: ${{ matrix.obsCompatibility }}
           config: ${{ needs.check-event.outputs.config }}
 
+      - name: Seed source archive privacy regression fixture
+        shell: bash
+        run: |
+          # Synthetic data only: detect accidentally packaging ignored local state.
+          mkdir -p .meristem/local
+          printf '%s\n' 'CI_SOURCE_ARCHIVE_PRIVACY_CANARY_NO_SECRETS' > .meristem/local/.source-archive-privacy-canary
+
       - name: Package Plugin
         uses: ./.github/actions/package-plugin
         with:
@@ -246,6 +253,17 @@ jobs:
             echo '::error::Source tarball contains downloaded OBS SDKs'
             exit 1
           fi
+          test -f .meristem/local/.source-archive-privacy-canary
+          if tar -tJf "$archive" | grep -E '/\.meristem/local(/|$)' > /dev/null; then
+            echo '::error::Source tarball contains private Meristem local state'
+            exit 1
+          fi
+          # The public Meristem context must remain distributable.
+          if ! tar -tJf "$archive" | grep '/\.meristem/PROJECT\.md$' > /dev/null; then
+            echo '::error::Source tarball is missing public Meristem project context'
+            exit 1
+          fi
+          rm -f .meristem/local/.source-archive-privacy-canary
 
       - name: Verify release-mode Debian package
         # Pull requests normally create tarballs only; exercise the release
@@ -270,6 +288,10 @@ jobs:
           fi
           dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/obs-plugins/timeline.so' > /dev/null
           dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-plugins/timeline/locale/en-US.ini' > /dev/null
+          if dpkg-deb --contents "${packages[0]}" | grep '/AGENTS\.md$' > /dev/null; then
+            echo '::error::Development-only AGENTS.md leaked into Debian package'
+            exit 1
+          fi
 
       - name: Upload Source Tarball
         uses: actions/upload-artifact@v4

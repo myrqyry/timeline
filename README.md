@@ -21,7 +21,11 @@ from source and installs locally; no packaged GitHub Release is published yet.
 The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. CI
 builds separate OBS Studio 31.1.2 and 32.2.1 artifacts for Linux, Windows,
 and macOS. The Linux workflow also runs the Qt regression suite using a
-virtual X display. CI compilation does not establish real OBS runtime support.
+virtual X display. An isolated Linux OBS 32 session has verified actual source
+hide/restore, scene switching, Macro Strip migration and backup precedence.
+This does **not** establish interactive editor coverage or Windows/macOS runtime
+compatibility. The last fully verified CI baseline and outstanding release
+gates are recorded in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
 
 ## Features
 
@@ -192,7 +196,12 @@ directory, not the installed plugin data directory
 (`src/timeline-dock.cpp:221-304`).
 
 Timeline and Macro Strip settings are stored in OBS's writable per-plugin
-configuration directory (Linux default paths):
+configuration directory. Timeline edits debounce for 250 ms and Macro Strip
+edits for 300 ms. If a Macro Strip save fails, edits remain authoritative in
+memory until a successful retry or shutdown; check OBS logs and free storage
+before exiting if you see a save warning.
+
+Linux default paths:
 
 ```text
 ~/.config/obs-studio/plugin_config/timeline/timeline.json
@@ -242,14 +251,18 @@ implementations (`tests/CMakeLists.txt:13-46`).
 
 ```bash
 # Using CMake presets (recommended):
-cmake --preset ubuntu-x86_64
+cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32
 cmake --build --preset ubuntu-x86_64
-ctest --test-dir build_x86_64 --output-on-failure
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  ctest --test-dir build_x86_64 --output-on-failure
 
 # Or without presets:
-cmake -S . -B build
+cmake -S . -B build -DTIMELINE_OBS_COMPATIBILITY=obs32
 cmake --build build
-ctest --test-dir build --output-on-failure
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  ctest --test-dir build --output-on-failure
 ```
 
 Run a focused test function with:
@@ -259,10 +272,12 @@ build_x86_64/tests/run_tests testSceneSwitch
 build_x86_64/tests/run_tests testSchedulerStartCursorResets
 ```
 
-The test harness sets `QT_QPA_PLATFORM=offscreen` and creates an offscreen
-OpenGL context before OBS startup (`tests/main_test.cpp:55-87`). Existing OBS
-graphics-context warnings during test-harness shutdown do not imply a test failure;
-check the QTest result and CTest status separately.
+The test harness defaults to `QT_QPA_PLATFORM=offscreen`, but OBS startup
+requires a working OpenGL context. For strict validation use the Xvfb and
+software-GL commands above (as in Linux CI). A local headless run can skip
+if graphics or OBS startup is unavailable; `TIMELINE_REQUIRE_OBS_RUNTIME=1`
+turns that into a test failure. Check **QTest passed/skipped counts** and CTest
+status rather than treating a skip or graphics warning as a validated runtime.
 
 ### Source layout
 
@@ -284,7 +299,8 @@ Read `AGENTS.md` before editing. The folder-specific instructions in `src/`,
 
 ### Formatting and conventions
 
-- Use C++17, spaces, four-space indentation, and a maximum line length of 100.
+- Use C++17 and follow the checked-in `.clang-format` (8-column tab indentation,
+  120-column limit) instead of imposing an incompatible manual style.
 - Use `blog(LOG_LEVEL, ...)`; do not use `printf`, `std::cout`, or similar
   output streams.
 - Use OBS allocators (`bmalloc`, `bzalloc`, `bfree`) for OBS-owned memory.

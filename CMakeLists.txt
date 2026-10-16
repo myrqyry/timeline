@@ -136,5 +136,6 @@ else()
     RUNTIME DESTINATION "${OBS_PLUGIN_DESTINATION}"
   )
 
-  install(DIRECTORY data/ DESTINATION "${OBS_DATA_DESTINATION}")
+  # Agent guidance belongs in source control, not in users' OBS plugin data.
+  install(DIRECTORY data/ DESTINATION "${OBS_DATA_DESTINATION}" PATTERN "AGENTS.md" EXCLUDE)
 endif()
