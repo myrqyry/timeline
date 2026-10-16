@@ -32,6 +32,8 @@ jobs:
             libavutil-dev \
             libswresample-dev \
             libswscale-dev \
+            libpulse-dev \
+            libasound2-dev \
             libjansson-dev \
             libsimde-dev \
             libdrm-dev \
