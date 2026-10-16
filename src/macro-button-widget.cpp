@@ -16,8 +16,7 @@ static QString fallbackLabel(const MacroButton &b)
 	return b.sourceName.isEmpty() ? ThemeIcons::typeDisplayName(b.type) : b.sourceName;
 }
 
-MacroButtonWidget::MacroButtonWidget(const MacroButton &button, QWidget *parent)
-	: QWidget(parent), m_button(button)
+MacroButtonWidget::MacroButtonWidget(const MacroButton &button, QWidget *parent) : QWidget(parent), m_button(button)
 {
 	setMouseTracking(true);
 	setAttribute(Qt::WA_Hover, true);
@@ -58,11 +57,13 @@ void MacroButtonWidget::setPressedAppearance(bool pressed)
 QSize MacroButtonWidget::sizeHint() const
 {
 	// Bubble + label pill above + margins.
-	return QSize(static_cast<int>(kBubbleSize) + 12,
-		    static_cast<int>(kBubbleSize) + 18);
+	return QSize(static_cast<int>(kBubbleSize) + 12, static_cast<int>(kBubbleSize) + 18);
 }
 
-QSize MacroButtonWidget::minimumSizeHint() const { return sizeHint(); }
+QSize MacroButtonWidget::minimumSizeHint() const
+{
+	return sizeHint();
+}
 
 void MacroButtonWidget::mousePressEvent(QMouseEvent *event)
 {
@@ -80,8 +81,7 @@ void MacroButtonWidget::mouseReleaseEvent(QMouseEvent *event)
 	m_isPressed = false;
 	setCursor(Qt::PointingHandCursor);
 	update();
-	if (wasPressed && event->button() == Qt::LeftButton
-	    && rect().contains(event->position().toPoint())) {
+	if (wasPressed && event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())) {
 		emit fireRequested(m_button);
 	}
 	QWidget::mouseReleaseEvent(event);
@@ -131,8 +131,8 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	// Icon (use compact padding = 4 px to mirror TimelineEventItem::paint compact path)
 	if (m_renderer && m_renderer->isValid()) {
 		const double pad = 4.0;
-		const QRectF iconRect(center.x() - radius + pad, center.y() - radius + pad,
-				     (radius - pad) * 2.0, (radius - pad) * 2.0);
+		const QRectF iconRect(center.x() - radius + pad, center.y() - radius + pad, (radius - pad) * 2.0,
+				      (radius - pad) * 2.0);
 		m_renderer->render(&painter, iconRect);
 	}
 
@@ -154,12 +154,10 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		const int boxX = static_cast<int>(pillCenterX - boxW / 2.0);
 		const int boxY = 0;
 
-		QColor textColor = m_labelTextColor.isValid()
-					   ? m_labelTextColor
-					   : QApplication::palette().color(QPalette::Text);
-		QColor bgColor = m_labelBgColor.isValid()
-					 ? m_labelBgColor
-					 : QApplication::palette().color(QPalette::Base);
+		QColor textColor = m_labelTextColor.isValid() ? m_labelTextColor
+							      : QApplication::palette().color(QPalette::Text);
+		QColor bgColor = m_labelBgColor.isValid() ? m_labelBgColor
+							  : QApplication::palette().color(QPalette::Base);
 		if (!textColor.isValid() || textColor.lightness() < 40)
 			textColor = QColor(235, 235, 235);
 		if (!bgColor.isValid())

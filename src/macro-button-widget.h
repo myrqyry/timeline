@@ -16,6 +16,7 @@ class MacroButtonWidget : public QWidget {
 	Q_OBJECT
 	// Test class is allowed to invoke the protected mouse handlers directly.
 	friend class TestTimelineMacroButtonAccessor;
+
 public:
 	explicit MacroButtonWidget(const MacroButton &button, QWidget *parent = nullptr);
 
@@ -24,7 +25,11 @@ public:
 
 	void setPressedAppearance(bool pressed);
 
-	void setBorderColor(const QColor &color) { m_borderColor = color; update(); }
+	void setBorderColor(const QColor &color)
+	{
+		m_borderColor = color;
+		update();
+	}
 	void setLabelColors(const QColor &textColor, const QColor &bgColor)
 	{
 		m_labelTextColor = textColor;

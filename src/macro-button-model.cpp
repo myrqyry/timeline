@@ -65,9 +65,24 @@ std::optional<MacroButton> MacroButtonModel::findById(const QString &id) const
 	return m_buttons[i];
 }
 
-QList<MacroButton> MacroButtonModel::buttons() const { return m_buttons; }
-int MacroButtonModel::count() const { return m_buttons.size(); }
-bool MacroButtonModel::isEmpty() const { return m_buttons.isEmpty(); }
-void MacroButtonModel::clear() { m_buttons.clear(); }
+QList<MacroButton> MacroButtonModel::buttons() const
+{
+	return m_buttons;
+}
+int MacroButtonModel::count() const
+{
+	return m_buttons.size();
+}
+bool MacroButtonModel::isEmpty() const
+{
+	return m_buttons.isEmpty();
+}
+void MacroButtonModel::clear()
+{
+	m_buttons.clear();
+}
 
-void MacroButtonModel::setButtons(const QList<MacroButton> &buttons) { m_buttons = buttons; }
+void MacroButtonModel::setButtons(const QList<MacroButton> &buttons)
+{
+	m_buttons = buttons;
+}

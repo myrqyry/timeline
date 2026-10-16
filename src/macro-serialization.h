@@ -11,11 +11,9 @@ public:
 
 	// Returns true on success. On failure, sets *errorMessage and the model is left empty.
 	static bool fromJsonDocument(const QJsonDocument &doc, MacroButtonModel &model,
-				 QString *errorMessage = nullptr);
+				     QString *errorMessage = nullptr);
 
-	static bool saveToFile(const QString &filePath, const QJsonObject &root,
-			       QString *errorMessage = nullptr);
+	static bool saveToFile(const QString &filePath, const QJsonObject &root, QString *errorMessage = nullptr);
 
-	static bool loadFromFile(const QString &filePath, QJsonDocument &outDoc,
-				QString *errorMessage = nullptr);
+	static bool loadFromFile(const QString &filePath, QJsonDocument &outDoc, QString *errorMessage = nullptr);
 };
