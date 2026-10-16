@@ -71,6 +71,7 @@ private:
 	QString m_legacyFilePath;
 	QTimer m_saveTimer;
 	bool m_autoSaveReady = false;
+	bool m_dirty = false;
 
 	void setupUi();
 	void connectModel();

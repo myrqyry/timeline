@@ -30,8 +30,10 @@ MacroStripDock::MacroStripDock(QWidget *parent, const QString &storageFilePath, 
 	m_saveTimer.setInterval(300);
 	connect(&m_saveTimer, &QTimer::timeout, this, [this]() { saveNow(); });
 	connect(this, &MacroStripDock::saveRequested, this, [this]() {
-		if (m_autoSaveReady)
+		if (m_autoSaveReady) {
+			m_dirty = true;
 			m_saveTimer.start();
+		}
 	});
 	setupUi();
 	connectModel();
@@ -262,6 +264,8 @@ bool MacroStripDock::saveNow()
 	const bool ok = MacroSerialization::saveToFile(path, toJson(), &err);
 	if (!ok)
 		blog(LOG_WARNING, "[MacroStrip] save failed: %s", err.toUtf8().constData());
+	else
+		m_dirty = false; // Timer activity alone cannot tell us whether a write succeeded.
 	return ok;
 }
 
@@ -289,10 +293,10 @@ bool MacroStripDock::restoreFromObsJson(const QByteArray &json)
 
 	// The OBS scene-collection copy is a recovery fallback, not the canonical
 	// Macro Strip state. Flush any pending edits before reading the on-disk file.
-	if (m_autoSaveReady && m_saveTimer.isActive()) {
+	if (m_dirty) {
 		m_saveTimer.stop();
 		if (!saveNow())
-			return false;
+			return false; // Keep dirty in-memory edits; never load older backup/disk state.
 	}
 	if (loadNow()) {
 		m_saveTimer.stop(); // Loading triggers modelChanged; no rewrite is needed.
@@ -329,6 +333,8 @@ bool MacroStripDock::loadNow()
 		blog(LOG_WARNING, "[MacroStrip] Invalid macro document: %s", err.toUtf8().constData());
 		return false;
 	}
+	m_saveTimer.stop();
+	m_dirty = false; // Loaded state is already persisted, not a user edit.
 	if (migrating) {
 		// Keep the original file untouched; a verified save at the new location
 		// takes precedence over this fallback on subsequent launches.

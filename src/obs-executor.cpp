@@ -57,15 +57,9 @@ void ObsExecutor::setObsWebSocketVendor(void *vendor)
 
 void ObsExecutor::cancelAll()
 {
-	// Stopping playback must not leave a temporary transition selected.
-	// Only restore when an override is pending; otherwise preserve the
-	// current OBS transition.
-	if (restoreTimer && restoreTimer->isActive()) {
-		restoreTimer->stop();
-		restoreOriginalTransition();
-	} else {
-		cancelRestoreTimer();
-	}
+	// Children may have captured this executor's temporary transition as
+	// their original. Stop children first, then restore this executor's
+	// original transition last (innermost -> outermost).
 	blog(LOG_INFO, "[Timeline] cancelAll() called - stopping %d active nested timelines",
 	     static_cast<int>(activeTimelines.size()));
 	for (HeadlessTimeline *t : activeTimelines) {
@@ -73,6 +67,15 @@ void ObsExecutor::cancelAll()
 		t->deleteLater();
 	}
 	activeTimelines.clear();
+
+	// Do not change OBS's current transition when this executor has no
+	// active override.
+	if (restoreTimer && restoreTimer->isActive()) {
+		restoreTimer->stop();
+		restoreOriginalTransition();
+	} else {
+		cancelRestoreTimer();
+	}
 }
 
 void ObsExecutor::executeEventStart(const TimelineEvent &evt)
