@@ -5,6 +5,11 @@
 #include <QMetaObject>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include "headless-timeline.h"
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
@@ -365,6 +370,57 @@ private slots:
 		evt.type = TimelineEventType::FilterDisable;
 		executor.executeEventStart(evt);
 		QVERIFY(!obs_source_enabled(filter_item));
+	}
+
+	void testDurationFilterDisableReenablesOnEnd()
+	{
+		if (!source_item)
+			QSKIP("OBS Startup failed, skipping test");
+		filter_item = obs_source_create("test_filter", "MyFilter", nullptr, nullptr);
+		QVERIFY(filter_item);
+		obs_source_filter_add(source_item, filter_item);
+		obs_source_set_enabled(filter_item, true);
+
+		ObsExecutor executor;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::FilterDisable;
+		evt.sourceName = "MySource";
+		evt.filterName = "MyFilter";
+		evt.hasDuration = true;
+		evt.durationMs = 200.0;
+
+		executor.executeEventStart(evt);
+		QVERIFY(!obs_source_enabled(filter_item));
+		executor.executeEventEnd(evt);
+		QVERIFY(obs_source_enabled(filter_item));
+	}
+
+	void testNestedTimelineCycleDoesNotCreateRecursiveChildren()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString a = dir.filePath("a.timeline.json");
+		const QString b = dir.filePath("b.timeline.json");
+		auto writeTimeline = [](const QString &path, const QString &next) {
+			QJsonObject event{{"time", 0}, {"type", static_cast<int>(TimelineEventType::TriggerTimeline)},
+			                  {"data", next}};
+			QJsonObject root{{"events", QJsonArray{event}}, {"settings", QJsonObject{{"endTime", 2.0}}}};
+			QFile f(path);
+			if (!f.open(QIODevice::WriteOnly))
+				return false;
+			return f.write(QJsonDocument(root).toJson()) > 0;
+		};
+		QVERIFY(writeTimeline(a, b));
+		QVERIFY(writeTimeline(b, a));
+
+		ObsExecutor executor;
+		TimelineEvent start;
+		start.type = TimelineEventType::TriggerTimeline;
+		start.data = a;
+		executor.executeEventStart(start);
+		QTest::qWait(100);
+		// Root -> A -> B is allowed. B -> A must not spawn another A.
+		QCOMPARE(executor.findChildren<HeadlessTimeline *>().size(), 2);
 	}
 
 	void testModelGeneratesUniqueIds()

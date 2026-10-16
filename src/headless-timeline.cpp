@@ -27,6 +27,11 @@ HeadlessTimeline::~HeadlessTimeline()
 	stop();
 }
 
+void HeadlessTimeline::setAncestorPaths(const QStringList &paths)
+{
+	executor->setAncestorPaths(paths);
+}
+
 bool HeadlessTimeline::loadFromFile(const QString &filePath)
 {
 	currentPath = filePath;

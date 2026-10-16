@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QStringList>
 #include <QTimer>
 #include <obs-frontend-api.h>
 #include <obs.h>
@@ -18,6 +19,7 @@ public:
 	ObsExecutor(QObject *parent = nullptr);
 	~ObsExecutor();
 	void setObsWebSocketVendor(void *vendor);
+	void setAncestorPaths(const QStringList &paths) { timelineAncestry = paths; }
 
 public slots:
 	void executeEventStart(const TimelineEvent &evt);
@@ -37,6 +39,7 @@ private:
 	void cancelRestoreTimer();
 
 	std::vector<HeadlessTimeline *> activeTimelines;
+	QStringList timelineAncestry;
 	obs_source_t *originalTransition = nullptr;
 	obs_source_t *currentTemporaryTransition = nullptr;
 	QTimer *restoreTimer = nullptr;
