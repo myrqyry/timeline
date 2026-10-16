@@ -7,6 +7,7 @@
 !/cmake
 !/data
 !/docs
+!/.meristem
 !/examples
 !/src
 !/tests
@@ -15,6 +16,7 @@
 !.gitignore
 !buildspec.json
 !AGENTS.md
+!ACTIVE_WORK.md
 !CMakeLists.txt
 !CMakePresets.json
 !LICENSE
@@ -36,3 +38,7 @@
 
 # Exclude CMake build number cache
 /cmake/.CMakeBuildNumber
+
+# meristem:local-ignore:start
+.meristem/local/
+# meristem:local-ignore:end

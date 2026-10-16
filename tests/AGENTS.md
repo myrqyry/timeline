@@ -2,7 +2,7 @@
 
 ## What Lives Here
 
-Qt Test-based unit tests for the timeline plugin. Tests use a mock OBS environment (dummy source types, mock frontend API, mock websocket vendor) so they can run headless without a full OBS installation.
+Qt Test regression tests for the timeline plugin. The harness links against real libobs, initializes OBS and an OpenGL context, and substitutes dummy source types plus mock frontend and WebSocket APIs. It requires OBS development libraries; running headlessly still needs a working graphics context (usually Xvfb with software OpenGL).
 
 ## Key Files
 
@@ -25,19 +25,20 @@ No deviations — follow root conventions. Tests use the same memory rules (`bza
 ## Watch Out For
 
 - **Dummy source registration**: Tests register fake source types (`scene`, `cut_transition`, `test_source`, `test_filter`) in `initTestCase()`. These are minimal — they only allocate/free memory. Do not expect full scene/transition behavior.
-- **Offscreen platform**: `QT_QPA_PLATFORM=offscreen` is set in `main()` so tests run headless. GUI interactions that require a real display may fail.
+- **Headless graphics**: `QT_QPA_PLATFORM=offscreen` is the local fallback, but strict tests run with `QT_QPA_PLATFORM=xcb` under Xvfb and software GL; do not count OpenGL/OBS startup skips as coverage.
 - **Memory leak assertion**: `cleanupTestCase()` asserts on `bnum_allocs() < 4` after mocking all globals and draining OBS source enumeration. Up to 3 residual allocations from OBS source-type registration metadata are expected in headless test environments; a count of 4+ indicates a regression in source reference cleanup.
 - **OBS runtime availability**: Local tests can skip when headless OpenGL or OBS startup is unavailable, but `TIMELINE_REQUIRE_OBS_RUNTIME=1` makes that a hard failure. The Linux CI workflow enables this flag under Xvfb; skipped runtime tests must never count as a green required CI job.
 
 ## Commands (Folder-Specific Only)
 
 ```bash
-# Run all tests (from the preset build directory)
-cd build_x86_64 && ./tests/run_tests
+# Strict full suite from the project root (requires xvfb-run and software GL):
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  ctest --test-dir build_x86_64 --output-on-failure
 
-# Run a specific test function (use -v1 for start-of-test logging)
-cd build_x86_64 && ./tests/run_tests testSceneSwitch
-
-# Run tests matching a pattern
-cd build_x86_64 && ./tests/run_tests 'testMedia*'
+# Focused Qt test in the same strict environment:
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  build_x86_64/tests/run_tests testSceneSwitch
 ```
