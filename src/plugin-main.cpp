@@ -2,6 +2,7 @@
 #include <obs-frontend-api.h>
 #include <util/bmem.h>
 #include <QMainWindow>
+#include <QDir>
 #include <QDockWidget>
 #include <QAction>
 #include <QPointer>
@@ -57,7 +58,9 @@ bool obs_module_load(void)
 	bfree(macroPath);
 	if (macroStoragePath.isEmpty())
 		blog(LOG_WARNING, "[MacroStrip] OBS config path unavailable; falling back to legacy path");
-	g_macroStripDock = new MacroStripDock(nullptr, macroStoragePath);
+	const QString legacyMacroPath =
+		QDir::homePath() + "/.config/obs-studio/plugins/timeline/data/macro_buttons.json";
+	g_macroStripDock = new MacroStripDock(nullptr, macroStoragePath, legacyMacroPath);
 	obs_frontend_add_dock_by_id("timeline_macro_strip", "Macro Strip", g_macroStripDock);
 	if (g_timelineDock) {
 		g_macroStripDock->setObsExecutor(g_timelineDock->obsExecutor());

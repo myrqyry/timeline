@@ -281,12 +281,29 @@ bool MacroStripDock::restoreFromObsJson(const QByteArray &json)
 		return false;
 	}
 	QString error;
-	if (!MacroSerialization::fromJsonDocument(document, m_model, &error)) {
+	MacroButtonModel backup;
+	if (!MacroSerialization::fromJsonDocument(document, backup, &error)) {
 		blog(LOG_WARNING, "[MacroStrip] Ignoring invalid OBS profile macros: %s", error.toUtf8().constData());
 		return false;
 	}
+
+	// The OBS scene-collection copy is a recovery fallback, not the canonical
+	// Macro Strip state. Flush any pending edits before reading the on-disk file.
+	if (m_autoSaveReady && m_saveTimer.isActive()) {
+		m_saveTimer.stop();
+		if (!saveNow())
+			return false;
+	}
+	if (loadNow()) {
+		m_saveTimer.stop(); // Loading triggers modelChanged; no rewrite is needed.
+		return true;
+	}
+
+	// No usable canonical (or migrated legacy) file: restore the validated backup.
+	if (!fromJson(document.object(), &error))
+		return false;
 	m_saveTimer.stop();
-	return saveNow(); // QSaveFile commits the verified snapshot atomically.
+	return saveNow(); // QSaveFile commits the fallback snapshot atomically.
 }
 
 bool MacroStripDock::loadNow()
@@ -294,13 +311,9 @@ bool MacroStripDock::loadNow()
 	QString path = dataFilePath();
 	bool migrating = false;
 	if (!QFile::exists(path)) {
-		const QString legacyPath =
-			m_legacyFilePath.isEmpty()
-				? QDir::homePath() + "/.config/obs-studio/plugins/timeline/data/macro_buttons.json"
-				: m_legacyFilePath;
-		if (!QFile::exists(legacyPath))
+		if (m_legacyFilePath.isEmpty() || !QFile::exists(m_legacyFilePath))
 			return false;
-		path = legacyPath;
+		path = m_legacyFilePath;
 		migrating = true;
 	}
 	QJsonDocument doc;

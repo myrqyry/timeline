@@ -1038,6 +1038,59 @@ private slots:
 		QCOMPARE(reopened.buttonModel()->buttons().first().label, QString("New profile state"));
 	}
 
+	void testMacroSceneBackupCannotOverwriteValidLocalButtons()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroButtonModel latest;
+		MacroButton button;
+		button.id = "fresh";
+		button.label = "Current saved buttons";
+		latest.addButton(button);
+		QVERIFY(MacroSerialization::saveToFile(path, MacroSerialization::toJsonObject(latest)));
+
+		MacroButtonModel backup;
+		button.id = "stale";
+		button.label = "Old scene backup";
+		backup.addButton(button);
+		const QByteArray json = QJsonDocument(MacroSerialization::toJsonObject(backup)).toJson();
+
+		MacroStripDock dock(nullptr, path);
+		QVERIFY(dock.restoreFromObsJson(json));
+		QCOMPARE(dock.buttonModel()->buttons().first().label, QString("Current saved buttons"));
+		QJsonDocument onDisk;
+		QVERIFY(MacroSerialization::loadFromFile(path, onDisk));
+		QCOMPARE(onDisk.object()["buttons"].toArray().first().toObject()["label"].toString(),
+			 QString("Current saved buttons"));
+	}
+
+	void testMacroSceneBackupCannotDiscardPendingAutosave()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+		dock.activateAutoSave();
+		MacroButton pending;
+		pending.id = "pending";
+		pending.label = "Edited moments ago";
+		dock.buttonModel()->addButton(pending);
+
+		MacroButtonModel stale;
+		MacroButton old;
+		old.id = "old";
+		old.label = "Old backup";
+		stale.addButton(old);
+		const QByteArray json = QJsonDocument(MacroSerialization::toJsonObject(stale)).toJson();
+		QVERIFY(dock.restoreFromObsJson(json));
+		QCOMPARE(dock.buttonModel()->buttons().first().label, QString("Edited moments ago"));
+		QJsonDocument onDisk;
+		QVERIFY(MacroSerialization::loadFromFile(path, onDisk));
+		QCOMPARE(onDisk.object()["buttons"].toArray().first().toObject()["label"].toString(),
+			 QString("Edited moments ago"));
+	}
+
 	void testStripDockHeightMatchesToolbar()
 	{
 		MacroStripDock dock;
