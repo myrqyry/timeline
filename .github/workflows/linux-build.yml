@@ -39,6 +39,8 @@ jobs:
             libdrm-dev \
             libegl-dev \
             libgl-dev \
+            libwayland-dev \
+            wayland-protocols \
             uthash-dev \
             uuid-dev \
             libx11-dev \
