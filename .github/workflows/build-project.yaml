@@ -242,10 +242,26 @@ jobs:
         run: |
           archive="release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-source.tar.xz"
           test -s "$archive"
-          if tar -tJf "$archive" | grep -q '/\.deps/'; then
+          if tar -tJf "$archive" | grep '/\.deps/' > /dev/null; then
             echo '::error::Source tarball contains downloaded OBS SDKs'
             exit 1
           fi
+
+      - name: Verify release-mode Debian package
+        # Pull requests normally create tarballs only; exercise the release
+        # branch too so missing Debian metadata/layout cannot reach tags.
+        if: ${{ !fromJSON(needs.check-event.outputs.package) }}
+        shell: bash
+        run: |
+          cmake --build build_x86_64 --config ${{ needs.check-event.outputs.config }} --target package
+          packages=(release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*.deb)
+          if [[ ${#packages[@]} != 1 || ! -s ${packages[0]} ]]; then
+            echo '::error::Expected exactly one compatibility-labeled Debian package'
+            exit 1
+          fi
+          test -n "$(dpkg-deb --field "${packages[0]}" Maintainer)"
+          dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/obs-plugins/timeline.so' > /dev/null
+          dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-plugins/timeline/locale/en-US.ini' > /dev/null
 
       - name: Upload Source Tarball
         uses: actions/upload-artifact@v4
@@ -266,7 +282,8 @@ jobs:
         if: ${{ fromJSON(needs.check-event.outputs.package) }}
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}-dbgsym
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64*-dbgsym.ddeb
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*-dbgsym.ddeb
+          if-no-files-found: error
 
       - uses: actions/cache/save@v4
         if: github.event_name != 'pull_request' && steps.ccache-cache.outputs.cache-hit != 'true'

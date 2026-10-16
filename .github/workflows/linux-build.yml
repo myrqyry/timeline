@@ -60,4 +60,5 @@ jobs:
         env:
           QT_QPA_PLATFORM: xcb
           LIBGL_ALWAYS_SOFTWARE: '1'
+          TIMELINE_REQUIRE_OBS_RUNTIME: '1'
         run: xvfb-run -a ctest --test-dir build_x86_64 --output-on-failure --verbose
