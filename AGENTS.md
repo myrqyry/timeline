@@ -34,7 +34,7 @@ Source, runtime and tool evidence outrank stale prose. Read only the relevant pr
 
 ## Task routing
 
-Read `src/AGENTS.md` for dock UI, event timing, OBS actions or rendering. Read `tests/AGENTS.md` for fixtures, Qt Test and mock/OBS lifecycle. Read `data/AGENTS.md` when changing localization or bundled assets. Development guidance must not be included in installed plugin files.
+Read `src/AGENTS.md` for dock UI, event timing, OBS actions or rendering. Read `tests/AGENTS.md` for fixtures, Qt Test, frontend test doubles and OBS lifecycle. Read `data/AGENTS.md` when changing localization or bundled assets. Development guidance must not be included in installed plugin files.
 
 <!-- meristem:start -->
 ## Meristem project continuity
