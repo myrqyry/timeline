@@ -989,6 +989,55 @@ private slots:
 		QCOMPARE(saved.readAll(), before);
 	}
 
+	void testMacroSaveCreatesMissingPluginConfigDirectory()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("plugin_config/timeline/macro_buttons.json");
+		MacroStripDock dock(nullptr, path);
+		MacroButton button;
+		button.id = "test-button";
+		button.label = "Preserved";
+		dock.buttonModel()->addButton(button);
+		QVERIFY(dock.saveNow());
+		QJsonDocument saved;
+		QString error;
+		QVERIFY2(MacroSerialization::loadFromFile(path, saved, &error), qPrintable(error));
+		QCOMPARE(saved.object()["buttons"].toArray().size(), 1);
+	}
+
+	void testMacroMigratesLegacyStorageWithoutLosingButtons()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString oldPath = dir.filePath("old/data/macro_buttons.json");
+		const QString newPath = dir.filePath("plugin_config/timeline/macro_buttons.json");
+		QVERIFY(QDir().mkpath(QFileInfo(oldPath).absolutePath()));
+		MacroButtonModel legacy;
+		MacroButton oldButton;
+		oldButton.id = "legacy";
+		oldButton.label = "Keep my existing buttons";
+		legacy.addButton(oldButton);
+		QVERIFY(MacroSerialization::saveToFile(oldPath, MacroSerialization::toJsonObject(legacy)));
+
+		MacroStripDock migrated(nullptr, newPath, oldPath);
+		QVERIFY(migrated.loadNow());
+		QCOMPARE(migrated.buttonModel()->count(), 1);
+		QCOMPARE(migrated.buttonModel()->buttons().first().label, QString("Keep my existing buttons"));
+		QVERIFY(QFile::exists(newPath));
+		QVERIFY(QFile::exists(oldPath)); // Preserve the original during migration.
+
+		MacroButtonModel replacement;
+		MacroButton latest;
+		latest.id = "latest";
+		latest.label = "New profile state";
+		replacement.addButton(latest);
+		QVERIFY(MacroSerialization::saveToFile(newPath, MacroSerialization::toJsonObject(replacement)));
+		MacroStripDock reopened(nullptr, newPath, oldPath);
+		QVERIFY(reopened.loadNow());
+		QCOMPARE(reopened.buttonModel()->buttons().first().label, QString("New profile state"));
+	}
+
 	void testStripDockHeightMatchesToolbar()
 	{
 		MacroStripDock dock;

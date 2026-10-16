@@ -19,7 +19,8 @@ class QScrollArea;
 class MacroStripDock : public QWidget {
 	Q_OBJECT
 public:
-	explicit MacroStripDock(QWidget *parent = nullptr, const QString &storageFilePath = QString());
+	explicit MacroStripDock(QWidget *parent = nullptr, const QString &storageFilePath = QString(),
+				const QString &legacyFilePath = QString());
 	~MacroStripDock() override;
 
 	void setObsExecutor(ObsExecutor *executor);
@@ -67,6 +68,7 @@ private:
 	MacroButtonModel m_model;
 	QPointer<ObsExecutor> m_executor;
 	QString m_storageFilePath;
+	QString m_legacyFilePath;
 	QTimer m_saveTimer;
 	bool m_autoSaveReady = false;
 

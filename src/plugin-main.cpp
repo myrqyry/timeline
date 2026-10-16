@@ -1,5 +1,6 @@
 #include <obs-module.h>
 #include <obs-frontend-api.h>
+#include <util/bmem.h>
 #include <QMainWindow>
 #include <QDockWidget>
 #include <QAction>
@@ -49,7 +50,14 @@ bool obs_module_load(void)
 	g_timelineDock = new TimelineDock();
 	obs_frontend_add_dock_by_id("timeline_dock", "Timeline", g_timelineDock);
 
-	g_macroStripDock = new MacroStripDock();
+	// Store editable macro state in OBS's per-plugin config directory, never
+	// in installed plugin data (read-only on some platforms).
+	char *macroPath = obs_module_config_path("macro_buttons.json");
+	const QString macroStoragePath = macroPath ? QString::fromUtf8(macroPath) : QString();
+	bfree(macroPath);
+	if (macroStoragePath.isEmpty())
+		blog(LOG_WARNING, "[MacroStrip] OBS config path unavailable; falling back to legacy path");
+	g_macroStripDock = new MacroStripDock(nullptr, macroStoragePath);
 	obs_frontend_add_dock_by_id("timeline_macro_strip", "Macro Strip", g_macroStripDock);
 	if (g_timelineDock) {
 		g_macroStripDock->setObsExecutor(g_timelineDock->obsExecutor());

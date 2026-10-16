@@ -16,13 +16,15 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QUuid>
 
-MacroStripDock::MacroStripDock(QWidget *parent, const QString &storageFilePath)
+MacroStripDock::MacroStripDock(QWidget *parent, const QString &storageFilePath, const QString &legacyFilePath)
 	: QWidget(parent),
-	  m_storageFilePath(storageFilePath)
+	  m_storageFilePath(storageFilePath),
+	  m_legacyFilePath(legacyFilePath)
 {
 	m_saveTimer.setSingleShot(true);
 	m_saveTimer.setInterval(300);
@@ -251,8 +253,13 @@ QString MacroStripDock::dataFilePath() const
 
 bool MacroStripDock::saveNow()
 {
+	const QString path = dataFilePath();
+	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+		blog(LOG_WARNING, "[MacroStrip] cannot create config directory for %s", path.toUtf8().constData());
+		return false;
+	}
 	QString err;
-	const bool ok = MacroSerialization::saveToFile(dataFilePath(), toJson(), &err);
+	const bool ok = MacroSerialization::saveToFile(path, toJson(), &err);
 	if (!ok)
 		blog(LOG_WARNING, "[MacroStrip] save failed: %s", err.toUtf8().constData());
 	return ok;
@@ -284,9 +291,18 @@ bool MacroStripDock::restoreFromObsJson(const QByteArray &json)
 
 bool MacroStripDock::loadNow()
 {
-	const QString path = dataFilePath();
-	if (!QFile::exists(path))
-		return false;
+	QString path = dataFilePath();
+	bool migrating = false;
+	if (!QFile::exists(path)) {
+		const QString legacyPath =
+			m_legacyFilePath.isEmpty()
+				? QDir::homePath() + "/.config/obs-studio/plugins/timeline/data/macro_buttons.json"
+				: m_legacyFilePath;
+		if (!QFile::exists(legacyPath))
+			return false;
+		path = legacyPath;
+		migrating = true;
+	}
 	QJsonDocument doc;
 	QString err;
 	if (!MacroSerialization::loadFromFile(path, doc, &err)) {
@@ -296,7 +312,18 @@ bool MacroStripDock::loadNow()
 		     broken.toUtf8().constData());
 		return false;
 	}
-	return fromJson(doc.object(), &err);
+	if (!fromJson(doc.object(), &err)) {
+		blog(LOG_WARNING, "[MacroStrip] Invalid macro document: %s", err.toUtf8().constData());
+		return false;
+	}
+	if (migrating) {
+		// Keep the original file untouched; a verified save at the new location
+		// takes precedence over this fallback on subsequent launches.
+		if (!saveNow())
+			return false;
+		blog(LOG_INFO, "[MacroStrip] Imported legacy buttons from %s", path.toUtf8().constData());
+	}
+	return true;
 }
 
 void MacroStripDock::onFrontendEvent(enum obs_frontend_event event)
