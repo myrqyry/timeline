@@ -71,6 +71,27 @@ Default install layout (Linux):
 OBS 31 macOS packages require macOS 12 or newer. OBS 32 macOS packages require
 macOS 13 or newer.
 
+### CI artifacts and release-mode packages
+
+GitHub Actions builds **separate OBS 31 and OBS 32 variants** for Linux,
+Windows x64 and macOS universal. The Linux build provides an `obs31`/`obs32`
+archive and, when packaging is enabled, a version-labeled Debian package. The
+CI matrix also exercises the Debian `package` target during pull requests so
+release-only packaging failures are caught before tagging.
+
+- The Linux `.deb` installs `timeline.so` into `/usr/lib/obs-plugins/` and
+  localization into `/usr/share/obs/obs-plugins/timeline/`; it depends on
+  the matching `obs-studio` major version. This differs from the default
+  local user-plugin install above.
+- Local user-plugin and system-wide package installs target the same OBS
+  module name. Do not install two OBS major variants simultaneously.
+- The repository's `data/AGENTS.md` documents development conventions and is
+  **not** an OBS runtime asset; it must not be included in install packages.
+- Compiled CI artifacts are **test candidates**. Actual Windows/macOS OBS
+  loading and interactive behavior remain unverified; see
+  [the release checklist](docs/RELEASE_CHECKLIST.md). No tagged release exists
+  yet.
+
 ## Quick Validation
 
 1. Launch OBS.

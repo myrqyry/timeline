@@ -621,18 +621,23 @@ functions (`tests/CMakeLists.txt:13-46`).
 
 ## Testing strategy
 
-Tests run through Qt Test with an offscreen platform and a headless OpenGL
-context for OBS startup (`tests/main_test.cpp:55-87`). The suite covers executor
-dispatch, model operations, scheduler signals and loops, serialization,
+Tests run through Qt Test with an OpenGL context and OBS startup
+(`tests/main_test.cpp`). Local headless runs can skip initialization if the
+runtime is unavailable. The Linux CI job runs in Xvfb with software OpenGL
+and sets `TIMELINE_REQUIRE_OBS_RUNTIME=1`, which turns unavailable OBS/OpenGL
+into a **failure** rather than silently skipping the suite. The suite covers
+executor dispatch, model operations, scheduler signals and loops, serialization,
 graphics-item behavior, Macro Strip behavior, and dock layout checks
-(`tests/main_test.cpp:231-841`). Memory leaks are asserted at `< 4` residual
-OBS internal allocations (`tests/main_test.cpp:225-228`).
+(`tests/main_test.cpp`). The cleanup assertion requires fewer than four
+residual OBS internal allocations after shutdown (`tests/main_test.cpp`).
 
 Run the full suite from a configured build:
 
 ```bash
 cmake --build --preset ubuntu-x86_64
-ctest --test-dir build_x86_64 --output-on-failure
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  ctest --test-dir build_x86_64 --output-on-failure
 ```
 
 Run an individual QTest function when narrowing a regression:

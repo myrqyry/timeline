@@ -169,7 +169,7 @@ find src -name "*.cpp" -o -name "*.h" | xargs clang-format -i
 ## Shared Conventions
 
 ### Code Style
-- Spaces only, 4-space indent, max line length 100 (prefer 80).
+- Follow the checked-in `.clang-format`: 8-column tab indentation and 120-column limit.
 - Includes order: main header → system/external → project headers (alphabetical).
 - Naming: `PascalCase` classes, `camelCase` functions/variables, `mCamelCase` private members, `snake_case` files.
 - Types: `double` for milliseconds, `QString` for Qt strings, `obs_*` types for OBS.
@@ -185,7 +185,7 @@ find src -name "*.cpp" -o -name "*.h" | xargs clang-format -i
 
 ### Versioning
 - Never manually edit version numbers in source files.
-- Edit `version` in `CMakeLists.txt` line 3: `project(timeline VERSION 0.1.0)`.
+- Edit `version` in `buildspec.json`; `cmake/common/bootstrap.cmake` reads it to set the CMake project version.
 
 ## Routing
 
