@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <memory>
 #include "headless-timeline.h"
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -308,6 +309,29 @@ private slots:
 
 		QTest::qWait(40);
 		QCOMPARE(g_current_transition, static_cast<obs_source_t *>(nullptr));
+	}
+
+	void testCancelActiveTransitionRestoresOriginal()
+	{
+		if (!scene2 || !trans)
+			QSKIP("OBS Startup failed, skipping test");
+		std::shared_ptr<obs_source_t> original(
+			obs_source_create("cut_transition", "Default Transition", nullptr, nullptr),
+			obs_source_release);
+		QVERIFY(original);
+		g_current_transition = obs_source_get_ref(original.get());
+
+		ObsExecutor executor;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::SceneSwitch;
+		evt.sourceName = "Scene 2";
+		evt.data = "Cut";
+		g_transition_duration_ms = 1000;
+		executor.executeEventStart(evt);
+		QCOMPARE(g_current_transition, trans);
+
+		executor.cancelAll(); // stop or pause before the restore timer fires
+		QCOMPARE(g_current_transition, original.get());
 	}
 
 	void testMediaStart()
@@ -656,6 +680,22 @@ private slots:
 		QVERIFY(loadedDoc.isObject());
 	}
 
+	void testInvalidTimelineObjectDoesNotEraseExistingEvents()
+	{
+		TimelineModel model;
+		TimelineEvent existing;
+		existing.type = TimelineEventType::SceneSwitch;
+		existing.sourceName = "Original scene";
+		model.addEvent(existing);
+		TimelineDocument out;
+		QString error;
+		const QJsonDocument malformed(QJsonObject{{"settings", QJsonObject{{"loop", true}}}});
+		QVERIFY(!TimelineSerialization::fromJsonDocument(malformed, model, out, &error));
+		QVERIFY(!error.isEmpty());
+		QCOMPARE(model.getEvents().size(), size_t(1));
+		QCOMPARE(model.getEvents()[0].id, existing.id);
+	}
+
 	void testSerializationInvalidJson()
 	{
 		QTemporaryFile file;
@@ -800,6 +840,20 @@ private slots:
 		QVERIFY(buttons[1].id != QString("a"));
 		QVERIFY(!buttons[1].id.isEmpty());
 		QCOMPARE(buttons[1].label, QString("Dup"));
+	}
+
+	void testInvalidMacroDocumentDoesNotEraseExistingButtons()
+	{
+		MacroButtonModel model;
+		MacroButton original;
+		original.label = "Kept button";
+		model.addButton(original);
+		QString error;
+		QVERIFY(!MacroSerialization::fromJsonDocument(
+			QJsonDocument(QJsonObject{{"version", 1}}), model, &error));
+		QVERIFY(!error.isEmpty());
+		QCOMPARE(model.count(), 1);
+		QCOMPARE(model.buttons().first().label, QString("Kept button"));
 	}
 
 	void testMacroSerializationInvalidJson()

@@ -33,13 +33,17 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonModel &model,
 					 QString *errorMessage)
 {
-	model.clear();
 	if (!doc.isObject()) {
 		if (errorMessage)
 			*errorMessage = "Macro buttons JSON must be an object";
 		return false;
 	}
 	const QJsonObject root = doc.object();
+	if (!root["buttons"].isArray()) {
+		if (errorMessage)
+			*errorMessage = "Macro buttons JSON requires a buttons array";
+		return false;
+	}
 	const QJsonArray array = root["buttons"].toArray();
 	QSet<QString> seen;
 	QList<MacroButton> buttons;

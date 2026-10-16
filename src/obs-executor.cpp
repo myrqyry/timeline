@@ -57,7 +57,15 @@ void ObsExecutor::setObsWebSocketVendor(void *vendor)
 
 void ObsExecutor::cancelAll()
 {
-	cancelRestoreTimer();
+	// Stopping playback must not leave a temporary transition selected.
+	// Only restore when an override is pending; otherwise preserve the
+	// current OBS transition.
+	if (restoreTimer && restoreTimer->isActive()) {
+		restoreTimer->stop();
+		restoreOriginalTransition();
+	} else {
+		cancelRestoreTimer();
+	}
 	blog(LOG_INFO, "[Timeline] cancelAll() called - stopping %d active nested timelines",
 	     static_cast<int>(activeTimelines.size()));
 	for (HeadlessTimeline *t : activeTimelines) {
