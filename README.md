@@ -203,6 +203,9 @@ Existing Linux Macro Strip files under
 `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` are imported
 when the new config file does not exist. The original file is preserved.
 Windows and macOS use their respective OBS plugin-configuration directories.
+The current Macro Strip file is authoritative: copies stored in OBS scene
+collections are recovery backups, not replacements for newer saved buttons or
+edits awaiting autosave.
 
 Timeline JSON accepts both the current root-object format and legacy bare event
 arrays. Saves are atomic through `QSaveFile`
