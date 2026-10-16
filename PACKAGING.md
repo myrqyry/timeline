@@ -87,6 +87,10 @@ release-only packaging failures are caught before tagging.
   module name. Do not install two OBS major variants simultaneously.
 - The repository's `data/AGENTS.md` documents development conventions and is
   **not** an OBS runtime asset; it must not be included in install packages.
+- CPack source archives are built from the working tree, **not** Git's tracked
+  files. `.gitignore` alone does not protect private `.meristem/local/` state;
+  CPack excludes it explicitly. Both Ubuntu CI jobs seed synthetic local data
+  before packaging and refuse to upload an archive that contains that path.
 - Compiled CI artifacts are **test candidates**. Actual Windows/macOS OBS
   loading and interactive behavior remain unverified; see
   [the release checklist](docs/RELEASE_CHECKLIST.md). No tagged release exists

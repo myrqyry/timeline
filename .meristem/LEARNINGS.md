@@ -42,3 +42,17 @@
 **Recommended behavior:** Use the CI version when formatting checks disagree.
 
 **Validation status:** tested.
+
+## 2026-10-16 — Git ignore does not enforce CPack source privacy
+
+**Signal / failure:** Source tarballs included a synthetic file in `.meristem/local/` despite Git ignoring that private directory.
+
+**Mechanism:** CPack's `package_source` enumerates the working tree using `CPACK_SOURCE_IGNORE_FILES`, not Git's ignore rules. This creates a disclosure risk if private machine state is stored where Meristem tells agents to keep it.
+
+**Scope:** Source-distribution generation on both Ubuntu OBS31/OBS32 CI jobs and local source packages.
+
+**Evidence:** Before the patch, the actual CPack TXZ archive contained `.meristem/local/cpack-private-fixture.txt`; afterward it did not, while public `.meristem/PROJECT.md` remained. CI now seeds synthetic state before packaging and blocks the upload if the private path appears.
+
+**Recommended behavior:** Maintain explicit packaging exclusions for every private/ignored workspace lane; verify the actual archive payload with synthetic fixtures before publishing.
+
+**Validation status:** Local CPack before/after tested; new-head CI pending at time of recording.

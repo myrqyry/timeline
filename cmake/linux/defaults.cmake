@@ -64,6 +64,8 @@ set(
   \\.gitignore
   \\.ccache/
   \\.deps/
+  # CPack packages the working tree; Git ignore rules do not protect private state.
+  \\.meristem/local/
   build_.*
   cmake/\\.CMakeBuildNumber
   release/

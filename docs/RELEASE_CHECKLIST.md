@@ -37,8 +37,10 @@ use have not been demonstrated**.
 - [ ] Inspect Linux `.deb` payloads and dependency fields, including the
   `obs-studio` major-version bounds; ensure no `AGENTS.md` or downloaded
   SDK/source trees are in the runtime packages.
-- [ ] Confirm the source archive contains no `.deps` SDK downloads and no
-  generated build/release outputs.
+- [ ] Confirm the source archive contains no `.deps` SDK downloads, no
+  `.meristem/local/` private machine state, and no generated build/release
+  outputs. CPack source exclusions must be verified independently from Git's
+  ignore rules; Ubuntu CI injects a synthetic privacy fixture before packaging.
 - [ ] Run clean install and upgrade tests using **temporary OBS profiles**,
   not the maintainer's everyday scene collections.
 - [ ] Test the actual plugin interactively on Windows and macOS before claiming
