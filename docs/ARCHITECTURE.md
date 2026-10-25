@@ -5,14 +5,15 @@ the current implementation, the reasons for its major boundaries, the runtime
 data flows, and the operational constraints that matter when extending the
 plugin.
 
-The code is authoritative. When this document disagrees with an implementation
-detail, update the document after verifying the code rather than changing
-runtime behavior to match the prose.
+For current behavior, verify claims against executable code and configuration.
+When they disagree with a maintained contract or intended design, identify the
+conflict before deciding whether the prose is stale or the implementation is
+defective. Do not change runtime behavior solely to match stale prose.
 
 ## Executive summary
 
 Timeline for OBS is a Qt6 dock plugin that schedules OBS actions against a
-monotonic playhead. The plugin separates event data, time progression, OBS
+clock-driven playhead. The plugin separates event data, time progression, OBS
 dispatch, and presentation into distinct components. The same model, scheduler,
 and executor concepts also run without a UI for nested timeline files.
 
@@ -28,8 +29,9 @@ OBS loads the module
 ```
 
 The plugin is currently a source-built Linux preview. CMake declares project
-version `0.1.0` in `CMakeLists.txt:3`; the repository release state is
-`v0.1.0-preview.1`. The module banner reports load status but does not duplicate
+version `0.1.0` from `buildspec.json` through `cmake/common/bootstrap.cmake`;
+the development milestone is `v0.1.0-preview.1`, not a published tag. The module
+banner reports load status but does not duplicate
 the release version.
 
 ## Audience and reading paths
@@ -45,7 +47,7 @@ matches the work you are doing.
 | Persistence contributor | `src/timeline-serialization.h:9-40` | `src/timeline-serialization.cpp:4-121`, `src/timeline-model.cpp:9-181` |
 | Nested timeline contributor | `src/headless-timeline.h:11-48` | `src/headless-timeline.cpp:8-84`, `src/obs-executor.cpp:373-430` |
 | Release maintainer | `PACKAGING.md` | `docs/RELEASE_CHECKLIST.md`, `CMakePresets.json` |
-| Test contributor | `tests/AGENTS.md` | `tests/CMakeLists.txt:13-46`, `tests/main_test.cpp:56-841` |
+| Test contributor | `tests/AGENTS.md` | `tests/CMakeLists.txt`, `tests/main_test.cpp` |
 
 ## System boundary
 
@@ -88,13 +90,14 @@ implementing different OBS action semantics (`src/plugin-main.cpp:55-72`).
 
 The build requires CMake 3.28+, C++17, Qt6 Core/Gui/Widgets/Svg, and the OBS
 libraries exposed through the official OBS plugin-template CMake targets
-(`CMakeLists.txt:1-35`). Select `obs31` or `obs32` with
+(`CMakeLists.txt`). Tests default to enabled and also require Qt6 Test; the
+Ubuntu presets use Ninja. Select `obs31` or `obs32` with
 `TIMELINE_OBS_COMPATIBILITY`; the selected target is pinned to OBS 31.1.2 or
 OBS 32.2.1 in `buildspec.json`. CI can build that SDK from source with
 `TIMELINE_BUILD_OBS_FROM_SOURCE=ON`. WebSocket vendor support is optional. When
 `ENABLE_OBS_WEBSOCKET_VENDOR` is enabled and `obs-websocket-api.h` is found,
 CMake defines `OBS_TIMELINE_HAS_WEBSOCKET=1`; otherwise it compiles the
-integration out (`CMakeLists.txt:86-105`).
+integration out (`CMakeLists.txt`, **Optional obs-websocket vendor integration**).
 
 ## Module map
 
@@ -118,7 +121,7 @@ lifetime, and callback teardown must remain easy to trace.
 | `theme-helpers.h` | Theme-aware SVG paths and default colors | Qt palette and OBS theme widgets |
 | `timecode-display.cpp/.h` | Theme-aware playback clock | Qt custom widget |
 
-The source list is maintained manually in `CMakeLists.txt:28-61`. Adding a new
+The source list is maintained manually in `CMakeLists.txt`. Adding a new
 `.cpp` file requires adding it to `PLUGIN_SOURCES`; adding a header to
 `PLUGIN_HEADERS` keeps it visible to the target and IDEs.
 
@@ -234,7 +237,8 @@ fine BPM subdivisions (`src/timeline-scheduler.cpp:4-9`,
 ### Clock model
 
 `currentOffsetMs` stores the paused or stopped playhead position. `startTime`
-stores the wall-clock reference captured when playback resumes. While playing,
+stores the `std::chrono::high_resolution_clock` reference captured when playback
+resumes. This clock is not guaranteed to be monotonic on every platform. While playing,
 `getCurrentTime()` returns `currentOffsetMs` plus elapsed high-resolution clock
 time (`src/timeline-scheduler.cpp:118-126`).
 
@@ -246,9 +250,9 @@ timer and seeks to zero (`src/timeline-scheduler.cpp:54-78`).
 
 The model is sorted by start time, so the scheduler maintains
 `nextStartIndex`. Each tick advances that cursor only through events whose
-start time has arrived (`src/timeline-scheduler.cpp:185-199`). Duration end
+start time has arrived (`src/timeline-scheduler.cpp:178-186`). Duration end
 times are not sorted by start time, so the scheduler retains a separate scan for
-end events (`src/timeline-scheduler.cpp:201-210`).
+end events (`src/timeline-scheduler.cpp:188-197`).
 
 `eventStartFired` and `eventEndFired` prevent repeated signals across timer
 ticks. Seeking clears both sets and marks events strictly before the new
@@ -338,19 +342,28 @@ remain responsibilities of OBS WebSocket.
 
 `TriggerTimeline` resolves its file path from `evt.data`, falling back to
 `sourceName` for older records. It canonicalizes the path and rejects a request
-whose path is already active (`src/obs-executor.cpp:373-395`). A successful
-request creates a child `HeadlessTimeline`, stores it in `activeTimelines`,
-connects its finish signal, and starts it (`src/obs-executor.cpp:397-417`).
+whose path is already in the inherited ancestor chain or among this executor's
+active children (`ObsExecutor::handleTriggerTimeline()` in `src/obs-executor.cpp`). A successful
+request creates a child `HeadlessTimeline`, passes on its ancestry, stores it in
+`activeTimelines`, connects its finish signal, and starts it
+(`src/obs-executor.cpp:422-445`).
 
-`cancelAll()` stops active children and schedules them for deletion
-(`src/obs-executor.cpp:38-47`). The child owns its model, scheduler, and executor
+`cancelAll()` stops active children and schedules them for deletion before
+restoring its own pending temporary transition. This unwinds nested transition
+overrides child-first (`src/obs-executor.cpp:58-79`). The child owns its model, scheduler, and executor
 through Qt parent ownership (`src/headless-timeline.cpp:8-21`).
+
+Headless loading accepts event arrays and object documents directly, without
+using `TimelineSerialization::fromJsonDocument()`. It reads only loop and end
+settings; `endTime` is in seconds and is converted to scheduler milliseconds.
+When no positive end time is supplied, it uses the latest event end plus 100 ms,
+or 100 ms for an empty timeline (`HeadlessTimeline::loadFromFile()`).
 
 ## Timeline dock and UI pipeline
 
 `TimelineDock` is the composition root for the timeline UI. It owns the model,
 scheduler, executor, graphics view, scene, controls, and event-item map
-(`src/timeline-dock.h:29-236`). Its large surface area is intentional for the
+(`src/timeline-dock.h`). Its large surface area is intentional for the
 current plugin, but all persistent event changes still pass through the model.
 
 ### Construction and persistence
@@ -463,7 +476,9 @@ The current timeline format is a root object with `events` and `settings`.
 Bare JSON arrays remain accepted as legacy event-only files. Object documents
 use defaults for omitted settings, while invalid root types and malformed files
 return an error string (`src/timeline-serialization.cpp:31-68`,
-`src/timeline-serialization.cpp:106-126`).
+`src/timeline-serialization.cpp:106-126`). Object documents require an `events`
+array. Event `time`/`duration` and settings `currentTimeMs` are milliseconds;
+settings `endTime` is in seconds.
 
 Timeline saves are atomic through `QSaveFile`, which writes to a temporary
 location and commits atomically on `QSaveFile::commit()`, preserving the
@@ -483,8 +498,9 @@ and type-specific data (`src/timeline-model.cpp:75-174`).
 Macro data uses an object with `buttons` and `version`. Each button stores its
 ID, label, type, source, optional filter, optional data, and color
 (`src/macro-serialization.cpp:9-29`). Invalid event types are skipped, duplicate
-or missing IDs are regenerated, and malformed files are renamed with a
-`.broken-<timestamp>` suffix by Macro Strip loading. Macro Strip stores the
+or missing IDs are regenerated. Macro Strip loading attempts to rename files
+that cannot be opened or parsed with a `.broken-<timestamp>` suffix; valid JSON
+with an invalid document shape is rejected without that rename. Macro Strip stores the
 current file in the writable OBS plugin configuration directory; if absent,
 it migrates a valid legacy file without deleting that source. OBS scene-collection
 copies are validated recovery fallbacks; a newer canonical file or pending
@@ -498,7 +514,7 @@ in-memory edits take precedence.
 | Installed binary | `${TIMELINE_PLUGIN_ROOT}/bin/64bit/timeline.so` on Linux | CMake install (`CMakeLists.txt:122-129`) |
 | Installed plugin data | `${TIMELINE_PLUGIN_ROOT}/data/` | CMake install (`CMakeLists.txt:127-129`) |
 | Timeline settings | `obs_module_get_config_path(..., "timeline.json")` | OBS module config API (`src/timeline-dock.cpp:222-304`) |
-| Macro buttons | `obs_module_get_config_path(..., "macro_buttons.json")` | Macro Strip (`src/plugin-main.cpp`, `src/macro-strip-dock.cpp`) |
+| Macro buttons | `obs_module_config_path("macro_buttons.json")` | Macro Strip (`src/plugin-main.cpp`, `src/macro-strip-dock.cpp`) |
 | Manual timeline export | User-selected JSON path | Timeline dock (`src/timeline-dock.cpp:1373-1395`) |
 
 ## Threading and ownership
@@ -542,8 +558,9 @@ The plugin favors warnings and safe no-ops over terminating the OBS process.
 | Scene/source/filter missing | Log a warning; continue scheduler operation | `src/obs-executor.cpp:221-334` |
 | Transition name missing | Log a warning and use the normal scene switch path | `src/obs-executor.cpp:201-204` |
 | Nested file missing or invalid | Schedule child deletion and log a warning | `src/obs-executor.cpp:407-427` |
-| Nested recursion | Reject the canonical path already active | `src/obs-executor.cpp:396-401` |
-| Macro file malformed | Rename it to a timestamped `.broken-*` file | `src/macro-strip-dock.cpp:229-244` |
+| Nested recursion | Reject canonical paths in inherited ancestry or active children | `ObsExecutor::handleTriggerTimeline()` |
+| Macro file unreadable or JSON malformed | Attempt rename to a timestamped `.broken-*` file; return failure | `MacroStripDock::loadNow()` |
+| Macro document shape invalid | Reject without replacing in-memory buttons or renaming the file | `MacroStripDock::loadNow()`, `MacroSerialization::fromJsonDocument()` |
 | OBS exit during queued UI work | Queued work uses QObject context and teardown unregisters callbacks | `src/timeline-dock.cpp:98-112`, `src/timeline-dock.cpp:153-211` |
 
 Persistence uses `QSaveFile`, which guarantees atomic commits on all supported
@@ -572,7 +589,7 @@ must define validation, authorization, and disclosure rules before implementatio
 The scheduler uses an 8 ms timer and a monotonic start cursor. Start detection
 advances through each event once per forward pass; duration end detection remains
 O(n) per tick because end times are not ordered by start time
-(`src/timeline-scheduler.cpp:185-210`). This is appropriate for the expected
+(`src/timeline-scheduler.cpp:175-197`). This is appropriate for the expected
 small-to-medium timeline sizes, but duration-heavy timelines remain the first
 candidate for profiling.
 
@@ -594,12 +611,13 @@ render callback.
 ## Deployment architecture
 
 The plugin builds as a CMake `MODULE` named `timeline` with no `lib` prefix and
-links Qt6 and OBS libraries (`CMakeLists.txt:64-76`). CMake installs the module
-and `data/` directory under the configured plugin root
-(`CMakeLists.txt:107-129`).
+links Qt6 and OBS libraries (`CMakeLists.txt`). On Linux and Windows, CMake
+installs the module and runtime `data/` assets under the configured plugin root,
+excluding `AGENTS.md`. macOS uses a `.plugin` bundle with runtime assets in
+`Contents/Resources` through `set_target_properties_plugin()`.
 
 The default Linux workflow uses Ninja, RelWithDebInfo, and CTest
-(`.github/workflows/linux-build.yml:15-33`). The repository also defines CMake
+(`.github/workflows/linux-build.yml`). The repository also defines CMake
 presets for Ubuntu, macOS, and Windows
 (`CMakePresets.json:1-117`, `README.md:102-136`). The `ubuntu-ci-x86_64` preset
 adds ccache and warnings-as-errors for CI builds.
@@ -608,16 +626,19 @@ adds ccache and warnings-as-errors for CI builds.
 
 | Switch | Default | Effect |
 | --- | --- | --- |
-| `CMAKE_CXX_STANDARD` | `17` (set in `CMakeLists.txt:11-12`) | Required language standard |
-| `ENABLE_OBS_WEBSOCKET_VENDOR` | `ON` | Attempt optional vendor-header integration (`CMakeLists.txt:8`) |
-| `TIMELINE_PLUGIN_ROOT` | `$HOME/.config/obs-studio/plugins/timeline` | Root for installed binary and data (`CMakeLists.txt:107-109`) |
-| `OBS_PLUGIN_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/bin/64bit` | Installed module directory (`CMakeLists.txt:112-114`) |
-| `OBS_DATA_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/data` | Installed data directory (`CMakeLists.txt:117-119`) |
+| `CMAKE_CXX_STANDARD` | `17` (set in `CMakeLists.txt`) | Required language standard |
+| `TIMELINE_OBS_COMPATIBILITY` | `obs32` | Select `obs31` or `obs32` and the corresponding SDK target (`cmake/common/bootstrap.cmake`) |
+| `TIMELINE_BUILD_OBS_FROM_SOURCE` | `OFF` | Build the pinned OBS SDK on Linux instead of using the installed SDK |
+| `TIMELINE_BUILD_TESTS` | `ON` | Build the Qt Test suite; requires Qt6 Test |
+| `ENABLE_OBS_WEBSOCKET_VENDOR` | `ON` | Attempt optional vendor-header integration (`CMakeLists.txt`) |
+| `TIMELINE_PLUGIN_ROOT` | `$HOME/.config/obs-studio/plugins/timeline` on Linux; `$APPDATA/obs-studio/plugins/timeline` on Windows | Root for installed binary and data; macOS uses bundle rules |
+| `OBS_PLUGIN_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/bin/64bit` | Installed module directory on Linux/Windows |
+| `OBS_DATA_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/data` | Installed runtime data directory on Linux/Windows |
 
 Additional preset options are available in `CMakePresets.json`. The test target
 compiles the executor, headless timeline, scheduler, model, event item,
 serialization, macro, and editor sources with mocked frontend and WebSocket
-functions (`tests/CMakeLists.txt:13-46`).
+functions (`tests/CMakeLists.txt`).
 
 ## Testing strategy
 
@@ -643,8 +664,12 @@ TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
 Run an individual QTest function when narrowing a regression:
 
 ```bash
-build_x86_64/tests/run_tests testSceneSwitch
-build_x86_64/tests/run_tests testSchedulerStartCursorResets
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  build_x86_64/tests/run_tests testSceneSwitch
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  build_x86_64/tests/run_tests testSchedulerStartCursorResets
 ```
 
 The test doubles are intentionally incomplete OBS source implementations. They

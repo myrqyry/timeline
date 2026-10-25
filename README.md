@@ -100,11 +100,14 @@ distribution’s package manager. The minimum project components are:
 
 - `libobs-dev`
 - `cmake` 3.28 or newer
-- Qt6 Core, Gui, Widgets, and Svg development packages
+- Qt6 Core, Gui, Widgets, Svg, and Test development packages (tests default to enabled)
+- Ninja for the Ubuntu CMake presets
 - A C++17 compiler and standard build tools
 - Optional: `obs-websocket-api.h` for WebSocket vendor support
 
-The exact CI dependency list is in `.github/workflows/linux-build.yml:15-24`.
+The exact CI dependency list is in the **Install dependencies** step of
+`.github/workflows/linux-build.yml`. Plugin-only builds can disable the Qt Test
+dependency with `-DTIMELINE_BUILD_TESTS=OFF`.
 
 ### Build and install
 
@@ -142,7 +145,7 @@ The default Linux install locations are:
 
 The install root and destinations are configurable through
 `TIMELINE_PLUGIN_ROOT`, `OBS_PLUGIN_DESTINATION`, and
-`OBS_DATA_DESTINATION` (`CMakeLists.txt:107-129`).
+`OBS_DATA_DESTINATION` (the install rules in `CMakeLists.txt`).
 
 Restart OBS after installation, then open **View > Docks > Timeline**. Macro
 Strip appears under **View > Docks > Macro Strip**.
@@ -151,10 +154,12 @@ Strip appears under **View > Docks > Macro Strip**.
 
 `ENABLE_OBS_WEBSOCKET_VENDOR` defaults to `ON`. When enabled, CMake searches for
 `obs-websocket-api.h`; when disabled, the vendor integration is compiled out
-(`CMakeLists.txt:86-105`). For an explicit build without the integration, run:
+(`CMakeLists.txt`, **Optional obs-websocket vendor integration**). For an explicit
+build without the integration, run:
 
 ```bash
-cmake --preset ubuntu-x86_64 -DENABLE_OBS_WEBSOCKET_VENDOR=OFF
+cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32 \
+  -DENABLE_OBS_WEBSOCKET_VENDOR=OFF
 cmake --build --preset ubuntu-x86_64
 ```
 
@@ -245,7 +250,7 @@ see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 The project uses CMake, Qt Test, and OBS frontend test doubles for headless
 tests. The test target compiles production modules directly with those test
-implementations (`tests/CMakeLists.txt:13-46`).
+implementations (`tests/CMakeLists.txt`).
 
 ### Build and test
 
@@ -268,8 +273,12 @@ TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
 Run a focused test function with:
 
 ```bash
-build_x86_64/tests/run_tests testSceneSwitch
-build_x86_64/tests/run_tests testSchedulerStartCursorResets
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  build_x86_64/tests/run_tests testSceneSwitch
+TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
+  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+  build_x86_64/tests/run_tests testSchedulerStartCursorResets
 ```
 
 The test harness defaults to `QT_QPA_PLATFORM=offscreen`, but OBS startup

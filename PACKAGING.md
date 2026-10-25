@@ -7,7 +7,8 @@ plugin (project name: `timeline`) for local installation in OBS Studio.
 
 - CMake 3.28+
 - C++17 toolchain
-- Qt6 (`Core`, `Gui`, `Widgets`, `Svg`)
+- Qt6 (`Core`, `Gui`, `Widgets`, `Svg`, and `Test` for the default test build)
+- Ninja for the Ubuntu CMake presets
 - `libobs` development headers/libraries (via `pkg-config`)
 - (Optional) `obs-websocket-api.h` for WebSocket vendor support
 
@@ -44,6 +45,8 @@ Optional flags:
 - `-DTIMELINE_OBS_COMPATIBILITY=obs31|obs32` — select the OBS major version.
 - `-DTIMELINE_BUILD_OBS_FROM_SOURCE=ON` — build the selected OBS SDK from its
   pinned source archive on Linux.
+- `-DTIMELINE_BUILD_TESTS=OFF` — omit the Qt Test suite and its `Qt6::Test`
+  dependency; tests are enabled by default.
 
 ## Build
 
@@ -98,7 +101,7 @@ release-only packaging failures are caught before tagging.
 
 ## Quick Validation
 
-1. Launch OBS.
+1. Launch OBS with an isolated test profile and scene collection.
 2. Open **View > Docks > Timeline** (and optionally **Macro Strip**).
 3. Add a test event, save the scene collection, and verify playback controls
    and event execution.

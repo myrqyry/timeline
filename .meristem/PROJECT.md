@@ -36,4 +36,4 @@ Timeline is an OBS Studio dock plugin for composing and running scheduled OBS ac
 ## Open structural uncertainty
 
 - Full interactive editing and event execution in real OBS, clean upgrades and Windows/macOS runtime installation remain release gates, not supported claims.
-- No tagged public release was established at initialization. `ACTIVE_WORK.md` contains the current PR handoff and exact-head verification boundary.
+- No tagged public release was established at initialization. `ACTIVE_WORK.md` tracks preview readiness from merged `main` and distinguishes historical verification from current-tree evidence.
