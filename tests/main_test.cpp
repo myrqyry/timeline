@@ -2,6 +2,9 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QTest>
 #include <QSignalSpy>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QFontMetrics>
 #include <QMetaObject>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
@@ -945,6 +948,40 @@ private slots:
 		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
 	}
 
+	void testMacroStripFitsEventsWhenHorizontallyScrollable()
+	{
+		MacroStripDock dock;
+		dock.resize(160, dock.minimumHeight());
+		for (int i = 0; i < 8; ++i) {
+			MacroButton button;
+			button.id = QString::number(i);
+			button.label = "Scene";
+			dock.buttonModel()->addButton(button);
+		}
+		dock.show();
+		QApplication::processEvents();
+
+		auto *scroll = dock.findChild<QScrollArea *>();
+		QVERIFY(scroll);
+		QVERIFY(scroll->horizontalScrollBar()->maximum() > 0);
+		const auto buttons = dock.findChildren<MacroButtonWidget *>();
+		QVERIFY(!buttons.isEmpty());
+		QVERIFY2(scroll->viewport()->height() >= buttons.first()->minimumSizeHint().height(),
+			 "Macro Strip viewport clips event bubbles when the horizontal scrollbar is visible");
+	}
+
+	void testMacroButtonLabelFitsItsWidth()
+	{
+		MacroButton button;
+		button.label = "Scene";
+		MacroButtonWidget widget(button);
+		QFont labelFont = widget.font();
+		labelFont.setPointSize(8);
+		labelFont.setBold(true);
+		const int labelPillWidth = QFontMetrics(labelFont).horizontalAdvance(button.label) + 8;
+		QVERIFY2(widget.sizeHint().width() >= labelPillWidth, "Macro event label is clipped horizontally");
+	}
+
 	void testStripDockMoveAndFire()
 	{
 		MacroStripDock dock;
@@ -1188,12 +1225,13 @@ private slots:
 			 QString("Edited moments ago"));
 	}
 
-	void testStripDockHeightMatchesToolbar()
+	void testStripDockHeightAccommodatesLabeledButton()
 	{
 		MacroStripDock dock;
-		// The strip dock height should match the timeline dock's toolbar row
-		// (controlsLayout uses 2 px margins around 28 px secondary buttons → 32 px).
-		QCOMPARE(dock.height(), 32);
+		// Unlike the 32 px toolbar, the strip must accommodate a label,
+		// bubble and a horizontal scrollbar without fixing the dock's height.
+		QVERIFY(dock.minimumHeight() > MacroButtonWidget::kWidgetHeight);
+		QVERIFY(dock.maximumHeight() > dock.minimumHeight());
 	}
 };
 

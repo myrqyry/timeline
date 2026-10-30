@@ -21,6 +21,7 @@ MacroButtonWidget::MacroButtonWidget(const MacroButton &button, QWidget *parent)
 	setMouseTracking(true);
 	setAttribute(Qt::WA_Hover, true);
 	setCursor(Qt::PointingHandCursor);
+	setToolTip(fallbackLabel(m_button));
 	rebuildRenderer();
 }
 
@@ -29,6 +30,7 @@ void MacroButtonWidget::setButton(const MacroButton &button)
 	m_button = button;
 	setToolTip(fallbackLabel(m_button));
 	rebuildRenderer();
+	updateGeometry();
 	update();
 }
 
@@ -56,8 +58,12 @@ void MacroButtonWidget::setPressedAppearance(bool pressed)
 
 QSize MacroButtonWidget::sizeHint() const
 {
-	// Bubble + label pill above + margins.
-	return QSize(static_cast<int>(kBubbleSize) + 12, static_cast<int>(kBubbleSize) + 18);
+	QFont labelFont = font();
+	labelFont.setPointSize(8);
+	labelFont.setBold(true);
+	const int labelWidth = QFontMetrics(labelFont).horizontalAdvance(fallbackLabel(m_button)) + 8;
+	// Keep labels readable without making a long macro name dominate the strip.
+	return QSize(qBound(static_cast<int>(kBubbleSize) + 12, labelWidth, 160), kWidgetHeight);
 }
 
 QSize MacroButtonWidget::minimumSizeHint() const
@@ -112,7 +118,7 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	const double bubble = kBubbleSize;
 	const double bubbleGrowth = m_isPressed ? -1.0 : (m_isHovered ? 3.0 : 0.0);
 	const double radius = (bubble + bubbleGrowth) / 2.0;
-	const QPointF center(bubble / 2.0 + 4.0, bubble + 4.0); // bubble centered horizontally, anchored to bottom
+	const QPointF center(width() / 2.0, bubble + 4.0); // center in the label-aware widget width
 
 	// Hover glow
 	if (m_isHovered && !m_isPressed) {
@@ -148,10 +154,9 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		QFontMetrics fm(font);
 		const int textW = fm.horizontalAdvance(label);
 		const int textH = fm.ascent() + fm.descent();
-		const int boxW = textW + padX * 2;
+		const int boxW = qMin(textW + padX * 2, width());
 		const int boxH = textH + padY * 2;
-		const double pillCenterX = center.x();
-		const int boxX = static_cast<int>(pillCenterX - boxW / 2.0);
+		const int boxX = (width() - boxW) / 2;
 		const int boxY = 0;
 
 		QColor textColor = m_labelTextColor.isValid() ? m_labelTextColor
@@ -171,6 +176,6 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		painter.drawRoundedRect(box, 3.0, 3.0);
 
 		painter.setPen(textColor);
-		painter.drawText(box, Qt::AlignCenter, label);
+		painter.drawText(box, Qt::AlignCenter, fm.elidedText(label, Qt::ElideRight, boxW - padX * 2));
 	}
 }

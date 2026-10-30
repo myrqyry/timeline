@@ -11,6 +11,7 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QMenu>
 #include <QAction>
 #include <QDateTime>
@@ -45,12 +46,10 @@ MacroStripDock::~MacroStripDock() = default;
 void MacroStripDock::setupUi()
 {
 	setObjectName("timeline-macro-strip-dock");
-	// Match the timeline dock's toolbar row height (controlsLayout uses 2 px
-	// margins around 28 px secondary buttons → 32 px total).
-	constexpr int kDockHeight = 32;
-	setFixedHeight(kDockHeight);
+	// The labeled event bubbles are taller than the regular timeline toolbar.
+	// Leave room for them even when a horizontal scrollbar is necessary.
 	auto *root = new QHBoxLayout(this);
-	root->setContentsMargins(6, 0, 6, 0);
+	root->setContentsMargins(6, 2, 6, 2);
 	root->setSpacing(6);
 
 	m_addButton = new QPushButton(this);
@@ -63,7 +62,11 @@ void MacroStripDock::setupUi()
 	m_scrollArea->setWidgetResizable(true);
 	m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-	m_scrollArea->setFixedHeight(kDockHeight);
+	const int scrollHeight = MacroButtonWidget::kWidgetHeight +
+				 m_scrollArea->horizontalScrollBar()->sizeHint().height() +
+				 2 * m_scrollArea->frameWidth();
+	m_scrollArea->setMinimumHeight(scrollHeight);
+	setMinimumHeight(scrollHeight + root->contentsMargins().top() + root->contentsMargins().bottom());
 
 	m_buttonContainer = new QWidget(m_scrollArea);
 	m_buttonLayout = new QHBoxLayout(m_buttonContainer);
@@ -119,7 +122,7 @@ void MacroStripDock::rebuildFromModel()
 			else if (picked == del)
 				safeThis->removeButton(id);
 		});
-		m_buttonLayout->addWidget(w);
+		m_buttonLayout->addWidget(w, 0, Qt::AlignVCenter);
 	}
 	m_buttonLayout->addStretch();
 	emit saveRequested();
