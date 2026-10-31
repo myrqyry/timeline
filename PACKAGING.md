@@ -28,9 +28,9 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 ```
 
 The OBS 31.1.2 and OBS 32.2.1 targets have established cross-platform builds.
-OBS 33.0.1 is an **experimental Linux-only compatibility target**: its source
-archive is SHA-256 pinned, but full OBS 33 test/installation validation is still
-required. The Linux compatibility workflow builds the matching OBS SDK from
+OBS 33.0.1 is a **Linux-only compatibility target**: its source archive is
+SHA-256 pinned and strict headless Qt/OBS tests passed on the Ubuntu 26.04 CI
+runner. Interactive dock usage and clean installation still require validation. The Linux compatibility workflow builds the matching OBS SDK from
 source. A local build uses the installed SDK unless
 `TIMELINE_BUILD_OBS_FROM_SOURCE=ON` is set. For OBS 33, use Ubuntu 26.04 or a
 matching SDK environment, not your Ubuntu 24.04 / Qt 6.4 host libraries.
