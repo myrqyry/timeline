@@ -11,9 +11,16 @@ Timeline is the maintainer's first public OBS plugin. Its runtime functionality 
 
 ## Current state
 
-- **Branch context:** `main` at `c490a40` includes the documentation/substrate reconciliation after merged PR #3. Packaging hygiene, release documentation, Meristem adoption and the source-archive privacy fix (`de4f388`) are committed history.
-- **Current working tree:** Clean after pushing `c490a40`; the only follow-up edit records verified CI and the maintainer's successful plugin-load report. No production behavior was changed.
-- **Verification state:** The six-platform/version build matrix and both formatting jobs passed for `c490a40`. Local strict Qt tests passed, and the maintainer confirmed the installed plugin loaded. The separate Linux OBS31/OBS32 test workflow was still running when checked; full interactive coverage remains outstanding.
+### OBS 33 Linux compatibility checkpoint — 2026-10-30
+- **Source/config:** Pinned Linux OBS 33.0.1 upstream tarball (SHA-256 verified), added explicit `obs33` compatibility selection, version guard, packaging label/dependency, and an Ubuntu 26.04 Linux CI matrix entry. Kept cross-platform artifacts and existing OBS31/OBS32 behavior unchanged.
+- **Red/green:** OBS33 was previously rejected at CMake bootstrap. After changes an isolated Linux module compiled using real OBS33 Flatpak 33.0.0 SDK headers/libraries and passed relocation check in the Flatpak runtime. A mixed host/Flatpak Qt test executable *did not link* due Qt6.4/6.11, FFmpeg and glibc ABI differences; do not claim OBS33 runtime tests pass from this local probe.
+- **OBS32 protection:** CMake native OBS32 rebuild and strict Xvfb Qt CTest passed on the same checkout; real OBS profile and installed module untouched.
+- **CI repair:** Cherry-picked previously green Ubuntu 24.04 runner fix from `90fdc27` as local `8f36ea6`. The OBS33 Ubuntu 26.04 job is new and awaiting exact-head CI verification.
+- **Still needed:** Real OBS33 Ubuntu26.04 SDK build and strict Qt tests in CI; isolated OBS33 module load/action/dock smoke; cross-platform OBS33 dependency pins/builds remain out of scope. Preserve user OBS32 install and settings.
+
+- **Historical October 25 branch context:** `main` at `c490a40` included the documentation/substrate reconciliation after merged PR #3. Packaging hygiene, release documentation, Meristem adoption and the source-archive privacy fix (`de4f388`) are committed history.
+- **Historical October 25 working tree:** Clean after pushing `c490a40`; the follow-up documented verified CI and maintainer's successful plugin-load report. See the October 30 checkpoint above for current code work.
+- **Historical verification:** The six-platform/version build matrix and both formatting jobs passed for `c490a40`. Local strict Qt tests passed and the maintainer confirmed the installed plugin loaded. The separate Linux OBS31/OBS32 test workflow later failed on Ubuntu 26.04 teardown allocation accounting; a pinned-24.04 repair was independently CI-verified on `90fdc27` and incorporated above.
 
 ## Locked decisions
 
@@ -30,7 +37,7 @@ Timeline is the maintainer's first public OBS plugin. Its runtime functionality 
 
 ## Current objective
 
-Continue first-preview readiness from merged `main`: confirm completion of the separate Linux OBS31/OBS32 test workflow and complete the remaining runtime validation in `docs/RELEASE_CHECKLIST.md` before release.
+Validate OBS 33 Linux build and strict tests on the new matrix while retaining the OBS31/OBS32 CI and real OBS32 behavior. Then complete isolated OBS33 dock/action runtime coverage and remaining preview gates in `docs/RELEASE_CHECKLIST.md` before any release.
 
 ## Verification
 

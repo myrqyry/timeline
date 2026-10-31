@@ -14,9 +14,9 @@ plugin (project name: `timeline`) for local installation in OBS Studio.
 
 ## Configure
 
-The build produces one binary for one OBS major version. Select `obs31` or
-`obs32` before configuring, and use separate build directories for the two
-targets.
+The build produces one binary for one OBS major version. Select `obs31`,
+`obs32`, or `obs33` before configuring. Use a separate build directory per
+target; never install binaries for different OBS majors over one another.
 
 ```bash
 # Using CMake presets (recommended):
@@ -27,9 +27,15 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DTIMELINE_OBS_COMPATIBILITY=obs32
 ```
 
-The supported targets are OBS 31.1.2 and OBS 32.2.1. CI builds the matching
-OBS SDK from source. A local build uses the installed SDK unless
-`TIMELINE_BUILD_OBS_FROM_SOURCE=ON` is set.
+The OBS 31.1.2 and OBS 32.2.1 targets have established cross-platform builds.
+OBS 33.0.1 is an **experimental Linux-only compatibility target**: its source
+archive is SHA-256 pinned, but full OBS 33 test/installation validation is still
+required. The Linux compatibility workflow builds the matching OBS SDK from
+source. A local build uses the installed SDK unless
+`TIMELINE_BUILD_OBS_FROM_SOURCE=ON` is set. For OBS 33, use Ubuntu 26.04 or a
+matching SDK environment, not your Ubuntu 24.04 / Qt 6.4 host libraries.
+The installed OBS 33 Flatpak headers are sufficient for a compile-only probe,
+not for linking host-side Qt tests with its runtime libraries.
 
 Optional flags:
 
@@ -42,7 +48,7 @@ Optional flags:
   destination.
 - `-DOBS_DATA_DESTINATION=/custom/data` — override the data
   destination.
-- `-DTIMELINE_OBS_COMPATIBILITY=obs31|obs32` — select the OBS major version.
+- `-DTIMELINE_OBS_COMPATIBILITY=obs31|obs32|obs33` — select the OBS major version.
 - `-DTIMELINE_BUILD_OBS_FROM_SOURCE=ON` — build the selected OBS SDK from its
   pinned source archive on Linux.
 - `-DTIMELINE_BUILD_TESTS=OFF` — omit the Qt Test suite and its `Qt6::Test`

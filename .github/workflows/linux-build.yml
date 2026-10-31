@@ -7,13 +7,16 @@ on:
 
 jobs:
   build-and-test:
-    # Keep Linux runtime tests on the same validated OS as the OBS31/32 build matrix.
-    # ubuntu-latest moved to 26.04 and introduced libobs teardown allocation failures.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        obsCompatibility: [obs31, obs32]
+        include:
+          # The OBS 31/32 runtime tests are validated on Ubuntu 24.04.
+          - { obsCompatibility: obs31, os: ubuntu-24.04 }
+          - { obsCompatibility: obs32, os: ubuntu-24.04 }
+          # OBS 33 requires newer Qt and Linux dependencies.
+          - { obsCompatibility: obs33, os: ubuntu-26.04 }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
