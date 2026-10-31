@@ -7,7 +7,9 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    # Keep Linux runtime tests on the same validated OS as the OBS31/32 build matrix.
+    # ubuntu-latest moved to 26.04 and introduced libobs teardown allocation failures.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
