@@ -1,3 +1,4 @@
+
 name: Linux Build
 
 on:
@@ -20,6 +21,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Verify OBS 33 readiness contract
+        run: python3 tests/test_obs33_readiness.py
 
       - name: Install dependencies
         run: |

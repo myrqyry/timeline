@@ -24,6 +24,10 @@ function(set_target_properties_plugin target)
 
   install(TARGETS ${target} RUNTIME DESTINATION "${target}/bin/64bit" LIBRARY DESTINATION "${target}/bin/64bit")
 
+  # OBS 33+ third-party layout. Keep the legacy bin/64bit copy above for
+  # OBS 32 and older; OBS 33 deduplicates the legacy copy by module name.
+  install(TARGETS ${target} RUNTIME DESTINATION "${target}" LIBRARY DESTINATION "${target}")
+
   install(
     FILES "$<TARGET_PDB_FILE:${target}>"
     CONFIGURATIONS RelWithDebInfo Debug Release
@@ -65,8 +69,7 @@ function(target_install_resources target)
     file(GLOB_RECURSE data_files "${CMAKE_CURRENT_SOURCE_DIR}/data/*")
     foreach(data_file IN LISTS data_files)
       cmake_path(
-        RELATIVE_PATH
-        data_file
+        RELATIVE_PATH data_file
         BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/"
         OUTPUT_VARIABLE relative_path
       )
