@@ -19,7 +19,7 @@ jobs:
           - { obsCompatibility: obs33, os: ubuntu-26.04 }
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -66,4 +66,5 @@ jobs:
           QT_QPA_PLATFORM: xcb
           LIBGL_ALWAYS_SOFTWARE: '1'
           TIMELINE_REQUIRE_OBS_RUNTIME: '1'
+          LD_LIBRARY_PATH: ${{ github.workspace }}/.deps/${{ matrix.obsCompatibility }}/lib
         run: xvfb-run -a ctest --test-dir build_x86_64 --output-on-failure --verbose

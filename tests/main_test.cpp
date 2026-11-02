@@ -107,6 +107,30 @@ private slots:
 			QSKIP("OBS startup unavailable locally; run under Xvfb to execute OBS tests");
 		}
 
+		// OBS source teardown uses obs->video.graphics. A Qt OpenGL context is not
+		// an OBS graphics device, so initialize libobs video explicitly. This is
+		// required by OBS 33's deferred source-destruction path.
+		glContext->doneCurrent();
+		obs_video_info video = {};
+		video.graphics_module = "libobs-opengl";
+		video.fps_num = 30;
+		video.fps_den = 1;
+		video.base_width = 64;
+		video.base_height = 64;
+		video.output_width = 64;
+		video.output_height = 64;
+		video.output_format = VIDEO_FORMAT_RGBA;
+		video.colorspace = VIDEO_CS_DEFAULT;
+		video.range = VIDEO_RANGE_DEFAULT;
+		video.scale_type = OBS_SCALE_DISABLE;
+		if (obs_reset_video(&video) != OBS_VIDEO_SUCCESS) {
+			obs_shutdown();
+			obsStarted = false;
+			if (qEnvironmentVariableIsSet("TIMELINE_REQUIRE_OBS_RUNTIME"))
+				QFAIL("OBS graphics initialization failed; CI requires runtime tests");
+			QSKIP("OBS graphics unavailable locally; run under Xvfb to execute OBS tests");
+		}
+
 		// Register a dummy source type for scene
 		struct obs_source_info dummy_scene_info = {};
 		dummy_scene_info.id = "scene";
@@ -182,12 +206,6 @@ private slots:
 			offscreenSurface = nullptr;
 			return;
 		}
-		// Re-make GL context current before OBS shutdown to ensure texture
-		// destruction happens on a valid context, avoiding "No active swap" warnings.
-		if (glContext && offscreenSurface) {
-			glContext->makeCurrent(offscreenSurface);
-		}
-
 		// Force-clear all mock global references that may still hold source refs.
 		// This ensures sources are destroyed before obs_shutdown(), preventing
 		// incomplete teardown in the headless test environment.
