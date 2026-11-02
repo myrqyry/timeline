@@ -19,7 +19,7 @@ jobs:
           - { obsCompatibility: obs33, os: ubuntu-26.04 }
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
