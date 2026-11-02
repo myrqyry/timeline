@@ -119,7 +119,7 @@ jobs:
           print "pluginName=${product_name}" >> $GITHUB_OUTPUT
           print "pluginVersion=${product_version}" >> $GITHUB_OUTPUT
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v5
         id: ccache-cache
         with:
           path: ${{ github.workspace }}/.ccache
@@ -166,20 +166,20 @@ jobs:
           codesignPass: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-macos-universal-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-macos-universal.*
           if-no-files-found: error
 
       - name: Upload Debug Symbol Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: ${{ needs.check-event.outputs.config == 'Release' }}
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-macos-universal-${{ needs.check-event.outputs.commitHash }}-dSYMs
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-macos-universal-dSYMs.*
 
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v5
         if: github.event_name != 'pull_request' && steps.ccache-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ github.workspace }}/.ccache
@@ -214,7 +214,7 @@ jobs:
           echo "pluginName=${product_name}" >> $GITHUB_OUTPUT
           echo "pluginVersion=${product_version}" >> $GITHUB_OUTPUT
 
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v5
         id: ccache-cache
         with:
           path: ${{ github.workspace }}/.ccache
@@ -294,28 +294,28 @@ jobs:
           fi
 
       - name: Upload Source Tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-${{ matrix.os }}-sources-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-source.*
           if-no-files-found: error
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*.*
           if-no-files-found: error
 
       - name: Upload debug symbol artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: ${{ fromJSON(needs.check-event.outputs.package) }}
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}-dbgsym
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*-dbgsym.ddeb
           if-no-files-found: error
 
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v5
         if: github.event_name != 'pull_request' && steps.ccache-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ github.workspace }}/.ccache
@@ -368,7 +368,7 @@ jobs:
           package: ${{ fromJSON(needs.check-event.outputs.package) }}
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-windows-x64-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-windows-x64*.*
