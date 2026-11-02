@@ -13,9 +13,11 @@ workflow = (root / ".github/workflows/linux-build.yml").read_text()
 assert "obsCompatibility: obs33" in workflow
 assert "ubuntu-26.04" in workflow
 
-windows = (root / "cmake/windows/helpers.cmake").read_text()
-assert 'DESTINATION "${target}/bin/64bit"' in windows
-assert 'DESTINATION "${target}"' in windows
+cmake = (root / "CMakeLists.txt").read_text()
+assert 'OBS_PLUGIN_DESTINATION' in cmake
+assert '_timeline_modern_plugin_destination' in cmake
+assert r'bin[/\\]64bit$' in cmake
+assert 'DESTINATION "${_timeline_modern_plugin_destination}"' in cmake
 
 tests = (root / "tests/main_test.cpp").read_text()
 assert "obs_source_remove(source);" in tests

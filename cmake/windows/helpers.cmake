@@ -24,10 +24,6 @@ function(set_target_properties_plugin target)
 
   install(TARGETS ${target} RUNTIME DESTINATION "${target}/bin/64bit" LIBRARY DESTINATION "${target}/bin/64bit")
 
-  # OBS 33+ third-party layout. Keep the legacy bin/64bit copy above for
-  # OBS 32 and older; OBS 33 deduplicates the legacy copy by module name.
-  install(TARGETS ${target} RUNTIME DESTINATION "${target}" LIBRARY DESTINATION "${target}")
-
   install(
     FILES "$<TARGET_PDB_FILE:${target}>"
     CONFIGURATIONS RelWithDebInfo Debug Release
