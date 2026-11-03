@@ -1,3 +1,4 @@
+
 name: Build Project
 on:
   workflow_call:
@@ -358,6 +359,13 @@ jobs:
           target: x64
           obsCompatibility: ${{ matrix.obsCompatibility }}
           config: ${{ needs.check-event.outputs.config }}
+
+      - name: Verify modern and legacy Windows plugin layouts
+        run: |
+          $Modern = "release/${{ needs.check-event.outputs.config }}/timeline/timeline.dll"
+          $Legacy = "release/${{ needs.check-event.outputs.config }}/timeline/bin/64bit/timeline.dll"
+          if (-not (Test-Path $Modern)) { throw "Missing OBS 33 modern-layout timeline.dll" }
+          if (-not (Test-Path $Legacy)) { throw "Missing legacy-layout timeline.dll" }
 
       - name: Package Plugin
         uses: ./.github/actions/package-plugin

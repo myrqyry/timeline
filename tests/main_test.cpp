@@ -226,8 +226,10 @@ private slots:
 		}
 		g_transitions.clear();
 
-		// Drain remaining OBS sources. Some OBS internal list operations
-		// add transient refs; repeated draining ensures final cleanup.
+		// Drain remaining OBS sources deterministically. Enumerating with a
+		// temporary ref and then only releasing that ref is a net-zero operation;
+		// OBS 33 can therefore defer the actual destruction until shutdown. Mark
+		// each enumerated source removed before dropping our temporary ref.
 		{
 			std::vector<obs_source_t *> remaining;
 			for (int pass = 0; pass < 8; pass++) {
@@ -241,9 +243,22 @@ private slots:
 					&remaining);
 				if (remaining.empty())
 					break;
-				for (auto *s : remaining)
-					obs_source_release(s);
+				for (auto *source : remaining) {
+					obs_source_remove(source);
+					obs_source_release(source);
+				}
 			}
+
+			remaining.clear();
+			obs_enum_all_sources(
+				[](void *param, obs_source_t *source) {
+					static_cast<std::vector<obs_source_t *> *>(param)->push_back(source);
+					return true;
+				},
+				&remaining);
+			QVERIFY2(remaining.empty(),
+				 qPrintable(QString("OBS sources still registered before shutdown: %1")
+						    .arg(remaining.size())));
 		}
 
 		// OBS internally retains 3 allocations related to source type
