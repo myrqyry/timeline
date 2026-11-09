@@ -17,7 +17,7 @@ Source, runtime and tool evidence outrank stale prose. Read only the relevant pr
 ## Engineering and safety
 
 - Change working code narrowly. For behavioral changes, reproduce the issue with a failing regression test, fix it, and run relevant/full tests.
-- Compile against the selected OBS31/OBS32 SDK. Keep packages separately labeled and don't install incompatible majors together.
+- Compile against the selected OBS31/OBS32 or experimental OBS33 SDK. Keep packages separately labeled and don't install incompatible majors together.
 - Build success and test doubles do **not** prove real OBS behavior. Test with isolated OBS profiles; never silently modify the developer's ordinary scenes, plugin installation, or stream setup.
 - Preserve original config on invalid imports, failed saves and migrations. Writable configuration belongs in OBS module config, not installed runtime data.
 - OBS source references and allocator ownership must be balanced. Queue UI changes from OBS hotkey/frontend callbacks to the owning Qt thread; do not block graphics/render paths.

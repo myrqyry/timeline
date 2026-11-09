@@ -12,8 +12,10 @@ option(TIMELINE_BUILD_OBS_FROM_SOURCE "Build the selected OBS compatibility targ
 
 if(TIMELINE_OBS_COMPATIBILITY STREQUAL "obs31")
   set(TIMELINE_EXPECTED_OBS_MAJOR 31)
-else()
+elseif(TIMELINE_OBS_COMPATIBILITY STREQUAL "obs32")
   set(TIMELINE_EXPECTED_OBS_MAJOR 32)
+else()
+  set(TIMELINE_EXPECTED_OBS_MAJOR 33)
 endif()
 
 # C++ Standard
@@ -135,6 +137,20 @@ else()
     LIBRARY DESTINATION "${OBS_PLUGIN_DESTINATION}"
     RUNTIME DESTINATION "${OBS_PLUGIN_DESTINATION}"
   )
+
+  # OBS 33+ third-party layout puts the module at the plugin root. Preserve
+  # bin/64bit for OBS 32 and older, but only add the modern copy when the
+  # configured destination is actually a legacy per-user/plugin tree.
+  if(OBS_PLUGIN_DESTINATION MATCHES "bin[/\\]64bit$")
+    set(_timeline_modern_plugin_destination "${OBS_PLUGIN_DESTINATION}")
+    cmake_path(GET _timeline_modern_plugin_destination PARENT_PATH _timeline_modern_plugin_destination)
+    cmake_path(GET _timeline_modern_plugin_destination PARENT_PATH _timeline_modern_plugin_destination)
+    install(
+      TARGETS ${PROJECT_NAME}
+      LIBRARY DESTINATION "${_timeline_modern_plugin_destination}"
+      RUNTIME DESTINATION "${_timeline_modern_plugin_destination}"
+    )
+  endif()
 
   # Agent guidance belongs in source control, not in users' OBS plugin data.
   install(DIRECTORY data/ DESTINATION "${OBS_DATA_DESTINATION}" PATTERN "AGENTS.md" EXCLUDE)

@@ -107,6 +107,30 @@ private slots:
 			QSKIP("OBS startup unavailable locally; run under Xvfb to execute OBS tests");
 		}
 
+		// OBS source teardown uses obs->video.graphics. A Qt OpenGL context is not
+		// an OBS graphics device, so initialize libobs video explicitly. This is
+		// required by OBS 33's deferred source-destruction path.
+		glContext->doneCurrent();
+		obs_video_info video = {};
+		video.graphics_module = "libobs-opengl";
+		video.fps_num = 30;
+		video.fps_den = 1;
+		video.base_width = 64;
+		video.base_height = 64;
+		video.output_width = 64;
+		video.output_height = 64;
+		video.output_format = VIDEO_FORMAT_RGBA;
+		video.colorspace = VIDEO_CS_DEFAULT;
+		video.range = VIDEO_RANGE_DEFAULT;
+		video.scale_type = OBS_SCALE_DISABLE;
+		if (obs_reset_video(&video) != OBS_VIDEO_SUCCESS) {
+			obs_shutdown();
+			obsStarted = false;
+			if (qEnvironmentVariableIsSet("TIMELINE_REQUIRE_OBS_RUNTIME"))
+				QFAIL("OBS graphics initialization failed; CI requires runtime tests");
+			QSKIP("OBS graphics unavailable locally; run under Xvfb to execute OBS tests");
+		}
+
 		// Register a dummy source type for scene
 		struct obs_source_info dummy_scene_info = {};
 		dummy_scene_info.id = "scene";
@@ -182,12 +206,6 @@ private slots:
 			offscreenSurface = nullptr;
 			return;
 		}
-		// Re-make GL context current before OBS shutdown to ensure texture
-		// destruction happens on a valid context, avoiding "No active swap" warnings.
-		if (glContext && offscreenSurface) {
-			glContext->makeCurrent(offscreenSurface);
-		}
-
 		// Force-clear all mock global references that may still hold source refs.
 		// This ensures sources are destroyed before obs_shutdown(), preventing
 		// incomplete teardown in the headless test environment.
@@ -208,8 +226,10 @@ private slots:
 		}
 		g_transitions.clear();
 
-		// Drain remaining OBS sources. Some OBS internal list operations
-		// add transient refs; repeated draining ensures final cleanup.
+		// Drain remaining OBS sources deterministically. Enumerating with a
+		// temporary ref and then only releasing that ref is a net-zero operation;
+		// OBS 33 can therefore defer the actual destruction until shutdown. Mark
+		// each enumerated source removed before dropping our temporary ref.
 		{
 			std::vector<obs_source_t *> remaining;
 			for (int pass = 0; pass < 8; pass++) {
@@ -223,9 +243,22 @@ private slots:
 					&remaining);
 				if (remaining.empty())
 					break;
-				for (auto *s : remaining)
-					obs_source_release(s);
+				for (auto *source : remaining) {
+					obs_source_remove(source);
+					obs_source_release(source);
+				}
 			}
+
+			remaining.clear();
+			obs_enum_all_sources(
+				[](void *param, obs_source_t *source) {
+					static_cast<std::vector<obs_source_t *> *>(param)->push_back(source);
+					return true;
+				},
+				&remaining);
+			QVERIFY2(remaining.empty(),
+				 qPrintable(QString("OBS sources still registered before shutdown: %1")
+						    .arg(remaining.size())));
 		}
 
 		// OBS internally retains 3 allocations related to source type
