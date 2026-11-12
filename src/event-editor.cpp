@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -82,8 +83,25 @@ void EventEditor::buildUi()
     populateActionChoices(TimelineEventType::SceneSwitch, TimelineEventType::SceneSwitch);
 
     targetLabel = new QLabel(obs_module_text("EventEditor.TargetScene"), this);
-    targetCombo = new QComboBox(this);
-    layout->addRow(targetLabel, targetCombo);
+    QWidget *targetContainer = new QWidget(this);
+    QVBoxLayout *targetLayout = new QVBoxLayout(targetContainer);
+    targetLayout->setContentsMargins(0, 0, 0, 0);
+    targetLayout->setSpacing(4);
+    hotkeySearchEdit = new QLineEdit(targetContainer);
+    hotkeySearchEdit->setObjectName("hotkeySearchEdit");
+    hotkeySearchEdit->setPlaceholderText(obs_module_text("EventEditor.SearchHotkeys"));
+    hotkeySearchEdit->setClearButtonEnabled(true);
+    hotkeySearchEdit->hide();
+    targetCombo = new QComboBox(targetContainer);
+    targetCombo->setObjectName("hotkeyTargetCombo");
+    targetLayout->addWidget(hotkeySearchEdit);
+    targetLayout->addWidget(targetCombo);
+    layout->addRow(targetLabel, targetContainer);
+    connect(hotkeySearchEdit, &QLineEdit::textChanged, this, &EventEditor::filterHotkeys);
+    connect(targetCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int index) {
+        if (static_cast<TimelineEventType>(typeCombo->currentData().toInt()) == TimelineEventType::HotkeyTrigger)
+            preferredHotkeyId = targetCombo->itemData(index).toString();
+    });
 
     // Timeline file selector (for TriggerTimeline)
     fileWidget = new QWidget(this);
@@ -278,6 +296,12 @@ TimelineEventType EventEditor::selectedActionType() const
 
 void EventEditor::populateTargets(TimelineEventType evtType)
 {
+    hotkeySearchEdit->setVisible(evtType == TimelineEventType::HotkeyTrigger);
+    if (evtType != TimelineEventType::HotkeyTrigger) {
+        hotkeySearchEdit->clear();
+        hotkeyChoices.clear();
+        preferredHotkeyId.clear();
+    }
     targetCombo->clear();
     targetCombo->setEnabled(true);
     dskWidget->setVisible(evtType == TimelineEventType::DownstreamKeyerScene);
@@ -427,26 +451,61 @@ void EventEditor::populateTargets(TimelineEventType evtType)
         }
     } else if (evtType == TimelineEventType::HotkeyTrigger) {
         targetLabel->setText(obs_module_text("EventEditor.TargetHotkey"));
-        obs_enum_hotkeys(
-            [](void *data, obs_hotkey_id id, obs_hotkey_t *hotkey) {
-                Q_UNUSED(id);
-                QComboBox *combo = static_cast<QComboBox *>(data);
-                const char *name = obs_hotkey_get_name(hotkey);
-                if (name && strlen(name) > 0) {
-                    const char *desc = obs_hotkey_get_description(hotkey);
-                    QString displayName = desc && strlen(desc) > 0 ? QString::fromUtf8(desc)
-                                                                   : QString::fromUtf8(name);
-                    combo->addItem(displayName, QString::fromUtf8(name));
-                }
-                return true;
-            },
-            targetCombo);
-
-        if (targetCombo->count() == 0) {
-            targetCombo->addItem("(No hotkeys registered)");
-            targetCombo->setEnabled(false);
-        }
+        hotkeyChoices = HotkeyCatalog::collect();
+        preferredHotkeyId.clear();
+        hotkeySearchEdit->clear();
+        populateHotkeyPicker();
     }
+}
+
+void EventEditor::filterHotkeys(const QString &)
+{
+    if (static_cast<TimelineEventType>(typeCombo->currentData().toInt()) == TimelineEventType::HotkeyTrigger)
+        populateHotkeyPicker();
+}
+
+void EventEditor::populateHotkeyPicker()
+{
+    const QString query = hotkeySearchEdit->text().trimmed();
+    const QSignalBlocker blocker(targetCombo);
+    targetCombo->clear();
+
+    QString previousGroup;
+    int firstChoice = -1;
+    int preferredChoice = -1;
+    for (const auto &choice : hotkeyChoices) {
+        if (!query.isEmpty() && !choice.id.contains(query, Qt::CaseInsensitive) &&
+            !choice.label.contains(query, Qt::CaseInsensitive) &&
+            !choice.group.contains(query, Qt::CaseInsensitive))
+            continue;
+
+        if (choice.group != previousGroup) {
+            targetCombo->addItem(choice.group);
+            const int groupIndex = targetCombo->count() - 1;
+            if (auto *model = qobject_cast<QStandardItemModel *>(targetCombo->model()))
+                model->item(groupIndex)->setEnabled(false);
+            previousGroup = choice.group;
+        }
+        targetCombo->addItem(choice.label, choice.id);
+        const int row = targetCombo->count() - 1;
+        targetCombo->setItemData(row, choice.id, Qt::ToolTipRole);
+        if (firstChoice < 0)
+            firstChoice = row;
+        if (choice.id == preferredHotkeyId)
+            preferredChoice = row;
+    }
+
+    const bool found = firstChoice >= 0;
+    if (!found) {
+        targetCombo->addItem(obs_module_text(
+            hotkeyChoices.isEmpty() ? "EventEditor.NoHotkeys" : "EventEditor.NoHotkeyMatches"));
+        if (auto *model = qobject_cast<QStandardItemModel *>(targetCombo->model()))
+            model->item(0)->setEnabled(false);
+        targetCombo->setEnabled(false);
+        return;
+    }
+    targetCombo->setEnabled(true);
+    targetCombo->setCurrentIndex(preferredChoice >= 0 ? preferredChoice : firstChoice);
 }
 
 void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
@@ -485,12 +544,20 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
                 transitionCombo->setCurrentIndex(tIdx);
         }
     } else if (evt.type == TimelineEventType::HotkeyTrigger) {
-        for (int i = 0; i < targetCombo->count(); i++) {
-            if (targetCombo->itemData(i).toString() == evt.sourceName) {
-                targetCombo->setCurrentIndex(i);
+        preferredHotkeyId = evt.sourceName;
+        bool available = false;
+        for (const auto &choice : hotkeyChoices) {
+            if (choice.id == evt.sourceName) {
+                available = true;
                 break;
             }
         }
+        if (!available && !evt.sourceName.isEmpty()) {
+            // An imported hotkey may be registered only after its plugin loads again.
+            hotkeyChoices.prepend({evt.sourceName, evt.sourceName,
+                                   QString::fromUtf8(obs_module_text("EventEditor.MissingHotkeys"))});
+        }
+        populateHotkeyPicker();
     } else if (evt.type == TimelineEventType::FilterEnable ||
                evt.type == TimelineEventType::FilterDisable) {
         bool found = false;
@@ -566,7 +633,7 @@ void EventEditor::validateAndAccept()
             return;
         }
     } else if (type == TimelineEventType::HotkeyTrigger) {
-        if (targetCombo->currentData().toString().isEmpty() && sourceText.isEmpty()) {
+        if (targetCombo->currentData().toString().isEmpty()) {
             warn(obs_module_text("EventEditor.WarnHotkeyName"));
             return;
         }
@@ -631,8 +698,6 @@ void EventEditor::pickColor()
         }
     } else if (evt.type == TimelineEventType::HotkeyTrigger) {
         evt.sourceName = targetCombo->currentData().toString();
-        if (evt.sourceName.isEmpty())
-            evt.sourceName = targetCombo->currentText();
     } else if (evt.type == TimelineEventType::FilterEnable ||
                evt.type == TimelineEventType::FilterDisable) {
         QVariantList data = targetCombo->currentData().toList();

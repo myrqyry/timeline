@@ -51,7 +51,16 @@ action is appended to the persisted event enum, preserving existing numeric IDs.
   scene collection.
 - **Media start/stop:** Restart or stop supported media sources.
 - **Filter enable/disable:** Toggle a named filter on a source.
-- **Hotkey trigger:** Trigger a registered OBS hotkey by name.
+- **Hotkey trigger:** Trigger a registered OBS hotkey by name. The shared
+  Timeline/Macro Strip editor shows a searchable, grouped hotkey selector:
+  Move-filter triggers are grouped by their owning source when the matching
+  Move filter can be identified; other source hotkeys are grouped by source,
+  with separate Frontend / Plugins, Outputs, Encoders, and Services sections.
+  Search matches the action label, source/group, or exact hotkey ID. Headings
+  cannot be selected as actions, and imported IDs remain intact when the
+  original plugin or hotkey is unavailable. OBS does not expose a universal
+  originating-plugin field for frontend hotkeys, so those are not guessed.
+  This does not modify OBS's own Settings → Hotkeys screen.
 - **Nested timeline:** Start another JSON timeline without opening another dock.
 - **Downstream Keyer scene:** Select or hide a scene in a named downstream keyer,
   independently of the program scene. Requires Exeldro's Downstream Keyer and

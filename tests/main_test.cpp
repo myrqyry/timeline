@@ -32,6 +32,7 @@
 #include "macro-serialization.h"
 #include "macro-strip-dock.h"
 #include "event-editor.h"
+#include "hotkey-catalog.h"
 #include "plugin-integrations.h"
 #include <QMenu>
 #include <QComboBox>
@@ -732,6 +733,103 @@ private slots:
 		}
 	}
 
+	void testHotkeyGroupingUsesRealRegistrationAndMoveFilterIdentity()
+	{
+		const QList<MoveFilterIdentity> filters = {
+			{QStringLiteral("test_filter"), QStringLiteral("Unrelated")},
+			{QStringLiteral("move_source_filter"), QStringLiteral("Animate Intro")},
+		};
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Animate Intro", filters),
+			 QString("Move · Facecam"));
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Animate Intro Hold", filters),
+			 QString("Move · Facecam"));
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Unrelated", filters),
+			 QString("Source · Facecam"));
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Another Action", filters),
+			 QString("Source · Facecam"));
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Animate Intro",
+						 {{QStringLiteral("unrelated_move"), QStringLiteral("Animate Intro")}}),
+			 QString("Source · Facecam"));
+
+		QVERIFY(source_item);
+		// Real libobs filter enumeration on the registered source must be safe.
+		filter_item = obs_source_create("test_filter", "Unrelated", nullptr, nullptr);
+		QVERIFY(filter_item);
+		obs_source_filter_add(source_item, filter_item);
+		const auto frontend = obs_hotkey_register_frontend("timeline.tests.frontend", "Frontend marker",
+			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
+		const auto source = obs_hotkey_register_source(source_item, "timeline.tests.source", "Source marker",
+			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
+		auto catalog = HotkeyCatalog::collect();
+		auto find = [&catalog](const QString &id) {
+			for (const auto &item : catalog)
+				if (item.id == id)
+					return item;
+			return HotkeyChoice{};
+		};
+		QCOMPARE(find("timeline.tests.frontend").group, QString("Frontend / Plugins"));
+		QCOMPARE(find("timeline.tests.source").group, QString("Source · MySource"));
+		obs_hotkey_unregister(source);
+		obs_hotkey_unregister(frontend);
+	}
+
+	void testHotkeyPickerSearchGroupingAndStableId()
+	{
+		QVERIFY(source_item);
+		const auto sourceId = obs_hotkey_register_source(source_item, "timeline.tests.move", "Move intro",
+			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
+		const auto frontendId = obs_hotkey_register_frontend("timeline.tests.search", "Search marker",
+			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
+		{
+			EventEditor editor(0.0);
+			auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+			auto *search = editor.findChild<QLineEdit *>("hotkeySearchEdit");
+			auto *target = editor.findChild<QComboBox *>("hotkeyTargetCombo");
+			QVERIFY(types && search && target);
+			types->setCurrentIndex(types->findData(static_cast<int>(TimelineEventType::HotkeyTrigger)));
+			QVERIFY(!search->isHidden());
+			QVERIFY(target->findData(QStringLiteral("timeline.tests.move")) >= 0);
+			int sourceIdx = target->findData(QStringLiteral("timeline.tests.move"));
+			QVERIFY(sourceIdx > 0);
+			QVERIFY(!target->model()->flags(target->model()->index(sourceIdx - 1, 0)).testFlag(Qt::ItemIsEnabled));
+
+			search->setText("move intro");
+			QCOMPARE(target->findData(QStringLiteral("timeline.tests.move")) >= 0, true);
+			QCOMPARE(target->findData(QStringLiteral("timeline.tests.search")), -1);
+			QVERIFY(target->isEnabled());
+			TimelineEvent saved;
+			editor.getUpdatedEvent(saved);
+			QCOMPARE(saved.sourceName, QString("timeline.tests.move"));
+
+			search->setText("no matching hotkey anywhere");
+			QVERIFY(!target->isEnabled());
+			QCOMPARE(target->findData(QStringLiteral("timeline.tests.move")), -1);
+			search->clear();
+			QVERIFY(target->isEnabled());
+			QCOMPARE(target->findData(QStringLiteral("timeline.tests.search")) >= 0, true);
+			types->setCurrentIndex(types->findData(static_cast<int>(TimelineEventType::SceneSwitch)));
+			QVERIFY(search->isHidden());
+		}
+		obs_hotkey_unregister(frontendId);
+		obs_hotkey_unregister(sourceId);
+	}
+
+	void testMissingSavedHotkeyIsPreservedAndSearchable()
+	{
+		TimelineEvent saved;
+		saved.type = TimelineEventType::HotkeyTrigger;
+		saved.sourceName = "unregistered.plugin.action";
+		EventEditor editor(saved);
+		auto *search = editor.findChild<QLineEdit *>("hotkeySearchEdit");
+		auto *target = editor.findChild<QComboBox *>("hotkeyTargetCombo");
+		QVERIFY(search && target);
+		QCOMPARE(target->currentData().toString(), saved.sourceName);
+		search->setText("unregistered");
+		QCOMPARE(target->currentData().toString(), saved.sourceName);
+		TimelineEvent updated = saved;
+		editor.getUpdatedEvent(updated);
+		QCOMPARE(updated.sourceName, saved.sourceName);
+	}
 	void testMediaStart()
 	{
 		if (!source_item)

@@ -2,6 +2,7 @@
 
 #include <QDialog>
 #include "event-types.h"
+#include "hotkey-catalog.h"
 
 class QComboBox;
 class QLabel;
@@ -23,6 +24,8 @@ public:
 private:
     void buildUi();
     void populateTargets(TimelineEventType evtType);
+    void populateHotkeyPicker();
+    void filterHotkeys(const QString &query);
     void populateActionChoices(TimelineEventType category, TimelineEventType selected);
     TimelineEventType selectedActionType() const;
     void preSelectFromEvent(const TimelineEvent &evt);
@@ -36,6 +39,9 @@ private:
     QComboBox *actionCombo = nullptr;
     QLabel *targetLabel = nullptr;
     QComboBox *targetCombo = nullptr;
+    QLineEdit *hotkeySearchEdit = nullptr;
+    QList<HotkeyChoice> hotkeyChoices;
+    QString preferredHotkeyId;
     QWidget *fileWidget = nullptr;
     QLineEdit *fileEdit = nullptr;
     QWidget *transitionWidget = nullptr;

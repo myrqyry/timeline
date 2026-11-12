@@ -1,5 +1,10 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+### Grouped and searchable hotkey selector — 2026-11-12
+- Grouped OBS hotkey picker by real libobs hotkey registerer type: source-bound, frontend/plugins (plugin identity not introspectable), outputs, encoders and services. Source-bound hotkeys match known Move filter IDs and the filter's registered hotkey name to show **Move · source** when grounded; other source hotkeys appear under their source. No blanket plugin-name inference.
+- Added case-insensitive search across description, stable OBS hotkey ID and group/source. Group headings are non-selectable; an empty search result disables selection. Saved missing hotkey IDs remain editable and are not silently swapped for another hotkey.
+- RED: new test compilation failed before the catalog existed; real hotkey owner test then caught an incorrect source-reference interpretation. GREEN: OBS32 module builds and strict Xvfb/libobs suite **60 passed, 0 failed, 0 skipped**. Tests exercise real libobs frontend/source registration and weak-source reference handling, Move identity classification, UI grouping, search and saved-ID preservation. The wrong direct-source-pointer interpretation was detected by failing regression and corrected to a strong reference from the registered weak source, with balanced release.
+- Scope is the shared Timeline/Macro Strip editor only; the native OBS Settings hotkey screen and installation stay untouched. Actual live Move plugin labeling inside OBS GUI remains unverified.
 ### Unified source/filter/media action picker — 2026-11-12
 - Combined paired editor choices into Source Visibility (Show/Hide), Media Playback (Restart/Stop), and Filter Visibility (Enable/Disable), for both Timeline and shared Macro Strip editor.
 - UI grouping only: numeric event type IDs, JSON formats, executor behavior and timed inverses remain unchanged. Old saved variants preselect the appropriate operation. Missing historical targets remain selectable during editing rather than being overwritten by placeholder values.
