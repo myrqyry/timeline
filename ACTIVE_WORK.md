@@ -1,5 +1,9 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+### Unified source/filter/media action picker — 2026-11-12
+- Combined paired editor choices into Source Visibility (Show/Hide), Media Playback (Restart/Stop), and Filter Visibility (Enable/Disable), for both Timeline and shared Macro Strip editor.
+- UI grouping only: numeric event type IDs, JSON formats, executor behavior and timed inverses remain unchanged. Old saved variants preselect the appropriate operation. Missing historical targets remain selectable during editing rather than being overwritten by placeholder values.
+- TDD: both new UI tests failed before adding the action selector, then passed. Native OBS32 module and strict Xvfb/libobs suite **57 passed, 0 failed, 0 skipped**. Coverage includes grouped options, historical variants and durations, timeline and Macro Strip JSON types, and missing target preservation. Full production GUI smoke and OBS33 build of this new slice not performed.
 
 ### Loaded-plugin selection menu — 2026-11-12
 - Requested capability: Timeline settings → Plugins & Integrations shows **loaded** OBS modules, supports selecting implemented action adapters, and updates available new actions in both Timeline and Macro Strip (shared editor). Unknown loaded plugins appear without false promises of action support.

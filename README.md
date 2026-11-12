@@ -71,6 +71,19 @@ with a fallback delay when OBS reports no duration. A single timer prevents
 overlapping restorations from rapid consecutive scene switches
 (`src/obs-executor.cpp:189-227`).
 
+### Unified action picker
+
+The Timeline event editor and Macro Strip share a compact action picker.
+**Source Visibility** has Show/Hide, **Filter Visibility** has Enable/Disable,
+and **Media Playback** has Restart/Stop. The selected operation appears in a
+separate **Action** field, rather than creating duplicate event types in the
+category list. "Restart" matches OBS's media-restart operation (not pause/resume).
+
+This is an editor-only grouping: existing timeline and macro JSON numeric event
+types remain unchanged, so previously saved Show/Hide, Start/Stop, and
+Enable/Disable events load and edit with the correct operation selected. Timed
+actions retain their existing inverse operation on duration end.
+
 ### Playback controls
 
 - Set an end time and either stop or loop at that position.

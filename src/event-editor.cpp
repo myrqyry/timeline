@@ -15,10 +15,26 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QStandardItemModel>
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
+
+// Keep historic numeric action IDs intact; only the picker groups paired actions.
+static TimelineEventType actionCategory(TimelineEventType type)
+{
+    switch (type) {
+    case TimelineEventType::SourceHide:
+        return TimelineEventType::SourceShow;
+    case TimelineEventType::MediaStop:
+        return TimelineEventType::MediaStart;
+    case TimelineEventType::FilterDisable:
+        return TimelineEventType::FilterEnable;
+    default:
+        return type;
+    }
+}
 
 EventEditor::EventEditor(const TimelineEvent &evt, QWidget *parent)
     : QDialog(parent), selectedColor(evt.color), eventTimeMs(evt.timeMs), isNewMode(false)
@@ -46,18 +62,24 @@ void EventEditor::buildUi()
     typeCombo = new QComboBox(this);
     typeCombo->setObjectName("eventTypeCombo");
     typeCombo->addItem(obs_module_text("EventType.SceneSwitch"), static_cast<int>(TimelineEventType::SceneSwitch));
-    typeCombo->addItem(obs_module_text("EventType.SourceShow"), static_cast<int>(TimelineEventType::SourceShow));
-    typeCombo->addItem(obs_module_text("EventType.SourceHide"), static_cast<int>(TimelineEventType::SourceHide));
-    typeCombo->addItem(obs_module_text("EventType.MediaStart"), static_cast<int>(TimelineEventType::MediaStart));
-    typeCombo->addItem(obs_module_text("EventType.MediaStop"), static_cast<int>(TimelineEventType::MediaStop));
-    typeCombo->addItem(obs_module_text("EventType.FilterEnable"), static_cast<int>(TimelineEventType::FilterEnable));
-    typeCombo->addItem(obs_module_text("EventType.FilterDisable"), static_cast<int>(TimelineEventType::FilterDisable));
+    typeCombo->addItem(obs_module_text("EventType.SourceVisibility"),
+                       static_cast<int>(TimelineEventType::SourceShow));
+    typeCombo->addItem(obs_module_text("EventType.MediaPlayback"),
+                       static_cast<int>(TimelineEventType::MediaStart));
+    typeCombo->addItem(obs_module_text("EventType.FilterVisibility"),
+                       static_cast<int>(TimelineEventType::FilterEnable));
     typeCombo->addItem(obs_module_text("EventType.HotkeyTrigger"), static_cast<int>(TimelineEventType::HotkeyTrigger));
     typeCombo->addItem(obs_module_text("EventType.TriggerTimeline"), static_cast<int>(TimelineEventType::TriggerTimeline));
     if (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene))
         typeCombo->addItem(obs_module_text("EventType.DownstreamKeyerScene"),
                            static_cast<int>(TimelineEventType::DownstreamKeyerScene));
     layout->addRow(obs_module_text("EventEditor.EventType"), typeCombo);
+
+    actionLabel = new QLabel(obs_module_text("EventEditor.Action"), this);
+    actionCombo = new QComboBox(this);
+    actionCombo->setObjectName("eventActionCombo");
+    layout->addRow(actionLabel, actionCombo);
+    populateActionChoices(TimelineEventType::SceneSwitch, TimelineEventType::SceneSwitch);
 
     targetLabel = new QLabel(obs_module_text("EventEditor.TargetScene"), this);
     targetCombo = new QComboBox(this);
@@ -210,6 +232,48 @@ void EventEditor::buildUi()
 
     connect(typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &EventEditor::onTypeChanged);
+    connect(actionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &EventEditor::onActionChanged);
+}
+
+void EventEditor::populateActionChoices(TimelineEventType category, TimelineEventType selected)
+{
+    const QSignalBlocker blocker(actionCombo);
+    actionCombo->clear();
+    auto add = [this](const char *key, TimelineEventType type) {
+        actionCombo->addItem(obs_module_text(key), static_cast<int>(type));
+    };
+
+    switch (category) {
+    case TimelineEventType::SourceShow:
+        add("EventEditor.ActionShow", TimelineEventType::SourceShow);
+        add("EventEditor.ActionHide", TimelineEventType::SourceHide);
+        break;
+    case TimelineEventType::MediaStart:
+        add("EventEditor.ActionRestart", TimelineEventType::MediaStart);
+        add("EventEditor.ActionStop", TimelineEventType::MediaStop);
+        break;
+    case TimelineEventType::FilterEnable:
+        add("EventEditor.ActionEnable", TimelineEventType::FilterEnable);
+        add("EventEditor.ActionDisable", TimelineEventType::FilterDisable);
+        break;
+    default:
+        break;
+    }
+    const bool hasOptions = actionCombo->count() > 0;
+    actionLabel->setVisible(hasOptions);
+    actionCombo->setVisible(hasOptions);
+    if (hasOptions) {
+        const int idx = actionCombo->findData(static_cast<int>(selected));
+        actionCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+}
+
+TimelineEventType EventEditor::selectedActionType() const
+{
+    if (actionCombo->count() > 0)
+        return static_cast<TimelineEventType>(actionCombo->currentData().toInt());
+    return static_cast<TimelineEventType>(typeCombo->currentData().toInt());
 }
 
 void EventEditor::populateTargets(TimelineEventType evtType)
@@ -388,7 +452,8 @@ void EventEditor::populateTargets(TimelineEventType evtType)
 void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 {
     typeCombo->blockSignals(true);
-    int idx = typeCombo->findData(static_cast<int>(evt.type));
+    const TimelineEventType category = actionCategory(evt.type);
+    int idx = typeCombo->findData(static_cast<int>(category));
     if (idx < 0 && evt.type == TimelineEventType::DownstreamKeyerScene) {
         // Preserve editing of imported/saved plugin actions even when the plugin is absent or hidden.
         typeCombo->addItem(QString::fromUtf8(obs_module_text("EventType.DownstreamKeyerScene")) +
@@ -403,7 +468,8 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
         typeCombo->setCurrentIndex(idx);
     typeCombo->blockSignals(false);
 
-    populateTargets(evt.type);
+    populateActionChoices(category, evt.type);
+    populateTargets(category);
 
     if (evt.type == TimelineEventType::DownstreamKeyerScene) {
         dskNameEdit->setText(evt.sourceName);
@@ -427,16 +493,27 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
         }
     } else if (evt.type == TimelineEventType::FilterEnable ||
                evt.type == TimelineEventType::FilterDisable) {
+        bool found = false;
         for (int i = 0; i < targetCombo->count(); i++) {
             QVariantList data = targetCombo->itemData(i).toList();
             if (data.size() >= 2 && data[0].toString() == evt.sourceName &&
                 data[1].toString() == evt.filterName) {
                 targetCombo->setCurrentIndex(i);
+                found = true;
                 break;
             }
         }
+        if (!found && !evt.sourceName.isEmpty() && !evt.filterName.isEmpty()) {
+            QVariantList data{evt.sourceName, evt.filterName};
+            targetCombo->addItem(evt.sourceName + "::" + evt.filterName, data);
+            targetCombo->setCurrentIndex(targetCombo->count() - 1);
+        }
     } else {
         targetCombo->setCurrentText(evt.sourceName);
+        if (!evt.sourceName.isEmpty() && targetCombo->currentText() != evt.sourceName) {
+            targetCombo->addItem(evt.sourceName);
+            targetCombo->setCurrentIndex(targetCombo->count() - 1);
+        }
     }
 
      selectedColor = evt.color;
@@ -506,9 +583,16 @@ void EventEditor::validateAndAccept()
 void EventEditor::onTypeChanged(int index)
 {
     Q_UNUSED(index);
-    TimelineEventType newType = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
-    populateTargets(newType);
-    selectedColor = ThemeIcons::getDefaultColor(newType);
+    TimelineEventType category = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+    populateActionChoices(category, category);
+    populateTargets(category);
+    onActionChanged(actionCombo->currentIndex());
+}
+
+void EventEditor::onActionChanged(int index)
+{
+    Q_UNUSED(index);
+    selectedColor = ThemeIcons::getDefaultColor(selectedActionType());
     colorButton->setStyleSheet(
         QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
 }
@@ -529,7 +613,7 @@ void EventEditor::pickColor()
          evt.timeMs = timeSpin->value() * 1000.0;
      }
 
-     evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
+     evt.type = selectedActionType();
 
     if (evt.type == TimelineEventType::DownstreamKeyerScene) {
         evt.sourceName = dskNameEdit->text().trimmed();

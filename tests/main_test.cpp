@@ -614,6 +614,124 @@ private slots:
 		obs_source_release(child);
 	}
 
+	void testUnifiedActionCategoriesAndDefaults()
+	{
+		EventEditor editor(0.0);
+		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+		auto *action = editor.findChild<QComboBox *>("eventActionCombo");
+		QVERIFY(types && action);
+		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::SourceHide)), -1);
+		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::MediaStop)), -1);
+		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::FilterDisable)), -1);
+		QCOMPARE(types->count(), 6 + (PluginIntegrations::instance().actionAvailable(
+			TimelineEventType::DownstreamKeyerScene) ? 1 : 0));
+		struct Case {
+			TimelineEventType category;
+			TimelineEventType other;
+		};
+		const Case cases[] = {
+			{TimelineEventType::SourceShow, TimelineEventType::SourceHide},
+			{TimelineEventType::MediaStart, TimelineEventType::MediaStop},
+			{TimelineEventType::FilterEnable, TimelineEventType::FilterDisable},
+		};
+		for (const auto &c : cases) {
+			types->setCurrentIndex(types->findData(static_cast<int>(c.category)));
+			QVERIFY(!action->isHidden());
+			QCOMPARE(action->count(), 2);
+			QCOMPARE(action->currentData().toInt(), static_cast<int>(c.category));
+			QCOMPARE(action->itemData(1).toInt(), static_cast<int>(c.other));
+			TimelineEvent evt;
+			editor.getUpdatedEvent(evt);
+			QCOMPARE(evt.type, c.category);
+			action->setCurrentIndex(1);
+			editor.getUpdatedEvent(evt);
+			QCOMPARE(evt.type, c.other);
+		}
+		types->setCurrentIndex(types->findData(static_cast<int>(TimelineEventType::SceneSwitch)));
+		QVERIFY(action->isHidden());
+	}
+
+	void testUnifiedActionEditingPreservesLegacyTypeAndDuration()
+	{
+		struct Case {
+			TimelineEventType legacy;
+			TimelineEventType category;
+		};
+		const Case cases[] = {
+			{TimelineEventType::SourceHide, TimelineEventType::SourceShow},
+			{TimelineEventType::MediaStop, TimelineEventType::MediaStart},
+			{TimelineEventType::FilterDisable, TimelineEventType::FilterEnable},
+		};
+		for (const auto &c : cases) {
+			TimelineEvent saved;
+			saved.type = c.legacy;
+			saved.sourceName = "MySource";
+			saved.filterName = "MyFilter";
+			saved.hasDuration = true;
+			saved.durationMs = 3500.0;
+			EventEditor editor(saved);
+			auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+			auto *action = editor.findChild<QComboBox *>("eventActionCombo");
+			QVERIFY(types && action);
+			QCOMPARE(types->currentData().toInt(), static_cast<int>(c.category));
+			QCOMPARE(action->currentData().toInt(), static_cast<int>(c.legacy));
+			TimelineEvent updated = saved;
+			editor.getUpdatedEvent(updated);
+			QCOMPARE(updated.type, c.legacy);
+			QCOMPARE(updated.sourceName, saved.sourceName);
+			if (c.legacy == TimelineEventType::FilterDisable)
+				QCOMPARE(updated.filterName, saved.filterName);
+			QVERIFY(updated.hasDuration);
+			QCOMPARE(updated.durationMs, 3500.0);
+			action->setCurrentIndex(0);
+			editor.getUpdatedEvent(updated);
+			QCOMPARE(updated.type, c.category);
+		}
+	}
+
+	void testUnifiedActionsPreserveSerializedTypes()
+	{
+		const TimelineEventType types[] = {
+			TimelineEventType::SourceShow, TimelineEventType::SourceHide,
+			TimelineEventType::MediaStart, TimelineEventType::MediaStop,
+			TimelineEventType::FilterEnable, TimelineEventType::FilterDisable,
+		};
+		TimelineModel model;
+		for (const auto type : types) {
+			TimelineEvent evt;
+			evt.type = type;
+			evt.sourceName = "Saved source";
+			evt.filterName = "Saved filter";
+			model.addEvent(evt);
+		}
+		TimelineModel restored;
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().size(), size_t(6));
+		for (size_t i = 0; i < 6; ++i) {
+			QCOMPARE(restored.getEvents()[i].type, types[i]);
+			QCOMPARE(restored.getEvents()[i].sourceName, QString("Saved source"));
+			QCOMPARE(restored.getEvents()[i].filterName, QString("Saved filter"));
+		}
+
+		MacroButtonModel macros;
+		for (const auto type : types) {
+			MacroButton b;
+			b.type = type;
+			b.sourceName = "Saved source";
+			b.filterName = "Saved filter";
+			macros.addButton(b);
+		}
+		MacroButtonModel reloaded;
+		QVERIFY(MacroSerialization::fromJsonDocument(
+			QJsonDocument(MacroSerialization::toJsonObject(macros)), reloaded));
+		QCOMPARE(reloaded.buttons().size(), 6);
+		for (int i = 0; i < 6; ++i) {
+			QCOMPARE(reloaded.buttons().at(i).type, types[i]);
+			QCOMPARE(reloaded.buttons().at(i).sourceName, QString("Saved source"));
+			QCOMPARE(reloaded.buttons().at(i).filterName, QString("Saved filter"));
+		}
+	}
+
 	void testMediaStart()
 	{
 		if (!source_item)

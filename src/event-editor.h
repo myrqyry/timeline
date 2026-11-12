@@ -23,12 +23,17 @@ public:
 private:
     void buildUi();
     void populateTargets(TimelineEventType evtType);
+    void populateActionChoices(TimelineEventType category, TimelineEventType selected);
+    TimelineEventType selectedActionType() const;
     void preSelectFromEvent(const TimelineEvent &evt);
     void validateAndAccept();
     void onTypeChanged(int index);
+    void onActionChanged(int index);
     void pickColor();
 
     QComboBox *typeCombo = nullptr;
+    QLabel *actionLabel = nullptr;
+    QComboBox *actionCombo = nullptr;
     QLabel *targetLabel = nullptr;
     QComboBox *targetCombo = nullptr;
     QWidget *fileWidget = nullptr;
