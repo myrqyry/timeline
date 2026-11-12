@@ -62,7 +62,7 @@ function(_setup_obs_studio)
     set(_cmake_extra "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
   elseif(OS_LINUX)
     set(_cmake_generator "Ninja")
-    set(_cmake_extra "-DCMAKE_BUILD_TYPE=Release")
+    set(_cmake_extra "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_INSTALL_PREFIX=${dependencies_dir}")
   endif()
 
   message(STATUS "Configure ${label} (${arch})")
@@ -79,9 +79,14 @@ function(_setup_obs_studio)
   )
   message(STATUS "Configure ${label} (${arch}) - done")
 
+  set(_obs_build_targets obs-frontend-api)
+  if(OS_LINUX)
+    list(APPEND _obs_build_targets libobs-opengl)
+  endif()
+
   message(STATUS "Build ${label} (Debug - ${arch})")
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build build_${arch} --target obs-frontend-api --config Debug --parallel
+    COMMAND "${CMAKE_COMMAND}" --build build_${arch} --target ${_obs_build_targets} --config Debug --parallel
     WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
     RESULT_VARIABLE _process_result
     COMMAND_ERROR_IS_FATAL ANY
@@ -91,7 +96,7 @@ function(_setup_obs_studio)
 
   message(STATUS "Build ${label} (Release - ${arch})")
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build build_${arch} --target obs-frontend-api --config Release --parallel
+    COMMAND "${CMAKE_COMMAND}" --build build_${arch} --target ${_obs_build_targets} --config Release --parallel
     WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
     RESULT_VARIABLE _process_result
     COMMAND_ERROR_IS_FATAL ANY
@@ -116,6 +121,16 @@ function(_setup_obs_studio)
     COMMAND_ERROR_IS_FATAL ANY
     OUTPUT_QUIET
   )
+  if(OS_LINUX)
+    execute_process(
+      COMMAND
+        "${CMAKE_COMMAND}" --install build_${arch} --component Runtime --config Release --prefix "${dependencies_dir}"
+      WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
+      RESULT_VARIABLE _process_result
+      COMMAND_ERROR_IS_FATAL ANY
+      OUTPUT_QUIET
+    )
+  endif()
   message(STATUS "Install ${label} (${arch}) - done")
 endfunction()
 
@@ -153,15 +168,9 @@ function(_check_dependencies)
       string(REPLACE "-REVISION" "" file "${file}")
     endif()
 
-    set(dependency_hash_file
-      "${dependencies_dir}/.dependency_${dependency}_${arch}_${OBS_COMPATIBILITY_TARGET}.sha256"
-    )
+    set(dependency_hash_file "${dependencies_dir}/.dependency_${dependency}_${arch}_${OBS_COMPATIBILITY_TARGET}.sha256")
     if(EXISTS "${dependency_hash_file}")
-      file(
-        READ
-        "${dependency_hash_file}"
-        OBS_DEPENDENCY_${dependency}_${arch}_HASH
-      )
+      file(READ "${dependency_hash_file}" OBS_DEPENDENCY_${dependency}_${arch}_HASH)
     endif()
 
     set(skip FALSE)

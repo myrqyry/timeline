@@ -1,3 +1,4 @@
+
 name: Linux Build
 
 on:
@@ -7,7 +8,9 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ${{ matrix.os }}
+    # Keep Linux runtime tests on the same validated OS as the OBS31/32 build matrix.
+    # ubuntu-latest moved to 26.04 and introduced libobs teardown allocation failures.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -19,7 +22,10 @@ jobs:
           - { obsCompatibility: obs33, os: ubuntu-26.04 }
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Verify OBS 33 readiness contract
+        run: python3 tests/test_obs33_readiness.py
 
       - name: Install dependencies
         run: |
@@ -66,4 +72,5 @@ jobs:
           QT_QPA_PLATFORM: xcb
           LIBGL_ALWAYS_SOFTWARE: '1'
           TIMELINE_REQUIRE_OBS_RUNTIME: '1'
+          LD_LIBRARY_PATH: ${{ github.workspace }}/.deps/${{ matrix.obsCompatibility }}/lib
         run: xvfb-run -a ctest --test-dir build_x86_64 --output-on-failure --verbose
