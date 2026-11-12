@@ -18,20 +18,29 @@ files on a visual timeline.
 The current development milestone is `v0.1.0-preview.1`. The plugin builds
 from source and installs locally; no packaged GitHub Release is published yet.
 
-The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs. CI
-builds separate OBS Studio 31.1.2 and 32.2.1 artifacts for Linux, Windows,
-and macOS. The Linux workflow also runs the Qt regression suite using a
-virtual X display. An isolated Linux OBS 32 session has verified actual source
-hide/restore, scene switching, Macro Strip migration and backup precedence.
-This does **not** establish interactive editor coverage or Windows/macOS runtime
-compatibility. The last fully verified CI baseline and outstanding release
-gates are recorded in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
+The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs.
+The project has OBS 31 and OBS 32 build targets for Linux, Windows, and macOS,
+plus an explicit OBS 33.0.1 **Linux** CI target on Ubuntu 26.04. OBS 33 Linux
+CI previously passed 46/46 strict tests at its compatibility checkpoint; that
+does **not** validate newer changes or OBS 33 desktop use.
+
+The latest local OBS 32 build passed **60/60 headless Qt/libobs tests** with no
+skips. On November 12, 2026, that build was installed into native OBS Studio
+32.2.0 and successfully loaded Timeline, Macro Strip, and the WebSocket vendor
+in an isolated OBS session. The installed binary, locale and unchanged saved
+configuration were verified. A manual live-editor walkthrough and cross-platform
+runtime verification remain outstanding. See
+[Release checklist](docs/RELEASE_CHECKLIST.md) for release gates.
 
 ## Features
 
-Timeline for OBS exposes ten event types in the editor. `MediaSeek` remains a
-reserved model value and is not exposed in the UI. The optional Downstream Keyer
-action is appended to the persisted event enum, preserving existing numeric IDs.
+The event editor offers six built-in action categories: Scene Switch, Source
+Visibility, Media Playback, Filter Visibility, Hotkey Trigger, and Trigger
+Timeline. A seventh category, Downstream Keyer Scene, appears when its supported
+integration is loaded and enabled. Three paired categories have a separate
+**Action** dropdown instead of duplicate entries. `MediaSeek` remains a reserved
+model value and is not exposed in the UI. Existing serialized numeric event
+types are unchanged.
 
 ### Timeline editing
 
@@ -47,20 +56,13 @@ action is appended to the persisted event enum, preserving existing numeric IDs.
 ### Scheduled actions
 
 - **Scene switch:** Switch to an OBS scene, optionally using a named transition.
-- **Source show/hide:** Change visibility for a source in the current scene or
-  scene collection.
-- **Media start/stop:** Restart or stop supported media sources.
-- **Filter enable/disable:** Toggle a named filter on a source.
-- **Hotkey trigger:** Trigger a registered OBS hotkey by name. The shared
-  Timeline/Macro Strip editor shows a searchable, grouped hotkey selector:
-  Move-filter triggers are grouped by their owning source when the matching
-  Move filter can be identified; other source hotkeys are grouped by source,
-  with separate Frontend / Plugins, Outputs, Encoders, and Services sections.
-  Search matches the action label, source/group, or exact hotkey ID. Headings
-  cannot be selected as actions, and imported IDs remain intact when the
-  original plugin or hotkey is unavailable. OBS does not expose a universal
-  originating-plugin field for frontend hotkeys, so those are not guessed.
-  This does not modify OBS's own Settings → Hotkeys screen.
+- **Source Visibility:** Choose Show or Hide for a source in the current scene
+  or scene collection.
+- **Media Playback:** Choose Restart or Stop for a supported media source.
+- **Filter Visibility:** Choose Enable or Disable for a named source filter.
+- **Hotkey Trigger:** Trigger a registered OBS hotkey, including hotkeys
+  registered by third-party plugins such as Move. The hotkey selector supports
+  search and group headings; see [Finding hotkeys](#finding-hotkeys).
 - **Nested timeline:** Start another JSON timeline without opening another dock.
 - **Downstream Keyer scene:** Select or hide a scene in a named downstream keyer,
   independently of the program scene. Requires Exeldro's Downstream Keyer and
@@ -92,6 +94,24 @@ This is an editor-only grouping: existing timeline and macro JSON numeric event
 types remain unchanged, so previously saved Show/Hide, Start/Stop, and
 Enable/Disable events load and edit with the correct operation selected. Timed
 actions retain their existing inverse operation on duration end.
+
+### Finding hotkeys
+
+In **Timeline** or **Macro Strip**, add or edit an action, select **Hotkey
+Trigger**, then use the search field above the target picker. Filter by action
+description, registered hotkey ID, or source/group. The selector groups:
+
+- Recognized **Move** filter hotkeys by the source that owns the matching filter.
+- Other source-registered hotkeys by source name.
+- Frontend / Plugins, Outputs, Encoders, and Services separately.
+
+Group headings are not selectable. An existing event referencing an unregistered
+hotkey keeps its original ID for later editing, even when the responsible plugin
+is missing. This picker **does not change OBS Settings → Hotkeys** or assign
+keyboard shortcuts. OBS exposes the registerer type, but not a reliable
+originating-plugin identity for every frontend hotkey, so unverified plugins
+are not guessed. Move animations remain controlled by Move itself; Timeline
+only fires its registered hotkey.
 
 ### Playback controls
 
@@ -182,10 +202,11 @@ cmake --build build
 cmake --install build
 ```
 
-Use `obs31` instead of `obs32` to build the OBS 31 artifact. CI enables
-`TIMELINE_BUILD_OBS_FROM_SOURCE=ON` to build the selected OBS SDK from its
-pinned source archive. Local builds use the installed OBS SDK by default and
-fail if its major version doesn't match the selected target.
+Use `obs31` instead of `obs32` for OBS 31. The `obs33`
+compatibility target has been verified in Linux Ubuntu 26.04 CI but not in a
+production OBS 33 GUI or a cross-platform release. CI can build the selected
+OBS SDK from its pinned source archive; local builds use the installed OBS SDK
+by default and fail if its major version differs from the selected target.
 
 OBS 31 artifacts support macOS 12 and newer. OBS 32 artifacts require macOS 13
 or newer because OBS 32.2.1 uses a Qt version that no longer supports macOS 12.
@@ -383,7 +404,8 @@ The following items are planned work rather than current capabilities:
 
 - Undo and redo for timeline edits.
 - Multi-selection for batch editing.
-- Unified visibility event types.
+- Live-GUI acceptance testing for the newest editor actions on OBS 32 and
+  OBS 33, followed by OBS 33 cross-platform validation.
 - Tested, release-grade Windows and macOS installers.
 - HTTP action events.
 
