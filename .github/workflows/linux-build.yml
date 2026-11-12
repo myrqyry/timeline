@@ -8,9 +8,9 @@ on:
 
 jobs:
   build-and-test:
-    # Keep Linux runtime tests on the same validated OS as the OBS31/32 build matrix.
-    # ubuntu-latest moved to 26.04 and introduced libobs teardown allocation failures.
-    runs-on: ubuntu-24.04
+    # OBS31/32 stay on their validated 24.04 image; OBS33 needs 26.04 for FFmpeg 8.
+    # The matrix OS must be applied here, not just displayed in the job name.
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:

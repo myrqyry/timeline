@@ -1,5 +1,10 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+### OBS33 CI runner mismatch — 2026-11-12
+- GitHub Actions run 43324596988, job 131553756673, advertised \`(obs33, ubuntu-26.04)\` but booted Ubuntu 24.04.5 because \`.github/workflows/linux-build.yml\` pinned \`runs-on: ubuntu-24.04\` and ignored the matrix OS. OBS33 configure failed requiring FFmpeg >=8; Ubuntu24.04 supplies 6.1.
+- Changed only Linux CI job's runner selector to the existing matrix OS, preserving 24.04 for OBS31/32 and activating 26.04 for OBS33. Strengthened \`tests/test_obs33_readiness.py\` to reject a hard-coded runner. RED assertion failed before fix, GREEN after; strict local OBS32 suite 60 passed, 0 failed, 0 skipped.
+- This tests the scheduling contract and existing local OBS32 behavior, **not** a completed new GitHub-hosted OBS33 build. Inspect new CI and address any separate failures against actual logs.
+
 ### Native OBS32 local installation checkpoint — 2026-11-12
 - User-requested installation completed for native OBS Studio 32.2.0 (not the separate OBS33 Flatpak). Installed local commit `6224f64` using the project's CMake install rules; module and en-US locale updated. Source tree had been clean.
 - Strict OBS32 Qt/libobs Xvfb suite **60 passed, 0 failed, 0 skipped** before installation. Installed module Build ID matches the verified build (CMake strips RUNPATH on install); `ldd -r` resolves dependencies and symbols. Installed locale matches source byte-for-byte.

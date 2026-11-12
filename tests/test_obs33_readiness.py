@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import json
+import re
 
 root = Path(__file__).resolve().parents[1]
 
@@ -12,6 +13,10 @@ assert obs33["hashes"]["linux-x86_64"] == "9174ee0e3677c92d0d060bdce4c5d44dfee9f
 workflow = (root / ".github/workflows/linux-build.yml").read_text()
 assert "obsCompatibility: obs33" in workflow
 assert "ubuntu-26.04" in workflow
+# A matrix label alone does not select its OS: the job runner must use matrix.os.
+assert re.search(r"(?m)^\s*runs-on:\s*\$\{\{\s*matrix\.os\s*\}\}\s*$", workflow), (
+    "Linux CI must select the matrix OS; hardcoded ubuntu-24.04 breaks OBS33 (FFmpeg >=8)"
+)
 
 cmake = (root / "CMakeLists.txt").read_text()
 assert 'OBS_PLUGIN_DESTINATION' in cmake
