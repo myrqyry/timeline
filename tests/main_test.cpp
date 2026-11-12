@@ -32,6 +32,8 @@
 #include "macro-serialization.h"
 #include "macro-strip-dock.h"
 #include "event-editor.h"
+#include "plugin-integrations.h"
+#include <QMenu>
 #include <QComboBox>
 #include <QLineEdit>
 
@@ -323,6 +325,87 @@ private slots:
 			obs_source_release(filter_item);
 			filter_item = nullptr;
 		}
+	}
+
+	void testPluginIntegrationsDetectSupportedAndUnsupportedModules()
+	{
+		auto &integrations = PluginIntegrations::instance();
+		integrations.setStoragePath(QString());
+		integrations.setDetectedModules({{"obs-browser", "OBS Browser"}, {"downstream-keyer", "Downstream Keyer"}});
+		QVERIFY(integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
+		QMenu menu;
+		integrations.populateMenu(menu);
+		QVERIFY(menu.actions().size() >= 2);
+		QAction *supported = nullptr;
+		QAction *unsupported = nullptr;
+		for (auto *action : menu.actions()) {
+			if (action->text().contains("Downstream Keyer"))
+				supported = action;
+			if (action->text().contains("OBS Browser"))
+				unsupported = action;
+		}
+		QVERIFY(supported && unsupported);
+		QVERIFY(supported->isCheckable());
+		QVERIFY(supported->isChecked());
+		supported->setChecked(false);
+		QVERIFY(!integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
+		supported->setChecked(true);
+		QVERIFY(integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
+		QVERIFY(!unsupported->isEnabled());
+		QVERIFY(!unsupported->isCheckable());
+		integrations.setDetectedModules({});
+	}
+
+	void testPluginIntegrationTogglePersistsAndFiltersNewEditor()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto &integrations = PluginIntegrations::instance();
+		const QString path = dir.filePath("integrations.ini");
+		integrations.setStoragePath(path);
+		integrations.setDetectedModules({{"downstream-keyer", "Downstream Keyer"}});
+		{
+			EventEditor editor(0.0);
+			auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+			QVERIFY(types);
+			QVERIFY(types->findData(static_cast<int>(TimelineEventType::DownstreamKeyerScene)) >= 0);
+		}
+		integrations.setEnabled("downstream-keyer", false);
+		QVERIFY(!integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
+		{
+			EventEditor editor(0.0);
+			auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+			QVERIFY(types);
+			QCOMPARE(types->findData(static_cast<int>(TimelineEventType::DownstreamKeyerScene)), -1);
+		}
+		integrations.setStoragePath(path); // Simulated fresh load from disk
+		QVERIFY(!integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
+		integrations.setEnabled("downstream-keyer", true);
+		QVERIFY(integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
+		integrations.setDetectedModules({});
+		QVERIFY(!integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
+		integrations.setStoragePath(QString());
+	}
+
+	void testSavedPluginEventEditableWhenIntegrationUnavailable()
+	{
+		auto &integrations = PluginIntegrations::instance();
+		integrations.setStoragePath(QString());
+		integrations.setDetectedModules({});
+		TimelineEvent saved;
+		saved.type = TimelineEventType::DownstreamKeyerScene;
+		saved.sourceName = "Keyer";
+		saved.filterName = "Overlay";
+		EventEditor editor(saved);
+		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+		QVERIFY(types);
+		QCOMPARE(types->currentData().toInt(), static_cast<int>(saved.type));
+		QVERIFY(!types->model()->flags(types->model()->index(types->currentIndex(), 0)).testFlag(Qt::ItemIsEnabled));
+		TimelineEvent unchanged;
+		editor.getUpdatedEvent(unchanged);
+		QCOMPARE(unchanged.type, saved.type);
+		QCOMPARE(unchanged.sourceName, saved.sourceName);
+		QCOMPARE(unchanged.filterName, saved.filterName);
 	}
 
 	void testDownstreamKeyerSceneDispatch()

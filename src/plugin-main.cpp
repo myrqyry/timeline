@@ -8,6 +8,7 @@
 #include <QPointer>
 #include "timeline-dock.h"
 #include "macro-strip-dock.h"
+#include "plugin-integrations.h"
 #if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
 #endif
@@ -48,6 +49,12 @@ bool obs_module_load(void)
 	blog(LOG_INFO, "[Timeline] ║  Timeline for OBS                    ║");
 	blog(LOG_INFO, "[Timeline] ╚══════════════════════════════════════╝");
 
+	// Preferences belong to Timeline's writable module config, not timeline JSON.
+	char *integrationsPath = obs_module_config_path("integrations.ini");
+	PluginIntegrations::instance().setStoragePath(
+		integrationsPath ? QString::fromUtf8(integrationsPath) : QString());
+	bfree(integrationsPath);
+	PluginIntegrations::instance().refreshLoadedModules();
 	g_timelineDock = new TimelineDock();
 	obs_frontend_add_dock_by_id("timeline_dock", "Timeline", g_timelineDock);
 
@@ -104,6 +111,7 @@ void obs_module_unload(void)
 
 void obs_module_post_load(void)
 {
+	PluginIntegrations::instance().refreshLoadedModules();
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (!g_timelineDock)
 		return;

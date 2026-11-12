@@ -1,5 +1,6 @@
 #include "event-editor.h"
 #include "theme-helpers.h"
+#include "plugin-integrations.h"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -14,6 +15,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QStandardItemModel>
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
@@ -42,6 +44,7 @@ void EventEditor::buildUi()
     setMinimumWidth(400);
 
     typeCombo = new QComboBox(this);
+    typeCombo->setObjectName("eventTypeCombo");
     typeCombo->addItem(obs_module_text("EventType.SceneSwitch"), static_cast<int>(TimelineEventType::SceneSwitch));
     typeCombo->addItem(obs_module_text("EventType.SourceShow"), static_cast<int>(TimelineEventType::SourceShow));
     typeCombo->addItem(obs_module_text("EventType.SourceHide"), static_cast<int>(TimelineEventType::SourceHide));
@@ -51,8 +54,9 @@ void EventEditor::buildUi()
     typeCombo->addItem(obs_module_text("EventType.FilterDisable"), static_cast<int>(TimelineEventType::FilterDisable));
     typeCombo->addItem(obs_module_text("EventType.HotkeyTrigger"), static_cast<int>(TimelineEventType::HotkeyTrigger));
     typeCombo->addItem(obs_module_text("EventType.TriggerTimeline"), static_cast<int>(TimelineEventType::TriggerTimeline));
-    typeCombo->addItem(obs_module_text("EventType.DownstreamKeyerScene"),
-                       static_cast<int>(TimelineEventType::DownstreamKeyerScene));
+    if (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene))
+        typeCombo->addItem(obs_module_text("EventType.DownstreamKeyerScene"),
+                           static_cast<int>(TimelineEventType::DownstreamKeyerScene));
     layout->addRow(obs_module_text("EventEditor.EventType"), typeCombo);
 
     targetLabel = new QLabel(obs_module_text("EventEditor.TargetScene"), this);
@@ -385,6 +389,16 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 {
     typeCombo->blockSignals(true);
     int idx = typeCombo->findData(static_cast<int>(evt.type));
+    if (idx < 0 && evt.type == TimelineEventType::DownstreamKeyerScene) {
+        // Preserve editing of imported/saved plugin actions even when the plugin is absent or hidden.
+        typeCombo->addItem(QString::fromUtf8(obs_module_text("EventType.DownstreamKeyerScene")) +
+                               QString::fromUtf8(obs_module_text("EventType.UnavailableSuffix")),
+                           static_cast<int>(evt.type));
+        idx = typeCombo->count() - 1;
+        if (auto *items = qobject_cast<QStandardItemModel *>(typeCombo->model()))
+            items->item(idx)->setEnabled(false);
+        typeCombo->setItemData(idx, obs_module_text("EventType.UnavailableTooltip"), Qt::ToolTipRole);
+    }
     if (idx != -1)
         typeCombo->setCurrentIndex(idx);
     typeCombo->blockSignals(false);

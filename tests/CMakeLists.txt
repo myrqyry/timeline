@@ -21,6 +21,7 @@ set(TEST_SOURCES
     ../src/macro-serialization.cpp
     ../src/macro-strip-dock.cpp
     ../src/event-editor.cpp
+    ../src/plugin-integrations.cpp
     # Exclude plugin-main.cpp because it defines obs_module_load/unload which conflicts or isn't needed
 )
 

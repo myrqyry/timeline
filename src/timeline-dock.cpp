@@ -39,6 +39,7 @@
 #include <QTimer>
 #include <QWidgetAction>
 #include "event-editor.h"
+#include "plugin-integrations.h"
 #include "timeline-serialization.h"
 
 // Stepped zoom levels for clean, professional increments
@@ -510,6 +511,13 @@ void TimelineDock::setupUi()
 	settingsMenu = new QMenu(this);
 	settingsMenu->addAction(obs_module_text("TimelineDock.SaveTimeline"), this, &TimelineDock::onSaveClicked);
 	settingsMenu->addAction(obs_module_text("TimelineDock.LoadTimeline"), this, &TimelineDock::onLoadClicked);
+	settingsMenu->addSeparator();
+	QMenu *integrationsMenu = settingsMenu->addMenu(obs_module_text("TimelineDock.Integrations"));
+	connect(integrationsMenu, &QMenu::aboutToShow, this, [integrationsMenu]() {
+		auto &integrations = PluginIntegrations::instance();
+		integrations.refreshLoadedModules();
+		integrations.populateMenu(*integrationsMenu);
+	});
 	settingsMenu->addSeparator();
 
 	// Embed centerControlsCheckbox in the menu

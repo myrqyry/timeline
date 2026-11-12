@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Loaded-plugin selection menu — 2026-11-12
+- Requested capability: Timeline settings → Plugins & Integrations shows **loaded** OBS modules, supports selecting implemented action adapters, and updates available new actions in both Timeline and Macro Strip (shared editor). Unknown loaded plugins appear without false promises of action support.
+- Integration visibility is persisted independently in `integrations.ini` inside the OBS module configuration directory. This does not enable/disable OBS plugins and deliberately does not disable or remove previously saved actions. Saved Downstream Keyer events retain their editable fields even if the adapter is hidden or the plugin is absent.
+- First adapter: Downstream Keyer; actions only offered when its loaded module is detected and the user has enabled the adapter. Unavailable action attempts are still handled by existing executor logging.
+- RED: new tests failed before the registry existed. GREEN: OBS32 plugin module and Qt harness built; strict Xvfb/libobs suite **54 passed, 0 failed, 0 skipped**. Regressions cover loaded/supported/unsupported module listing, menu checkbox toggling, persistence, available new-editor choices, and unavailable saved-event editing. Real OBS menu rendering with third-party DSK, vendor readiness, and cross-platform use remain unverified. No OBS installation or profile modified.
+
 ### Optional downstream-keyer scene control — 2026-11-12
 
 - Added a new appended `DownstreamKeyerScene` event type, shared by Timeline and Macro Strip. Name a DSK, overlay scene and optional view/canvas; blank scene clears the DSK overlay, and a timed scene selection clears on event end.

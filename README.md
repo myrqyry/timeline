@@ -99,6 +99,24 @@ no WebSocket credentials or enabled remote server. Missing plugin/vendor,
 invalid keyer/scene, and API unavailability are reported in the OBS log.
 Both scheduled events and Macro Strip buttons use this same action.
 
+### Plugins & Integrations
+
+Open Timeline's settings menu and choose **Plugins & Integrations** to see modules
+currently loaded by OBS. Plugins with a Timeline action adapter have a checkbox;
+checking it exposes their actions in the event editor **and** Macro Strip.
+Downstream Keyer is the first supported adapter (requires OBS WebSocket support
+at build time). Other loaded plugins are shown as detected but unavailable
+until a matching action adapter is implemented.
+
+These checkboxes control **which actions can be added**, not whether OBS
+loads a plugin or whether previously saved events execute. A timeline or
+macro containing an unavailable plugin action remains intact; editing it
+retains its saved fields and marks the type unavailable instead of replacing
+it. Timeline stores these preferences in `integrations.ini` in its writable
+OBS module configuration directory; the timeline and macro JSON are unaffected.
+The menu checks loaded modules, not every plugin file installed on disk;
+a plugin that failed to load will not appear.
+
 ## Installation
 
 The current supported installation path is a Linux source build. The build

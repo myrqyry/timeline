@@ -53,6 +53,7 @@ set(
   src/timeline-event-item.cpp
   src/headless-timeline.cpp
   src/event-editor.cpp
+  src/plugin-integrations.cpp
   src/timeline-serialization.cpp
   src/timecode-display.cpp
   src/macro-button-model.cpp
@@ -68,6 +69,7 @@ set(
   src/timeline-scheduler.h
   src/obs-executor.h
   src/obs-compatibility.h
+  src/plugin-integrations.h
   src/event-types.h
   src/timeline-event-item.h
   src/theme-helpers.h
