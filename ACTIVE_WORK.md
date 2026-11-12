@@ -1,5 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+### Native OBS32 local installation checkpoint — 2026-11-12
+- User-requested installation completed for native OBS Studio 32.2.0 (not the separate OBS33 Flatpak). Installed local commit `6224f64` using the project's CMake install rules; module and en-US locale updated. Source tree had been clean.
+- Strict OBS32 Qt/libobs Xvfb suite **60 passed, 0 failed, 0 skipped** before installation. Installed module Build ID matches the verified build (CMake strips RUNPATH on install); `ldd -r` resolves dependencies and symbols. Installed locale matches source byte-for-byte.
+- Safeguarded previous plugin and Timeline configuration in a private, local rollback archive (path held outside public repo). Checksums of timeline.json, macro_buttons.json (config and legacy installed data) unchanged after installation.
+- Isolated OBS32 GUI-process startup with temporary XDG config and real installed plugin logged successful registration of Timeline dock, Macro Strip dock and WebSocket vendor. This is a real plugin-load check, not a manual visual interaction smoke. Normal OBS was closed and its scenes/profile were not opened or modified. OBS33 build of these newest changes remains unverified.
+- No push, OBS33 installation or profile migration performed.
+
 ### Grouped and searchable hotkey selector — 2026-11-12
 - Grouped OBS hotkey picker by real libobs hotkey registerer type: source-bound, frontend/plugins (plugin identity not introspectable), outputs, encoders and services. Source-bound hotkeys match known Move filter IDs and the filter's registered hotkey name to show **Move · source** when grounded; other source hotkeys appear under their source. No blanket plugin-name inference.
 - Added case-insensitive search across description, stable OBS hotkey ID and group/source. Group headings are non-selectable; an empty search result disables selection. Saved missing hotkey IDs remain editable and are not silently swapped for another hotkey.
