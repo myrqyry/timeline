@@ -15,7 +15,8 @@ enum class TimelineEventType {
     FilterEnable,
     FilterDisable,
     HotkeyTrigger,
-    TriggerTimeline
+    TriggerTimeline,
+    DownstreamKeyerScene // Append only: persisted enum IDs must not shift
 };
 
 struct TimelineEvent {

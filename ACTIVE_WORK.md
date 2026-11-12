@@ -1,6 +1,15 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Optional downstream-keyer scene control — 2026-11-12
+
+- Added a new appended `DownstreamKeyerScene` event type, shared by Timeline and Macro Strip. Name a DSK, overlay scene and optional view/canvas; blank scene clears the DSK overlay, and a timed scene selection clears on event end.
+- Uses OBS WebSocket's **in-process** `CallVendorRequest` for `downstream-keyer / dsk_select_scene` without a TCP client, credentials or any modifications to the DSK plugin.
+- Added editor fields and English strings, persisted serialization support, icon and color, build-time API fallback, and explicit logs for missing/rejected requests.
+- RED: new C++ regression failed to build because the event type was absent. GREEN: OBS32 native module/test executable built; strict Xvfb/libobs Qt test suite passed **51/51 tests, zero skips** after fixing the fixture's retained OBS scene-source registry state. New tests check vendor payload, timed hide, empty-name guard, editor values and both macro/timeline JSON round trips. Upstream DSK source confirms a blank scene clears via `SwitchToScene`.
+- Scope: no real OBS installation, OBS profiles/scenes, or other plugin repositories changed. **Actual two-plugin runtime dispatch and visual composition remain unverified**; an isolated OBS session with Downstream Keyer installed is the next acceptance gate. OBS 33 and cross-platform DSK behavior have not been validated for this slice. The pre-existing main branch was four commits behind `origin/main`; no fetch/merge/push was performed.
+
+
 ## Outcome
 
 Bring Timeline toward a verified first public preview with clean runtime packages, accurate documentation, and durable Meristem project context.

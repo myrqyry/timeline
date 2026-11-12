@@ -2,6 +2,8 @@
 #include "headless-timeline.h"
 #include <obs-module.h>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <obs-frontend-api.h>
 #if OBS_TIMELINE_HAS_WEBSOCKET
 #include <obs-websocket-api.h>
@@ -153,6 +155,17 @@ void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 		if (isStartAction)
 			handleSceneSwitch(evt);
 		break;
+	case TimelineEventType::DownstreamKeyerScene: {
+		if (isStartAction) {
+			handleDownstreamKeyerScene(evt);
+		} else if (evt.hasDuration && !evt.filterName.isEmpty()) {
+			// Timed overlays clear their DSK channel when the event ends.
+			TimelineEvent clear = evt;
+			clear.filterName.clear();
+			handleDownstreamKeyerScene(clear);
+		}
+		break;
+	}
 	case TimelineEventType::HotkeyTrigger:
 		// Only trigger on start action
 		if (isStartAction)
@@ -346,6 +359,64 @@ void ObsExecutor::handleFilterEnable(const TimelineEvent &evt, bool enable)
 		blog(LOG_WARNING, "[Timeline] ┌─ Source not found for filter operation");
 		blog(LOG_WARNING, "[Timeline] └─ Name : %s", sourceName.toUtf8().constData());
 	}
+}
+
+void ObsExecutor::handleDownstreamKeyerScene(const TimelineEvent &evt)
+{
+	const QString keyerName = evt.sourceName.trimmed();
+	if (keyerName.isEmpty()) {
+		blog(LOG_WARNING, "[Timeline] Downstream Keyer action skipped: keyer name is empty");
+		return;
+	}
+
+#if OBS_TIMELINE_HAS_WEBSOCKET
+	obs_data_t *vendorData = obs_data_create();
+	obs_data_set_string(vendorData, "view_name", evt.data.toString().trimmed().toUtf8().constData());
+	obs_data_set_string(vendorData, "dsk_name", keyerName.toUtf8().constData());
+	// An empty scene is the downstream-keyer API's way to clear/hide the overlay.
+	obs_data_set_string(vendorData, "scene", evt.filterName.trimmed().toUtf8().constData());
+
+	obs_data_t *requestData = obs_data_create();
+	obs_data_set_string(requestData, "vendorName", "downstream-keyer");
+	obs_data_set_string(requestData, "requestType", "dsk_select_scene");
+	obs_data_set_obj(requestData, "requestData", vendorData);
+	obs_data_release(vendorData);
+
+	// This uses obs-websocket's in-process request API, not a TCP socket or stored credentials.
+	auto *response = obs_websocket_call_request("CallVendorRequest", requestData);
+	obs_data_release(requestData);
+	if (!response) {
+		blog(LOG_WARNING, "[Timeline] Downstream Keyer request unavailable (obs-websocket API not loaded)");
+		return;
+	}
+
+	bool accepted = false;
+	QString error;
+	if (response->status_code != 100) {
+		error = response->comment ? QString::fromUtf8(response->comment)
+					  : QStringLiteral("vendor request unavailable");
+	} else if (response->response_data) {
+		const QJsonDocument document = QJsonDocument::fromJson(response->response_data);
+		const QJsonObject payload = document.object().value("responseData").toObject();
+		accepted = payload.value("success").toBool(false);
+		error = payload.value("error").toString();
+		if (!accepted && error.isEmpty())
+			error = QStringLiteral("Downstream Keyer rejected the target keyer or scene");
+	} else {
+		error = QStringLiteral("Downstream Keyer returned no response");
+	}
+	obs_websocket_request_response_free(response);
+
+	if (!accepted) {
+		blog(LOG_WARNING, "[Timeline] Downstream Keyer '%s' failed: %s", keyerName.toUtf8().constData(),
+		     error.toUtf8().constData());
+		return;
+	}
+	blog(LOG_INFO, "[Timeline] Downstream Keyer '%s' scene -> '%s'", keyerName.toUtf8().constData(),
+	     evt.filterName.isEmpty() ? "(hidden)" : evt.filterName.toUtf8().constData());
+#else
+	blog(LOG_WARNING, "[Timeline] Downstream Keyer action requires obs-websocket API support at build time");
+#endif
 }
 
 void ObsExecutor::handleHotkey(const TimelineEvent &evt)

@@ -29,9 +29,9 @@ gates are recorded in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
 
 ## Features
 
-Timeline for OBS exposes nine event types in the editor. `MediaSeek` remains a
-reserved model value and is not exposed in the UI
-(`src/event-types.h:8-19`, `src/event-editor.cpp:44-53`).
+Timeline for OBS exposes ten event types in the editor. `MediaSeek` remains a
+reserved model value and is not exposed in the UI. The optional Downstream Keyer
+action is appended to the persisted event enum, preserving existing numeric IDs.
 
 ### Timeline editing
 
@@ -53,12 +53,18 @@ reserved model value and is not exposed in the UI
 - **Filter enable/disable:** Toggle a named filter on a source.
 - **Hotkey trigger:** Trigger a registered OBS hotkey by name.
 - **Nested timeline:** Start another JSON timeline without opening another dock.
+- **Downstream Keyer scene:** Select or hide a scene in a named downstream keyer,
+  independently of the program scene. Requires Exeldro's Downstream Keyer and
+  the OBS WebSocket API. The editor accepts a keyer name and an overlay scene;
+  leave the scene blank to hide the overlay, or the view/canvas name blank to
+  address the primary output. The target overlay scene must already belong to
+  the named keyer's scene list.
 
 Events with a positive duration emit an end action where the action has a
 meaningful inverse. Source visibility and filter events reverse their state;
-media events start or stop media. Scene switches, hotkeys, and nested timeline
-triggers do not perform an end action
-(`src/obs-executor.cpp:110-162`).
+media events start or stop media. A timed Downstream Keyer overlay is hidden
+when the duration ends; it does not restore a prior overlay. Ordinary scene
+switches, hotkeys, and nested timeline triggers do not perform an end action.
 
 Named scene transitions are restored after the OBS frontend transition duration,
 with a fallback delay when OBS reports no duration. A single timer prevents
@@ -84,8 +90,14 @@ the timeline, so the two docks share action behavior
 When the OBS WebSocket vendor header is available at build time, the plugin can
 emit `TimelineEvent` and playback status events. The event payload includes the
 phase, numeric type, source name, and event time; OBS WebSocket remains
-responsible for transport and authentication
-(`src/obs-executor.cpp:75-88`, `src/plugin-main.cpp:105-125`).
+responsible for transport and authentication.
+
+The optional Downstream Keyer action uses `obs_websocket_call_request` to invoke
+`CallVendorRequest` for vendor `downstream-keyer`, request `dsk_select_scene`.
+This is an **in-process OBS API call**, not a network connection: Timeline needs
+no WebSocket credentials or enabled remote server. Missing plugin/vendor,
+invalid keyer/scene, and API unavailability are reported in the OBS log.
+Both scheduled events and Macro Strip buttons use this same action.
 
 ## Installation
 

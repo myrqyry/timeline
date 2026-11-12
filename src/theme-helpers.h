@@ -296,6 +296,8 @@ inline QByteArray getIconSvg(TimelineEventType type, const QString &color = "whi
 		return wrapIconMoon(MOON_LIGHTNING, color);
 	case TimelineEventType::TriggerTimeline:
 		return wrapIconMoon(MOON_PLAY, color);
+	case TimelineEventType::DownstreamKeyerScene:
+		return wrapIconMoon(MOON_EYE, color);
 	default:
 		return wrapSvg("?", color);
 	}
@@ -322,6 +324,8 @@ inline QColor getDefaultColor(TimelineEventType type)
 		return QColor("#F8E71C"); // Yellow
 	case TimelineEventType::TriggerTimeline:
 		return QColor("#E91E63"); // Pink
+	case TimelineEventType::DownstreamKeyerScene:
+		return QColor("#EE9955"); // Amber
 	default:
 		return Qt::gray;
 	}
@@ -348,6 +352,8 @@ inline QString typeDisplayName(TimelineEventType type)
 		return QStringLiteral("Hotkey");
 	case TimelineEventType::TriggerTimeline:
 		return QStringLiteral("Trigger Timeline");
+	case TimelineEventType::DownstreamKeyerScene:
+		return QStringLiteral("Downstream Keyer Scene");
 	default:
 		return QStringLiteral("Event");
 	}

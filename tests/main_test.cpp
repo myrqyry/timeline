@@ -31,8 +31,16 @@
 #include "macro-button-widget.h"
 #include "macro-serialization.h"
 #include "macro-strip-dock.h"
+#include "event-editor.h"
+#include <QComboBox>
+#include <QLineEdit>
 
 // Mock helpers from mock_frontend.cpp
+extern QJsonObject g_websocket_last_request;
+extern int g_websocket_request_count;
+extern bool g_websocket_available;
+extern bool g_websocket_dsk_success;
+extern unsigned int g_websocket_status;
 extern obs_source_t *g_current_scene;
 extern obs_source_t *g_current_preview_scene;
 extern obs_source_t *g_current_transition;
@@ -258,6 +266,11 @@ private slots:
 
 	void init()
 	{
+		g_websocket_last_request = {};
+		g_websocket_request_count = 0;
+		g_websocket_available = true;
+		g_websocket_dsk_success = true;
+		g_websocket_status = 100;
 		g_transition_duration_ms = 300;
 		// Create sources for each test
 		scene1 = obs_source_create("scene", "Scene 1", nullptr, nullptr);
@@ -291,6 +304,12 @@ private slots:
 		}
 		g_transitions.clear();
 
+		// OBS's scene registry/canvas can retain scene sources across tests.
+		// Remove them before dropping our refs so the next test gets its own named scenes.
+		if (scene1)
+			obs_source_remove(scene1);
+		if (scene2)
+			obs_source_remove(scene2);
 		// Release our references
 		if (scene1)
 			obs_source_release(scene1);
@@ -304,6 +323,121 @@ private slots:
 			obs_source_release(filter_item);
 			filter_item = nullptr;
 		}
+	}
+
+	void testDownstreamKeyerSceneDispatch()
+	{
+		ObsExecutor executor;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::DownstreamKeyerScene;
+		evt.sourceName = "Lower Third Keyer";
+		evt.filterName = "Announcement Overlay";
+		evt.data = "Vertical";
+		evt.hasDuration = true;
+		evt.durationMs = 1000;
+
+		executor.executeEventStart(evt);
+		QCOMPARE(g_websocket_request_count, 1);
+		QCOMPARE(g_websocket_last_request.value("vendorName").toString(), QString("downstream-keyer"));
+		QCOMPARE(g_websocket_last_request.value("requestType").toString(), QString("dsk_select_scene"));
+		const QJsonObject req = g_websocket_last_request.value("requestData").toObject();
+		QCOMPARE(req.value("view_name").toString(), QString("Vertical"));
+		QCOMPARE(req.value("dsk_name").toString(), QString("Lower Third Keyer"));
+		QCOMPARE(req.value("scene").toString(), QString("Announcement Overlay"));
+
+		executor.executeEventEnd(evt);
+		QCOMPARE(g_websocket_request_count, 2); // Timed event clears overlay
+		QCOMPARE(g_websocket_last_request.value("requestData").toObject().value("scene").toString(), QString());
+	}
+
+	void testDownstreamKeyerSceneValidatesBeforeDispatch()
+	{
+		ObsExecutor executor;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::DownstreamKeyerScene;
+		evt.sourceName = "Lower Third Keyer";
+		executor.executeEventStart(evt); // Empty overlay scene is a deliberate hide
+		QCOMPARE(g_websocket_request_count, 1);
+		QCOMPARE(g_websocket_last_request.value("requestData").toObject().value("scene").toString(), QString());
+
+		evt.filterName = "Overlay";
+		evt.sourceName.clear();
+		executor.executeEventStart(evt); // Missing keyer
+		QCOMPARE(g_websocket_request_count, 1);
+	}
+
+	void testDownstreamKeyerMissingVendorKeepsProgramScene()
+	{
+		ObsExecutor executor;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::DownstreamKeyerScene;
+		evt.sourceName = "Keyer";
+		evt.filterName = "Overlay";
+		g_websocket_available = false;
+
+		executor.executeEventStart(evt);
+		QCOMPARE(g_websocket_request_count, 1);
+		QVERIFY(g_websocket_last_request.isEmpty());
+		QCOMPARE(g_current_scene, scene1);
+	}
+
+	void testDownstreamKeyerEditorRoundTrip()
+	{
+		TimelineEvent initial;
+		initial.type = TimelineEventType::DownstreamKeyerScene;
+		initial.sourceName = "Persistent Keyer";
+		initial.filterName = "Now Playing";
+		initial.data = "Vertical";
+		EventEditor editor(initial);
+		auto *name = editor.findChild<QLineEdit *>("dskNameEdit");
+		auto *scene = editor.findChild<QLineEdit *>("dskSceneEdit");
+		auto *view = editor.findChild<QLineEdit *>("dskViewEdit");
+		QVERIFY(name && scene && view);
+		QCOMPARE(name->text(), initial.sourceName);
+		QCOMPARE(scene->text(), initial.filterName);
+		QCOMPARE(view->text(), initial.data.toString());
+
+		TimelineEvent edited;
+		scene->clear(); // Empty scene hides downstream overlay
+		view->clear();  // Empty view targets main output
+		editor.getUpdatedEvent(edited);
+		QCOMPARE(edited.type, TimelineEventType::DownstreamKeyerScene);
+		QCOMPARE(edited.sourceName, QString("Persistent Keyer"));
+		QCOMPARE(edited.filterName, QString());
+		QCOMPARE(edited.data.toString(), QString());
+	}
+
+	void testDownstreamKeyerSceneSerializationRoundTrip()
+	{
+		MacroButtonModel macros;
+		MacroButton macro;
+		macro.type = TimelineEventType::DownstreamKeyerScene;
+		macro.sourceName = "Keyer";
+		macro.filterName = "Overlay";
+		macro.data = "Vertical";
+		macros.addButton(macro);
+		MacroButtonModel reloaded;
+		QString error;
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(macros)),
+							     reloaded, &error));
+		QCOMPARE(reloaded.buttons().size(), 1);
+		QCOMPARE(reloaded.buttons().first().type, TimelineEventType::DownstreamKeyerScene);
+		QCOMPARE(reloaded.buttons().first().filterName, QString("Overlay"));
+		QCOMPARE(reloaded.buttons().first().data, QString("Vertical"));
+
+		TimelineModel model;
+		TimelineEvent evt;
+		evt.type = TimelineEventType::DownstreamKeyerScene;
+		evt.sourceName = "Keyer";
+		evt.filterName = "Overlay";
+		evt.data = "Vertical";
+		model.addEvent(evt);
+		TimelineModel parsed;
+		parsed.fromJson(model.toJson());
+		QCOMPARE(parsed.getEvents().size(), size_t(1));
+		QCOMPARE(parsed.getEvents().front().type, TimelineEventType::DownstreamKeyerScene);
+		QCOMPARE(parsed.getEvents().front().filterName, QString("Overlay"));
+		QCOMPARE(parsed.getEvents().front().data.toString(), QString("Vertical"));
 	}
 
 	void testSceneSwitch()

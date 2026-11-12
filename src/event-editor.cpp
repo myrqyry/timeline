@@ -51,6 +51,8 @@ void EventEditor::buildUi()
     typeCombo->addItem(obs_module_text("EventType.FilterDisable"), static_cast<int>(TimelineEventType::FilterDisable));
     typeCombo->addItem(obs_module_text("EventType.HotkeyTrigger"), static_cast<int>(TimelineEventType::HotkeyTrigger));
     typeCombo->addItem(obs_module_text("EventType.TriggerTimeline"), static_cast<int>(TimelineEventType::TriggerTimeline));
+    typeCombo->addItem(obs_module_text("EventType.DownstreamKeyerScene"),
+                       static_cast<int>(TimelineEventType::DownstreamKeyerScene));
     layout->addRow(obs_module_text("EventEditor.EventType"), typeCombo);
 
     targetLabel = new QLabel(obs_module_text("EventEditor.TargetScene"), this);
@@ -85,6 +87,22 @@ void EventEditor::buildUi()
     transitionLayout->addWidget(transitionCombo);
     layout->addRow(transitionWidget);
     transitionWidget->hide();
+
+    // Separate downstream-keyer channel/scene controls; do not reuse main-scene switching.
+    dskWidget = new QWidget(this);
+    auto *dskLayout = new QFormLayout(dskWidget);
+    dskLayout->setContentsMargins(0, 0, 0, 0);
+    dskNameEdit = new QLineEdit(dskWidget);
+    dskNameEdit->setObjectName("dskNameEdit");
+    dskSceneEdit = new QLineEdit(dskWidget);
+    dskSceneEdit->setObjectName("dskSceneEdit");
+    dskViewEdit = new QLineEdit(dskWidget);
+    dskViewEdit->setObjectName("dskViewEdit");
+    dskLayout->addRow(obs_module_text("EventEditor.DskName"), dskNameEdit);
+    dskLayout->addRow(obs_module_text("EventEditor.DskScene"), dskSceneEdit);
+    dskLayout->addRow(obs_module_text("EventEditor.DskView"), dskViewEdit);
+    layout->addRow(dskWidget);
+    dskWidget->hide();
 
     // Color picker + custom icon
     colorButton = new QPushButton(this);
@@ -194,6 +212,15 @@ void EventEditor::populateTargets(TimelineEventType evtType)
 {
     targetCombo->clear();
     targetCombo->setEnabled(true);
+    dskWidget->setVisible(evtType == TimelineEventType::DownstreamKeyerScene);
+    if (evtType == TimelineEventType::DownstreamKeyerScene) {
+        targetLabel->hide();
+        targetCombo->hide();
+        fileWidget->hide();
+        transitionWidget->hide();
+        return;
+    }
+    targetLabel->show();
 
     if (evtType == TimelineEventType::TriggerTimeline) {
         targetLabel->setText(obs_module_text("EventEditor.TimelineFile"));
@@ -364,7 +391,11 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 
     populateTargets(evt.type);
 
-    if (evt.type == TimelineEventType::TriggerTimeline) {
+    if (evt.type == TimelineEventType::DownstreamKeyerScene) {
+        dskNameEdit->setText(evt.sourceName);
+        dskSceneEdit->setText(evt.filterName);
+        dskViewEdit->setText(evt.data.toString());
+    } else if (evt.type == TimelineEventType::TriggerTimeline) {
         fileEdit->setText(evt.data.toString());
     } else if (evt.type == TimelineEventType::SceneSwitch) {
         targetCombo->setCurrentText(evt.sourceName);
@@ -415,7 +446,12 @@ void EventEditor::validateAndAccept()
         QMessageBox::warning(this, obs_module_text("EventEditor.InvalidEvent"), message);
     };
 
-    if (type == TimelineEventType::TriggerTimeline) {
+    if (type == TimelineEventType::DownstreamKeyerScene) {
+        if (dskNameEdit->text().trimmed().isEmpty()) {
+            warn(obs_module_text("EventEditor.WarnDskName"));
+            return;
+        }
+    } else if (type == TimelineEventType::TriggerTimeline) {
         if (fileEdit->text().isEmpty()) {
             warn(obs_module_text("EventEditor.WarnSelectFile"));
             return;
@@ -481,7 +517,11 @@ void EventEditor::pickColor()
 
      evt.type = static_cast<TimelineEventType>(typeCombo->currentData().toInt());
 
-    if (evt.type == TimelineEventType::TriggerTimeline) {
+    if (evt.type == TimelineEventType::DownstreamKeyerScene) {
+        evt.sourceName = dskNameEdit->text().trimmed();
+        evt.filterName = dskSceneEdit->text().trimmed(); // Blank hides overlay
+        evt.data = dskViewEdit->text().trimmed(); // Blank targets main canvas
+    } else if (evt.type == TimelineEventType::TriggerTimeline) {
         evt.data = fileEdit->text();
         evt.sourceName = QFileInfo(fileEdit->text()).fileName();
     } else if (evt.type == TimelineEventType::SceneSwitch) {

@@ -35,6 +35,10 @@ private:
     QLineEdit *fileEdit = nullptr;
     QWidget *transitionWidget = nullptr;
     QComboBox *transitionCombo = nullptr;
+    QWidget *dskWidget = nullptr;
+    QLineEdit *dskNameEdit = nullptr;
+    QLineEdit *dskSceneEdit = nullptr;
+    QLineEdit *dskViewEdit = nullptr;
     QPushButton *colorButton = nullptr;
     QLineEdit *iconPathEdit = nullptr;
      QCheckBox *durationCheck = nullptr;

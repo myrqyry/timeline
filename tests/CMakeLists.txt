@@ -34,6 +34,7 @@ add_executable(run_tests ${TEST_SOURCES})
 
 target_compile_definitions(run_tests PRIVATE
     TIMELINE_EXPECTED_OBS_MAJOR=${TIMELINE_EXPECTED_OBS_MAJOR}
+    OBS_TIMELINE_HAS_WEBSOCKET=1
 )
 
 target_link_libraries(run_tests PRIVATE
