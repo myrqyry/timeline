@@ -16,7 +16,10 @@ enum class TimelineEventType {
     FilterDisable,
     HotkeyTrigger,
     TriggerTimeline,
-    DownstreamKeyerScene // Append only: persisted enum IDs must not shift
+    DownstreamKeyerScene,
+    MediaPause,
+    MediaResume,
+    MediaSeekTo // Append only: persisted enum IDs must not shift
 };
 
 struct TimelineEvent {
@@ -35,3 +38,10 @@ struct TimelineEvent {
     bool hasDuration = false;
     double durationMs = 0.0;
 };
+
+inline bool isMediaAction(TimelineEventType type)
+{
+    return type == TimelineEventType::MediaStart || type == TimelineEventType::MediaStop ||
+           type == TimelineEventType::MediaPause || type == TimelineEventType::MediaResume ||
+           type == TimelineEventType::MediaSeekTo;
+}

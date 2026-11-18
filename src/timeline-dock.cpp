@@ -1,4 +1,5 @@
 #include "timeline-dock.h"
+#include "media-target.h"
 #include <obs-module.h>
 
 #include <QGraphicsLineItem>
@@ -2014,6 +2015,15 @@ void TimelineDock::rebuildEventItems()
 		case TimelineEventType::MediaStop:
 			typeStr = obs_module_text("EventType.MediaStop");
 			break;
+		case TimelineEventType::MediaPause:
+			typeStr = obs_module_text("EventType.MediaPause");
+			break;
+		case TimelineEventType::MediaResume:
+			typeStr = obs_module_text("EventType.MediaResume");
+			break;
+		case TimelineEventType::MediaSeekTo:
+			typeStr = obs_module_text("EventType.MediaSeekTo");
+			break;
 		case TimelineEventType::FilterEnable:
 			typeStr = obs_module_text("EventType.FilterEnable");
 			break;
@@ -2037,6 +2047,11 @@ void TimelineDock::rebuildEventItems()
 		QString targetDisplay = evt.sourceName;
 		if (!evt.filterName.isEmpty()) {
 			targetDisplay += "::" + evt.filterName;
+		}
+		if (evt.type == TimelineEventType::MediaSeekTo) {
+			const auto media = MediaTarget::decode(evt.data.toString());
+			if (media.valid && MediaTarget::isExplicit(evt.data.toString()))
+				targetDisplay += QStringLiteral(" @ %1 s").arg(media.positionMs / 1000.0, 0, 'f', 3);
 		}
 
 		QString tooltip =

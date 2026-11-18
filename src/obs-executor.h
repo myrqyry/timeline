@@ -28,8 +28,7 @@ public slots:
 
 private:
 	void handleSceneSwitch(const TimelineEvent &evt);
-	void handleMediaStart(const TimelineEvent &evt);
-	void handleMediaStop(const TimelineEvent &evt);
+	void handleMediaAction(const TimelineEvent &evt, bool start);
 	void handleSourceVisibility(const TimelineEvent &evt, bool visible);
 	void handleFilterEnable(const TimelineEvent &evt, bool enable);
 	void handleHotkey(const TimelineEvent &evt);

@@ -184,9 +184,9 @@ generated during default construction.
 | `hasDuration` | Whether the scheduler emits an end event |
 | `durationMs` | Duration in milliseconds |
 
-The enum contains ten values, but `MediaSeek` is reserved and not exposed by
-the editor. The editor exposes nine event types (`src/event-types.h:8-19`,
-`src/event-editor.cpp:44-53`).
+The enum contains fourteen values, with IDs preserved and new operations
+appended. Historical `MediaSeek` (ID 3) is reserved; the shared editor
+groups the five current media actions under Media Playback.
 
 ### Event semantics
 
@@ -198,11 +198,24 @@ The executor interprets duration and instant events differently:
 | `SourceHide` | Hide source | Make source visible |
 | `MediaStart` | Restart media | Stop media |
 | `MediaStop` | Stop media | Restart media |
+| `MediaPause` | Pause media | Resume media |
+| `MediaResume` | Resume media | Pause media |
+| `MediaSeekTo` | Seek to absolute media position | No end action |
 | `FilterEnable` | Enable filter | Disable filter |
 | `FilterDisable` | Disable filter | Enable filter |
 | `SceneSwitch` | Switch scene | No end action |
 | `HotkeyTrigger` | Trigger named hotkey | No end action |
 | `TriggerTimeline` | Start nested file | No end action |
+
+New media actions use appended IDs 11–13; historical ID 3
+(`MediaSeek`) remains reserved and does not execute. The common editor
+discovers sources with `OBS_SOURCE_CONTROLLABLE_MEDIA` across the current
+scene and the collection, including groups and nested scenes, deduplicated
+by UUID. Media data is a string `media:v1:<source UUID>:<position ms>`
+to work with existing Timeline and Macro Strip persistence. A blank UUID
+denotes a deliberately name-based legacy target. Malformed explicit
+targets and missing UUIDs do not fall back. Seek requires the versioned
+data and dispatches only at the start; duration is disabled in its editor.
 
 The mapping is implemented in `ObsExecutor::performAction()`
 (`src/obs-executor.cpp:110-162`).

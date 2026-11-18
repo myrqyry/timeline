@@ -288,6 +288,12 @@ inline QByteArray getIconSvg(TimelineEventType type, const QString &color = "whi
 		return wrapIconMoon(MOON_PLAY, color);
 	case TimelineEventType::MediaStop:
 		return wrapIconMoon(MOON_STOP, color);
+	case TimelineEventType::MediaPause:
+		return wrapIconMoon(MOON_PAUSE, color);
+	case TimelineEventType::MediaResume:
+		return wrapIconMoon(MOON_PLAY, color);
+	case TimelineEventType::MediaSeekTo:
+		return wrapIconMoon("<path d=\"M5 12H19M13 6L19 12L13 18M5 6V18\"/>", color);
 	case TimelineEventType::FilterEnable:
 		return wrapIconMoon(MOON_FUNNEL, color);
 	case TimelineEventType::FilterDisable:
@@ -316,6 +322,12 @@ inline QColor getDefaultColor(TimelineEventType type)
 		return QColor("#BD10E0"); // Purple
 	case TimelineEventType::MediaStop:
 		return QColor("#F5A623"); // Orange
+	case TimelineEventType::MediaPause:
+		return QColor("#F5A623");
+	case TimelineEventType::MediaResume:
+		return QColor("#BD10E0");
+	case TimelineEventType::MediaSeekTo:
+		return QColor("#9975E8");
 	case TimelineEventType::FilterEnable:
 		return QColor("#50E3C2"); // Teal
 	case TimelineEventType::FilterDisable:
@@ -344,6 +356,12 @@ inline QString typeDisplayName(TimelineEventType type)
 		return QStringLiteral("Play Media");
 	case TimelineEventType::MediaStop:
 		return QStringLiteral("Stop Media");
+	case TimelineEventType::MediaPause:
+		return QStringLiteral("Pause Media");
+	case TimelineEventType::MediaResume:
+		return QStringLiteral("Resume Media");
+	case TimelineEventType::MediaSeekTo:
+		return QStringLiteral("Seek Media");
 	case TimelineEventType::FilterEnable:
 		return QStringLiteral("Enable Filter");
 	case TimelineEventType::FilterDisable:

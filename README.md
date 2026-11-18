@@ -63,7 +63,14 @@ types are unchanged.
   share their underlying items. Missing targets are skipped, not redirected.
   Existing name-based actions keep their old lookup behavior until explicitly
   retargeted. Older plugin builds do not understand the new exact targets.
-- **Media Playback:** Choose Restart or Stop for a supported media source.
+- **Media Playback:** Restart, Stop, Pause, Resume, or Seek to a playback
+  position in seconds (millisecond precision). Controllable media sources can
+  be selected across scenes, including nested scenes and groups. New targets
+  are source UUIDs, so they survive renames and scene switches; shared media
+  instances are listed once. Timed Pause resumes on expiry; timed Resume
+  pauses on expiry. Seek is instantaneous and clamped to known media duration.
+  Playback behavior depends on the source implementation. Older saved
+  media actions without UUIDs continue to resolve by name.
 - **Filter Visibility:** Choose Enable or Disable for a named source filter.
 - **Hotkey Trigger:** Trigger a registered OBS hotkey, including hotkeys
   registered by third-party plugins such as Move. The hotkey selector supports
@@ -91,7 +98,7 @@ overlapping restorations from rapid consecutive scene switches
 
 The Timeline event editor and Macro Strip share a compact action picker.
 **Source Visibility** has Show/Hide, **Filter Visibility** has Enable/Disable,
-and **Media Playback** has Restart/Stop. The selected operation appears in a
+and **Media Playback** has Restart/Stop/Pause/Resume/Seek to. The selected operation appears in a
 separate **Action** field, rather than creating duplicate event types in the
 category list. "Restart" matches OBS's media-restart operation (not pause/resume).
 
@@ -318,7 +325,7 @@ The current preview has these limitations:
   transitions, filters, or media objects.
 - Windows and macOS CI packages exist for testing, but have not yet passed
   real OBS runtime smoke tests; there is no tagged public release.
-- `MediaSeek` exists in the data model but is not exposed by the editor.
+- Historical `MediaSeek` remains reserved; the new `MediaSeekTo` is a distinct action. Older plugin builds do not understand the new media action IDs or UUID targeting.
 - The plugin does not provide its own authentication or network listener.
 
 For the complete failure-mode, threading, ownership, and deployment reference,

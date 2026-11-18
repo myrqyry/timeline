@@ -2,6 +2,8 @@
 #include "theme-helpers.h"
 #include "plugin-integrations.h"
 #include "scene-item-target.h"
+#include "media-target.h"
+#include <QtMath>
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -30,6 +32,9 @@ static TimelineEventType actionCategory(TimelineEventType type)
     case TimelineEventType::SourceHide:
         return TimelineEventType::SourceShow;
     case TimelineEventType::MediaStop:
+    case TimelineEventType::MediaPause:
+    case TimelineEventType::MediaResume:
+    case TimelineEventType::MediaSeekTo:
         return TimelineEventType::MediaStart;
     case TimelineEventType::FilterDisable:
         return TimelineEventType::FilterEnable;
@@ -148,6 +153,19 @@ void EventEditor::buildUi()
     dskLayout->addRow(obs_module_text("EventEditor.DskView"), dskViewEdit);
     layout->addRow(dskWidget);
     dskWidget->hide();
+
+    mediaSeekWidget = new QWidget(this);
+    auto *mediaSeekLayout = new QHBoxLayout(mediaSeekWidget);
+    mediaSeekLayout->setContentsMargins(0, 0, 0, 0);
+    mediaSeekLayout->addWidget(new QLabel(obs_module_text("EventEditor.MediaSeekPosition"), mediaSeekWidget));
+    mediaSeekSpin = new QDoubleSpinBox(mediaSeekWidget);
+    mediaSeekSpin->setObjectName("mediaSeekPosition");
+    mediaSeekSpin->setRange(0.0, 86400.0);
+    mediaSeekSpin->setDecimals(3);
+    mediaSeekSpin->setSuffix(" sec");
+    mediaSeekLayout->addWidget(mediaSeekSpin);
+    layout->addRow(mediaSeekWidget);
+    mediaSeekWidget->hide();
 
     // Color picker + custom icon
     colorButton = new QPushButton(this);
@@ -271,6 +289,9 @@ void EventEditor::populateActionChoices(TimelineEventType category, TimelineEven
     case TimelineEventType::MediaStart:
         add("EventEditor.ActionRestart", TimelineEventType::MediaStart);
         add("EventEditor.ActionStop", TimelineEventType::MediaStop);
+        add("EventEditor.ActionPause", TimelineEventType::MediaPause);
+        add("EventEditor.ActionResume", TimelineEventType::MediaResume);
+        add("EventEditor.ActionSeek", TimelineEventType::MediaSeekTo);
         break;
     case TimelineEventType::FilterEnable:
         add("EventEditor.ActionEnable", TimelineEventType::FilterEnable);
@@ -378,31 +399,37 @@ void EventEditor::populateTargets(TimelineEventType evtType)
             targetCombo->addItem("(No sources in current scene)");
             targetCombo->setEnabled(false);
         }
-    } else if (evtType == TimelineEventType::MediaStart ||
-               evtType == TimelineEventType::MediaStop) {
+    } else if (isMediaAction(evtType)) {
         targetLabel->setText(obs_module_text("EventEditor.TargetMedia"));
-        obs_source_t *currentScene = obs_frontend_get_current_scene();
-        if (currentScene) {
-            obs_scene_t *scene = obs_scene_from_source(currentScene);
-            if (scene) {
-                obs_scene_enum_items(
-                    scene,
-                    [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-                        QComboBox *combo = static_cast<QComboBox *>(param);
-                        obs_source_t *source = obs_sceneitem_get_source(item);
-                        const char *id = obs_source_get_id(source);
-                        if (id && (strcmp(id, "ffmpeg_source") == 0 || strcmp(id, "vlc_source") == 0)) {
-                            const char *name = obs_source_get_name(source);
-                            combo->addItem(QString::fromUtf8(name));
-                        }
-                        return true;
-                    },
-                    targetCombo);
-            }
-            obs_source_release(currentScene);
+        QSet<QString> seen;
+        auto add = [&](obs_source_t *source, const QString &path) {
+            if (!source || obs_source_removed(source) ||
+                !(obs_source_get_output_flags(source) & OBS_SOURCE_CONTROLLABLE_MEDIA))
+                return;
+            const QString uuid = QString::fromUtf8(obs_source_get_uuid(source));
+            if (uuid.isEmpty() || seen.contains(uuid))
+                return;
+            seen.insert(uuid);
+            targetCombo->addItem(path, QVariantList{QString::fromUtf8(obs_source_get_name(source)), uuid});
+        };
+        auto visit = [&](obs_source_t *root) {
+            SceneItemTarget::visit(obs_scene_from_source(root), QString::fromUtf8(obs_source_get_name(root)),
+                [&](obs_scene_t *, obs_sceneitem_t *item, const QString &, const QString &path) {
+                    add(obs_sceneitem_get_source(item), path);
+                });
+        };
+        if (auto *current = obs_frontend_get_current_scene()) {
+            visit(current);
+            obs_source_release(current);
         }
+        // Also allow cueing media in another scene before switching to it.
+        obs_frontend_source_list scenes = {};
+        obs_frontend_get_scenes(&scenes);
+        for (size_t i = 0; i < scenes.sources.num; ++i)
+            visit(scenes.sources.array[i]);
+        obs_frontend_source_list_free(&scenes);
         if (targetCombo->count() == 0) {
-            targetCombo->addItem("(No media sources in current scene)");
+            targetCombo->addItem(obs_module_text("EventEditor.NoMediaSources"));
             targetCombo->setEnabled(false);
         }
     } else if (evtType == TimelineEventType::FilterEnable ||
@@ -578,6 +605,27 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
         }
         if (index >= 0)
             targetCombo->setCurrentIndex(index);
+    } else if (isMediaAction(evt.type)) {
+        const auto selection = MediaTarget::decode(evt.data.toString());
+        int index = -1;
+        if (selection.valid && !selection.uuid.isEmpty()) {
+            for (int i = 0; i < targetCombo->count(); ++i) {
+                if (targetCombo->itemData(i).toList().value(1).toString() == selection.uuid) {
+                    index = i;
+                    break;
+                }
+            }
+        }
+        if (index < 0 && !evt.sourceName.isEmpty()) {
+            targetCombo->addItem(evt.sourceName + QStringLiteral(" — ") +
+                QString::fromUtf8(obs_module_text("EventEditor.SavedMediaTarget")),
+                QVariantList{evt.sourceName, selection.uuid, evt.data.toString()});
+            index = targetCombo->count() - 1;
+            targetCombo->setEnabled(true);
+        }
+        if (index >= 0)
+            targetCombo->setCurrentIndex(index);
+        mediaSeekSpin->setValue(selection.positionMs / 1000.0);
     } else if (evt.type == TimelineEventType::FilterEnable ||
                evt.type == TimelineEventType::FilterDisable) {
         bool found = false;
@@ -613,6 +661,9 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
      durationCheck->setChecked(evt.hasDuration);
      durationSpin->setValue(evt.durationMs / 1000.0);
      timeSpin->setValue(evt.timeMs / 1000.0);
+     onActionChanged(actionCombo->currentIndex());
+     selectedColor = evt.color;
+     colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
  }
 
 void EventEditor::validateAndAccept()
@@ -639,8 +690,13 @@ void EventEditor::validateAndAccept()
             warn(obs_module_text("EventEditor.WarnSelectTarget"));
             return;
         }
-    } else if (type == TimelineEventType::SceneSwitch || type == TimelineEventType::MediaStart ||
-               type == TimelineEventType::MediaStop) {
+    } else if (isMediaAction(type)) {
+        if (targetCombo->currentData().toList().value(0).toString().isEmpty() ||
+            !MediaTarget::decode(targetCombo->currentData().toList().value(2).toString()).valid) {
+            warn(obs_module_text("EventEditor.WarnSelectTarget"));
+            return;
+        }
+    } else if (type == TimelineEventType::SceneSwitch) {
         if (sourceText.isEmpty() || sourceText.startsWith("(")) {
             warn(obs_module_text("EventEditor.WarnSelectTarget"));
             return;
@@ -683,6 +739,14 @@ void EventEditor::onTypeChanged(int index)
 void EventEditor::onActionChanged(int index)
 {
     Q_UNUSED(index);
+    const bool seek = selectedActionType() == TimelineEventType::MediaSeekTo;
+    mediaSeekWidget->setVisible(seek);
+    durationCheck->setText(obs_module_text(
+        selectedActionType() == TimelineEventType::MediaPause ? "EventEditor.ResumeAfterDuration" :
+        selectedActionType() == TimelineEventType::MediaResume ? "EventEditor.PauseAfterDuration" :
+        "EventEditor.HasDuration"));
+    durationCheck->setEnabled(!seek);
+    durationSpin->setEnabled(!seek && durationCheck->isChecked());
     selectedColor = ThemeIcons::getDefaultColor(selectedActionType());
     colorButton->setStyleSheet(
         QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
@@ -707,6 +771,8 @@ void EventEditor::pickColor()
      if ((evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) &&
          SceneItemTarget::isExplicit(evt.data.toString()))
          evt.data = QVariant();
+     if (isMediaAction(evt.type))
+         evt.data = QVariant();
      evt.type = selectedActionType();
 
     if (evt.type == TimelineEventType::DownstreamKeyerScene) {
@@ -729,6 +795,19 @@ void EventEditor::pickColor()
         const auto target = targetCombo->currentData().toList();
         evt.sourceName = target.value(0).toString();
         evt.data = target.value(1);
+    } else if (isMediaAction(evt.type)) {
+        const auto target = targetCombo->currentData().toList();
+        evt.sourceName = target.value(0).toString();
+        evt.filterName.clear();
+        const auto oldData = target.value(2).toString();
+        if (!MediaTarget::decode(oldData).valid) {
+            evt.data = oldData;
+        } else if (!target.value(1).toString().isEmpty() || evt.type == TimelineEventType::MediaSeekTo) {
+            evt.data = MediaTarget::encode(target.value(1).toString(),
+                evt.type == TimelineEventType::MediaSeekTo ? qRound64(mediaSeekSpin->value() * 1000.0) : 0);
+        } else {
+            evt.data = QVariant();
+        }
     } else if (evt.type == TimelineEventType::FilterEnable ||
                evt.type == TimelineEventType::FilterDisable) {
         QVariantList data = targetCombo->currentData().toList();
@@ -752,6 +831,6 @@ void EventEditor::pickColor()
      evt.customIconPath = iconPathEdit->text();
      evt.showLabel = showLabelCheck->isChecked();
      evt.label = labelEdit->text().trimmed();
-     evt.hasDuration = durationCheck->isChecked();
+     evt.hasDuration = evt.type != TimelineEventType::MediaSeekTo && durationCheck->isChecked();
      evt.durationMs = durationSpin->value() * 1000.0;
  }

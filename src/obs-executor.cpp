@@ -1,6 +1,7 @@
 #include "obs-executor.h"
 #include "headless-timeline.h"
 #include "scene-item-target.h"
+#include "media-target.h"
 #include <obs-module.h>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -133,16 +134,13 @@ void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 		break;
 	}
 	case TimelineEventType::MediaStart:
-	case TimelineEventType::MediaStop: {
-		bool startMedia = evt.type == TimelineEventType::MediaStart;
-		if (evt.hasDuration && !isStartAction)
-			startMedia = !startMedia;
-		if (startMedia)
-			handleMediaStart(evt);
-		else
-			handleMediaStop(evt);
+	case TimelineEventType::MediaStop:
+	case TimelineEventType::MediaPause:
+	case TimelineEventType::MediaResume:
+	case TimelineEventType::MediaSeekTo:
+		if (isStartAction || (evt.hasDuration && evt.type != TimelineEventType::MediaSeekTo))
+			handleMediaAction(evt, isStartAction);
 		break;
-	}
 	case TimelineEventType::FilterEnable:
 	case TimelineEventType::FilterDisable: {
 		bool enable = evt.type == TimelineEventType::FilterEnable;
@@ -253,36 +251,38 @@ void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 	}
 }
 
-void ObsExecutor::handleMediaStart(const TimelineEvent &evt)
+void ObsExecutor::handleMediaAction(const TimelineEvent &evt, bool start)
 {
-	if (evt.sourceName.isEmpty())
+	const auto selection = MediaTarget::decode(evt.data.toString());
+	if (evt.type == TimelineEventType::MediaSeekTo && !MediaTarget::isExplicit(evt.data.toString()))
+		return; // Never interpret absent seek data as zero.
+	auto *source = MediaTarget::resolve(evt.sourceName, selection);
+	if (!source) {
+		blog(LOG_WARNING, "[Timeline] Media target missing or invalid: %s", evt.sourceName.toUtf8().constData());
 		return;
-
-	obs_source_t *source = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
-	if (source) {
-		obs_source_media_restart(source);
-		blog(LOG_INFO, "[Timeline] Media start → '%s'", evt.sourceName.toUtf8().constData());
-		obs_source_release(source);
-	} else {
-		blog(LOG_WARNING, "[Timeline] ┌─ Media source not found");
-		blog(LOG_WARNING, "[Timeline] └─ Name : %s", evt.sourceName.toUtf8().constData());
 	}
-}
-
-void ObsExecutor::handleMediaStop(const TimelineEvent &evt)
-{
-	if (evt.sourceName.isEmpty())
-		return;
-
-	obs_source_t *source = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
-	if (source) {
-		obs_source_media_stop(source);
-		blog(LOG_INFO, "[Timeline] Media stop → '%s'", evt.sourceName.toUtf8().constData());
-		obs_source_release(source);
-	} else {
-		blog(LOG_WARNING, "[Timeline] ┌─ Media source not found");
-		blog(LOG_WARNING, "[Timeline] └─ Name : %s", evt.sourceName.toUtf8().constData());
+	switch (evt.type) {
+	case TimelineEventType::MediaStart:
+	case TimelineEventType::MediaStop:
+		if ((evt.type == TimelineEventType::MediaStart) == start)
+			obs_source_media_restart(source);
+		else
+			obs_source_media_stop(source);
+		break;
+	case TimelineEventType::MediaPause:
+	case TimelineEventType::MediaResume:
+		obs_source_media_play_pause(source, (evt.type == TimelineEventType::MediaPause) == start);
+		break;
+	case TimelineEventType::MediaSeekTo: {
+		const auto duration = obs_source_media_get_duration(source);
+		const auto position = duration > 0 ? qMin<qint64>(selection.positionMs, duration) : selection.positionMs;
+		obs_source_media_set_time(source, position);
+		break;
 	}
+	default:
+		break;
+	}
+	obs_source_release(source);
 }
 
 void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)

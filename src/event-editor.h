@@ -37,6 +37,8 @@ private:
     QComboBox *typeCombo = nullptr;
     QLabel *actionLabel = nullptr;
     QComboBox *actionCombo = nullptr;
+    QWidget *mediaSeekWidget = nullptr;
+    QDoubleSpinBox *mediaSeekSpin = nullptr;
     QLabel *targetLabel = nullptr;
     QComboBox *targetCombo = nullptr;
     QLineEdit *hotkeySearchEdit = nullptr;

@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QScopeGuard>
+#include <QDoubleSpinBox>
 #include <QGraphicsSceneMouseEvent>
 #include <QTest>
 #include <QSignalSpy>
@@ -14,6 +15,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <memory>
+#include <atomic>
 #include "headless-timeline.h"
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -21,6 +23,7 @@
 #include <obs.h>
 #include <util/bmem.h>
 #include "obs-executor.h"
+#include "media-target.h"
 #include "theme-helpers.h"
 #include "timeline-hit-testing.h"
 #include "timeline-event-item.h"
@@ -79,6 +82,11 @@ void setOffscreenPlatform()
 	if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
 		qputenv("QT_QPA_PLATFORM", "offscreen");
 }
+
+struct MediaProbe {
+	std::atomic<enum obs_media_state> state{OBS_MEDIA_STATE_STOPPED};
+	std::atomic<int64_t> position{0};
+};
 
 class TestTimeline : public QObject {
 	Q_OBJECT
@@ -189,6 +197,31 @@ private slots:
 			bfree(data);
 		};
 		obs_register_source(&dummy_source_info);
+
+		// Controllable media fixture: libobs dispatches into real registered callbacks.
+		obs_source_info media = {};
+		media.id = "timeline_media_probe";
+		media.type = OBS_SOURCE_TYPE_INPUT;
+		media.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CONTROLLABLE_MEDIA;
+		media.get_name = [](void *) { return "Timeline media probe"; };
+		media.create = [](obs_data_t *, obs_source_t *) -> void * { return new MediaProbe; };
+		media.destroy = [](void *data) { delete static_cast<MediaProbe *>(data); };
+		media.get_width = [](void *) -> uint32_t { return 64; };
+		media.get_height = [](void *) -> uint32_t { return 64; };
+		media.media_play_pause = [](void *data, bool pause) {
+			static_cast<MediaProbe *>(data)->state = pause ? OBS_MEDIA_STATE_PAUSED : OBS_MEDIA_STATE_PLAYING;
+		};
+		media.media_restart = [](void *data) {
+			auto *probe = static_cast<MediaProbe *>(data);
+			probe->state = OBS_MEDIA_STATE_PLAYING;
+			probe->position = 0;
+		};
+		media.media_stop = [](void *data) { static_cast<MediaProbe *>(data)->state = OBS_MEDIA_STATE_STOPPED; };
+		media.media_get_state = [](void *data) { return static_cast<MediaProbe *>(data)->state.load(); };
+		media.media_get_duration = [](void *) -> int64_t { return 60000; };
+		media.media_get_time = [](void *data) { return static_cast<MediaProbe *>(data)->position.load(); };
+		media.media_set_time = [](void *data, int64_t ms) { static_cast<MediaProbe *>(data)->position = ms; };
+		obs_register_source(&media);
 
 		// Register dummy filter
 		struct obs_source_info dummy_filter_info = {};
@@ -672,7 +705,7 @@ private slots:
 		for (const auto &c : cases) {
 			types->setCurrentIndex(types->findData(static_cast<int>(c.category)));
 			QVERIFY(!action->isHidden());
-			QCOMPARE(action->count(), 2);
+			QCOMPARE(action->count(), c.category == TimelineEventType::MediaStart ? 5 : 2);
 			QCOMPARE(action->currentData().toInt(), static_cast<int>(c.category));
 			QCOMPARE(action->itemData(1).toInt(), static_cast<int>(c.other));
 			TimelineEvent evt;
@@ -864,6 +897,156 @@ private slots:
 		editor.getUpdatedEvent(updated);
 		QCOMPARE(updated.sourceName, saved.sourceName);
 	}
+	void testMediaActionsAgainstControllableSource()
+	{
+		auto releaseSource = [](obs_source_t *source) {
+			if (source) {
+				obs_source_remove(source);
+				obs_source_release(source);
+			}
+		};
+		using SourcePtr = std::unique_ptr<obs_source_t, decltype(releaseSource)>;
+		SourcePtr clip(obs_source_create("timeline_media_probe", "Media example", nullptr, nullptr), releaseSource);
+		SourcePtr other(obs_source_create("timeline_media_probe", "Other media", nullptr, nullptr), releaseSource);
+		QVERIFY(clip && other);
+		QVERIFY(obs_source_get_output_flags(clip.get()) & OBS_SOURCE_CONTROLLABLE_MEDIA);
+		auto releaseScene = [](obs_scene_t *scene) {
+			if (scene) {
+				obs_source_remove(obs_scene_get_source(scene));
+				obs_scene_release(scene);
+			}
+		};
+		std::unique_ptr<obs_scene_t, decltype(releaseScene)> root(obs_scene_create("Media root"), releaseScene);
+		QVERIFY(root);
+		auto *group = obs_scene_add_group(root.get(), "Media group");
+		QVERIFY(group);
+		QVERIFY(obs_scene_add(obs_sceneitem_group_get_scene(group), clip.get()));
+		QVERIFY(obs_scene_add(root.get(), clip.get()));
+		QVERIFY(obs_scene_add(obs_sceneitem_group_get_scene(group), other.get()));
+		obs_frontend_set_current_scene(obs_scene_get_source(root.get()));
+		auto restoreScene = qScopeGuard([this] { obs_frontend_set_current_scene(scene1); });
+		EventEditor editor(0.0);
+		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+		auto *actions = editor.findChild<QComboBox *>("eventActionCombo");
+		auto *targets = editor.findChild<QComboBox *>("hotkeyTargetCombo");
+		QVERIFY(types && actions && targets);
+		types->setCurrentIndex(types->findData(static_cast<int>(TimelineEventType::MediaStart)));
+		QCOMPARE(targets->count(), 2);
+		int clipIndex = -1;
+		bool groupOnlyFound = false;
+		for (int i = 0; i < targets->count(); ++i) {
+			if (targets->itemText(i).contains("Media example"))
+				clipIndex = i;
+			if (targets->itemText(i).contains("Media group / Other media"))
+				groupOnlyFound = true;
+		}
+		QVERIFY(clipIndex >= 0 && groupOnlyFound);
+		targets->setCurrentIndex(clipIndex);
+		TimelineEvent event;
+		editor.getUpdatedEvent(event);
+		QCOMPARE(MediaTarget::decode(event.data.toString()).uuid, QString::fromUtf8(obs_source_get_uuid(clip.get())));
+		obs_source_set_name(clip.get(), "Renamed clip");
+		obs_source_set_name(other.get(), "Media example");
+		ObsExecutor executor;
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PLAYING);
+		QTRY_COMPARE(obs_source_media_get_state(other.get()), OBS_MEDIA_STATE_STOPPED);
+		event.type = TimelineEventType::MediaSeekTo;
+		event.data = MediaTarget::encode(QString::fromUtf8(obs_source_get_uuid(clip.get())), 12345);
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_time(clip.get()), int64_t(12345));
+		event.type = TimelineEventType::MediaPause;
+		event.hasDuration = true;
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PAUSED);
+		QTRY_COMPARE(obs_source_media_get_time(clip.get()), int64_t(12345));
+		executor.executeEventEnd(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PLAYING);
+		event.type = TimelineEventType::MediaResume;
+		executor.executeEventEnd(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PAUSED);
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PLAYING);
+		event.type = TimelineEventType::MediaSeekTo;
+		event.data = MediaTarget::encode(QString::fromUtf8(obs_source_get_uuid(clip.get())), 70000);
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_time(clip.get()), int64_t(60000));
+		event.data = MediaTarget::encode(QString::fromUtf8(obs_source_get_uuid(clip.get())), 1000);
+		executor.executeEventEnd(event);
+		QTRY_COMPARE(obs_source_media_get_time(clip.get()), int64_t(60000));
+		event.type = TimelineEventType::MediaStop;
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_STOPPED);
+		obs_source_remove(clip.get());
+		event.type = TimelineEventType::MediaStart;
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_state(other.get()), OBS_MEDIA_STATE_STOPPED);
+		event.data = QStringLiteral("media:v1:invalid");
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_state(other.get()), OBS_MEDIA_STATE_STOPPED);
+		// Drain at least a few media ticks before checking the absence of a fallback.
+		QTest::qWait(150);
+		QCOMPARE(obs_source_media_get_state(other.get()), OBS_MEDIA_STATE_STOPPED);
+		event.data = QVariant();
+		executor.executeEventStart(event);
+		QTRY_COMPARE(obs_source_media_get_state(other.get()), OBS_MEDIA_STATE_PLAYING);
+		event.type = TimelineEventType::MediaSeek; // historical reserved ID
+		event.data = MediaTarget::encode({}, 7000);
+		executor.executeEventStart(event);
+		QTest::qWait(100);
+		QCOMPARE(obs_source_media_get_time(other.get()), int64_t(0));
+	}
+
+	void testExtendedMediaEditorAndSerialization()
+	{
+		// Append-only IDs: the historical MediaSeek (3) remains reserved.
+		const auto pause = static_cast<TimelineEventType>(11);
+		const auto resume = static_cast<TimelineEventType>(12);
+		const auto seek = static_cast<TimelineEventType>(13);
+		TimelineEvent event;
+		event.type = TimelineEventType::MediaStart;
+		event.sourceName = "Saved clip";
+		EventEditor editor(event);
+		auto *actions = editor.findChild<QComboBox *>("eventActionCombo");
+		QVERIFY(actions);
+		QCOMPARE(actions->count(), 5);
+		QVERIFY(actions->findData(11) >= 0);
+		QVERIFY(actions->findData(12) >= 0);
+		QVERIFY(actions->findData(13) >= 0);
+		actions->setCurrentIndex(actions->findData(13));
+		auto *position = editor.findChild<QDoubleSpinBox *>("mediaSeekPosition");
+		QVERIFY(position && position->isVisibleTo(&editor));
+		position->setValue(12.345);
+		TimelineEvent edited;
+		editor.getUpdatedEvent(edited);
+		QCOMPARE(edited.type, seek);
+		QCOMPARE(edited.sourceName, event.sourceName);
+		QVERIFY(!edited.hasDuration);
+		TimelineModel model;
+		model.addEvent(edited);
+		TimelineModel restored;
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().size(), size_t(1));
+		EventEditor reopened(restored.getEvents().front());
+		auto *reopenedPosition = reopened.findChild<QDoubleSpinBox *>("mediaSeekPosition");
+		QVERIFY(reopenedPosition && reopenedPosition->isVisibleTo(&reopened));
+		QCOMPARE(reopenedPosition->value(), 12.345);
+		MacroButtonModel macros;
+		for (auto type : {pause, resume, seek}) {
+			MacroButton macro;
+			macro.type = type;
+			macro.sourceName = edited.sourceName;
+			macro.data = edited.data.toString();
+			macros.addButton(macro);
+		}
+		MacroButtonModel reloaded;
+		QVERIFY(MacroSerialization::fromJsonDocument(
+			QJsonDocument(MacroSerialization::toJsonObject(macros)), reloaded));
+		QCOMPARE(reloaded.buttons().size(), 3);
+		QCOMPARE(reloaded.buttons().last().type, seek);
+		QCOMPARE(reloaded.buttons().last().data, edited.data.toString());
+	}
+
 	void testMediaStart()
 	{
 		if (!source_item)

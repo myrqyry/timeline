@@ -130,7 +130,7 @@ void TimelineModel::fromJson(const QJsonArray &json)
 		}
 		evt.timeMs = obj["time"].toDouble();
 		int typeInt = obj["type"].toInt(-1);
-		constexpr int maxTypeValue = static_cast<int>(TimelineEventType::DownstreamKeyerScene);
+		constexpr int maxTypeValue = static_cast<int>(TimelineEventType::MediaSeekTo);
 		if (typeInt < 0 || typeInt > maxTypeValue) {
 			blog(LOG_WARNING, "[Timeline] ┌─ Unknown event type skipped");
 			blog(LOG_WARNING, "[Timeline] └─ Type : %d", typeInt);
