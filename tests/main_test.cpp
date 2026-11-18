@@ -1444,6 +1444,24 @@ private slots:
 		auto *undo = dock.findChild<QPushButton *>("timeline-undo-btn");
 		auto *settings = dock.findChild<QPushButton *>("timeline-settings-btn");
 		QVERIFY(model && view && play && undo && settings);
+		auto *redo = dock.findChild<QPushButton *>("timeline-redo-btn");
+		auto *zoomOut = dock.findChild<QPushButton *>("timeline-zoom-out-btn");
+		auto *zoomIn = dock.findChild<QPushButton *>("timeline-zoom-in-btn");
+		QVERIFY(redo && zoomOut && zoomIn);
+		auto verifyJoinedHistory = [&] {
+			QCOMPARE(undo->parentWidget(), redo->parentWidget());
+			QVERIFY(undo->parentWidget() != &dock);
+			QCOMPARE(undo->size(), zoomOut->size());
+			QCOMPARE(redo->size(), zoomIn->size());
+			QCOMPARE(undo->iconSize(), zoomOut->iconSize());
+			QCOMPARE(redo->iconSize(), zoomIn->iconSize());
+			QCOMPARE(undo->styleSheet(), zoomOut->styleSheet());
+			QCOMPARE(redo->styleSheet(), zoomIn->styleSheet());
+			QCOMPARE(undo->geometry().right() + 1, redo->geometry().left());
+			QCOMPARE(undo->y(), redo->y());
+			QVERIFY(undo->isVisible() && redo->isVisible());
+		};
+		verifyJoinedHistory();
 		QTest::mouseClick(settings, Qt::LeftButton);
 		QTRY_VERIFY(QApplication::activePopupWidget());
 		auto *menu = QApplication::activePopupWidget();
@@ -1475,7 +1493,8 @@ private slots:
 		compact->setChecked(true);
 		QCoreApplication::processEvents();
 		QCOMPARE(play->height(), 28);
-		QCOMPARE(undo->height(), 24);
+		QCOMPARE(undo->height(), 20);
+		verifyJoinedHistory();
 		QVERIFY(marker(a.id)->isCompactMode());
 		QCOMPARE(marker(b.id)->getStackOffset(), 0);
 		QCOMPARE(marker(a.id)->getTimeMs(), a.timeMs);
@@ -1490,6 +1509,7 @@ private slots:
 		dock.load();
 		QCoreApplication::processEvents();
 		QCOMPARE(play->height(), 28);
+		verifyJoinedHistory();
 		QVERIFY(marker(a.id)->isCompactMode());
 		QCOMPARE(marker(b.id)->getStackOffset(), 0);
 

@@ -657,19 +657,24 @@ void TimelineDock::setupUi()
 	// Create mode toggle (Time/BPM) buttons
 	setupModeToggle();
 
-	zoomToggleContainer = new QWidget(this);
-	zoomToggleContainer->setObjectName("timeline-zoom-container");
-	QHBoxLayout *zoomLayout = new QHBoxLayout(zoomToggleContainer);
-	zoomLayout->setSpacing(0);
-	zoomLayout->setContentsMargins(0, 0, 0, 0);
-	QString zoomLeftStyle = "QPushButton { border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
-				"border-right: none; padding: 1px; }";
-	QString zoomRightStyle = "QPushButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
-				 "border-left: none; padding: 1px; }";
-	zoomOutButton->setStyleSheet(zoomLeftStyle);
-	zoomInButton->setStyleSheet(zoomRightStyle);
-	zoomLayout->addWidget(zoomOutButton);
-	zoomLayout->addWidget(zoomInButton);
+	// Use the same joined action-button treatment for zoom and history.
+	auto joinedButtons = [this](const char *name, QPushButton *left, QPushButton *right) {
+		auto *container = new QWidget(this);
+		container->setObjectName(name);
+		auto *row = new QHBoxLayout(container);
+		row->setSizeConstraint(QLayout::SetFixedSize);
+		row->setSpacing(0);
+		row->setContentsMargins(0, 0, 0, 0);
+		left->setStyleSheet("QPushButton { border-top-right-radius: 0px; border-bottom-right-radius: 0px; "
+				    "border-right: none; padding: 1px; }");
+		right->setStyleSheet("QPushButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px; "
+				     "border-left: none; padding: 1px; }");
+		row->addWidget(left);
+		row->addWidget(right);
+		return container;
+	};
+	zoomToggleContainer = joinedButtons("timeline-zoom-container", zoomOutButton, zoomInButton);
+	historyContainer = joinedButtons("timeline-history-container", undoButton, redoButton);
 
 	updateToolbarIcons();
 	updateZoomLabel();
@@ -793,8 +798,7 @@ void TimelineDock::updateControlsLayout()
 	controlsLayout->addWidget(show(settingsButton));
 	controlsLayout->addWidget(show(settingsSeparator));
 	controlsLayout->addWidget(show(addEventButton));
-	controlsLayout->addWidget(show(undoButton));
-	controlsLayout->addWidget(show(redoButton));
+	controlsLayout->addWidget(show(historyContainer));
 	controlsLayout->addWidget(show(addSeparator));
 	if (centerControls) {
 		controlsLayout->addStretch();
@@ -2275,8 +2279,8 @@ void TimelineDock::updateToolbarIcons()
 	updateMoonButtonIcon(timeModeBtn, ThemeIcons::MOON_CLOCK, secondarySize, QString(), 8);
 	updateMoonButtonIcon(bpmModeBtn, ThemeIcons::MOON_MUSIC, secondarySize, QString(), 8);
 
-	updateMoonButtonIcon(undoButton, ThemeIcons::MOON_UNDO, secondarySize, QString(), 8);
-	updateMoonButtonIcon(redoButton, ThemeIcons::MOON_REDO, secondarySize, QString(), 8);
+	updateMoonButtonIcon(undoButton, ThemeIcons::MOON_UNDO, zoomSize, QString(), 6);
+	updateMoonButtonIcon(redoButton, ThemeIcons::MOON_REDO, zoomSize, QString(), 6);
 	updateMoonButtonIcon(addEventButton, ThemeIcons::MOON_PLUS, secondarySize,
 			     obs_module_text("TimelineDock.AddEvent"), 6);
 }

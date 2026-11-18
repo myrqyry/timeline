@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Joined undo/redo buttons — 2026-11-18
+- User requests undo/redo matching the existing zoom pair and retaining the existing Moon icon family. Both groups now use one shared joined-button builder with zero spacing, fixed content size and matching edge styles. Undo/redo retains its existing icons, tooltips, shortcuts and enabled-state behavior; each button matches zoom at 24px normally and 20px in compact mode.
+- RED: compact layout test failed against the old separate buttons; initial shared layout still allowed extra space during compact resizing, corrected with a fixed-size layout constraint. GREEN: geometry, style and icon-size equality verified in normal/compact/load paths, existing undo/redo interactions pass. Native OBS32 rebuild and full strict Qt/libobs suite: 84 passed, 0 failed, 0 skipped. Exact clang-format 19.1.1 check passed. Logs /tmp/timeline-history-group-red.log and /tmp/timeline-history-group-full.log.
+- No installation or push; visual acceptance in native OBS remains outstanding.
+
+
 ### CI formatting correction — 2026-11-18
 - Push at `72e6c51` triggered formatting failures in GitHub Actions run 44422058880: full logs identify 17 C++ files and tests/CMakeLists.txt. Landlock messages are runner warnings, not the formatter failure.
 - Reproduced all failures locally with the exact CI versions (clang-format 19.1.1, gersemi 0.21.0) in a temporary uv virtual environment. Applied the repository formatting configuration to the changed C++/CMake files; both repository check scripts now pass with `--fail-error --check`. No intended behavioral changes or CI bypass.

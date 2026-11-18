@@ -148,6 +148,7 @@ private:
 	QPushButton *loadButton = nullptr;
 	QPushButton *settingsButton = nullptr;
 	QWidget *zoomToggleContainer = nullptr;
+	QWidget *historyContainer = nullptr;
 	QFrame *settingsSeparator = nullptr;
 	QFrame *playbackSeparator = nullptr;
 	QFrame *zoomSeparator = nullptr;
