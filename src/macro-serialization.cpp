@@ -15,7 +15,17 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 		QJsonObject obj;
 		obj["id"] = b.id;
 		obj["label"] = b.label;
-		obj["type"] = static_cast<int>(b.type);
+		// An older plugin must skip parameter controls, never execute them
+		// as legacy scene-switch buttons.
+		obj["type"] = b.kind == MacroControlKind::Action ? static_cast<int>(b.type) : -1;
+		if (b.kind != MacroControlKind::Action) {
+			obj["control"] = b.kind == MacroControlKind::Slider ? "slider" :
+				b.kind == MacroControlKind::Knob ? "knob" : "toggle";
+			obj["binding"] = QJsonObject{
+				{"sourceUuid", b.binding.sourceUuid}, {"filterUuid", b.binding.filterUuid},
+				{"key", b.binding.key}, {"type", b.binding.type == MacroParameterType::Integer ?
+					"int" : b.binding.type == MacroParameterType::Float ? "float" : "bool"}};
+		}
 		obj["source"] = b.sourceName;
 		if (!b.filterName.isEmpty())
 			obj["filter"] = b.filterName;
@@ -57,9 +67,28 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 		seen.insert(b.id);
 		b.label = obj["label"].toString();
 		const int typeInt = obj["type"].toInt(-1);
-		if (typeInt < 0 || typeInt > maxTypeValue)
-			continue;
-		b.type = static_cast<TimelineEventType>(typeInt);
+		if (obj.contains("control")) {
+			const QString kind = obj["control"].toString();
+			const auto binding = obj["binding"].toObject();
+			const QString type = binding["type"].toString();
+			if ((kind != "slider" && kind != "knob" && kind != "toggle") ||
+			    (type != "int" && type != "float" && type != "bool") ||
+			    ((kind == "toggle") != (type == "bool")) ||
+			    binding["sourceUuid"].toString().isEmpty() || binding["key"].toString().isEmpty()) {
+				if (errorMessage)
+					*errorMessage = "Invalid or unsupported macro parameter binding";
+				return false;
+			}
+			b.kind = kind == "slider" ? MacroControlKind::Slider :
+				kind == "knob" ? MacroControlKind::Knob : MacroControlKind::Toggle;
+			b.binding = {binding["sourceUuid"].toString(), binding["filterUuid"].toString(),
+				binding["key"].toString(), type == "int" ? MacroParameterType::Integer :
+				type == "float" ? MacroParameterType::Float : MacroParameterType::Boolean};
+		} else {
+			if (typeInt < 0 || typeInt > maxTypeValue)
+				continue;
+			b.type = static_cast<TimelineEventType>(typeInt);
+		}
 		b.sourceName = obj["source"].toString();
 		b.filterName = obj["filter"].toString();
 		b.data = obj["data"].toString();

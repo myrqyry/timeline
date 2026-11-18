@@ -139,6 +139,31 @@ a macro creates a temporary event and sends it through the same `ObsExecutor` as
 the timeline, so the two docks share action behavior
 (`src/plugin-main.cpp:61-68`, `src/macro-strip-dock.cpp:112-125`).
 
+Macro Strip also supports live parameter controls alongside action buttons.
+Click **+ → Parameter control**, choose a source or a filter (including
+nested scene/group sources), and select an exposed property. Choose a
+**Slider** or **Knob** for integer/float properties, or a **Toggle** for
+boolean properties. The control uses the property's declared range and step
+and displays its current value. Right-click to edit, move or remove a control.
+
+Bindings store the source UUID, optional filter UUID, property key and
+property type. Renames do not redirect them. Missing targets or properties
+disable the control rather than rebinding by name. Controls read existing
+settings on creation and refresh while visible; they do not reset values
+when a macro file is loaded. Changing a control writes only its bound
+property through `obs_source_update`. The source/filter remains responsible
+for applying the setting. For example, HyperShaderFX exposes effect opacity,
+speed and shader-specific scalar uniforms through this mechanism.
+
+Only visible, enabled integer, float and boolean settings are supported in
+this pass; sliders use the OBS property range (up to one million increments).
+List/color/text/button properties, scene-item transforms, custom ranges,
+and direct mixer-volume controls are not included. These are live Macro
+Strip controls, not timeline keyframes. Older plugin builds skip the new
+control records; do not edit/save a mixed macro file with an older build
+because it may discard the new records.
+
+
 ### Optional WebSocket vendor
 
 When the OBS WebSocket vendor header is available at build time, the plugin can

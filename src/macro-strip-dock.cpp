@@ -1,6 +1,7 @@
 #include "macro-strip-dock.h"
 
 #include "macro-button-widget.h"
+#include "macro-parameter-widget.h"
 #include "macro-serialization.h"
 #include "obs-executor.h"
 #include "event-editor.h"
@@ -92,17 +93,25 @@ void MacroStripDock::rebuildFromModel()
 {
 	QLayoutItem *child;
 	while ((child = m_buttonLayout->takeAt(0)) != nullptr) {
-		if (child->widget())
+		if (child->widget()) {
+			child->widget()->hide();
 			child->widget()->deleteLater();
+		}
 		delete child;
 	}
 
 	const auto buttons = m_model.buttons();
 	for (const auto &b : buttons) {
-		auto *w = new MacroButtonWidget(b, m_buttonContainer);
-		connect(w, &MacroButtonWidget::fireRequested, this, &MacroStripDock::onButtonFired);
+		QWidget *w;
+		if (b.kind == MacroControlKind::Action) {
+			auto *action = new MacroButtonWidget(b, m_buttonContainer);
+			connect(action, &MacroButtonWidget::fireRequested, this, &MacroStripDock::onButtonFired);
+			w = action;
+		} else {
+			w = createMacroParameterWidget(b, m_buttonContainer);
+		}
 		w->setContextMenuPolicy(Qt::CustomContextMenu);
-		connect(w, &QWidget::customContextMenuRequested, this, [this, id = b.id](const QPoint &pos) {
+		connect(w, &QWidget::customContextMenuRequested, this, [this, w, id = b.id](const QPoint &pos) {
 			QPointer<MacroStripDock> safeThis(this);
 			QMenu menu;
 			QAction *edit = menu.addAction(QObject::tr("Edit"));
@@ -110,7 +119,7 @@ void MacroStripDock::rebuildFromModel()
 			QAction *right = menu.addAction(QObject::tr("Move Right"));
 			menu.addSeparator();
 			QAction *del = menu.addAction(QObject::tr("Delete"));
-			QAction *picked = menu.exec(static_cast<QWidget *>(QObject::sender())->mapToGlobal(pos));
+			QAction *picked = menu.exec(w->mapToGlobal(pos));
 			if (!safeThis || !picked)
 				return;
 			if (picked == edit)
@@ -130,7 +139,7 @@ void MacroStripDock::rebuildFromModel()
 
 void MacroStripDock::onButtonFired(const MacroButton &button)
 {
-	if (!m_executor)
+	if (!m_executor || button.kind != MacroControlKind::Action)
 		return;
 	TimelineEvent evt;
 	evt.id = button.id;
@@ -145,7 +154,18 @@ void MacroStripDock::onButtonFired(const MacroButton &button)
 
 void MacroStripDock::addButtonAtEnd()
 {
-	showAddEditor();
+	QMenu menu(this);
+	auto *action = menu.addAction(tr("Action button"));
+	auto *parameter = menu.addAction(tr("Parameter control…"));
+	auto *chosen = menu.exec(m_addButton->mapToGlobal(QPoint(0, m_addButton->height())));
+	if (chosen == action)
+		showAddEditor();
+	else if (chosen == parameter) {
+		MacroButton initial;
+		initial.kind = MacroControlKind::Slider;
+		if (auto edited = editMacroParameter(this, initial))
+			m_model.addButton(*edited);
+	}
 }
 
 void MacroStripDock::showAddEditor()
@@ -181,6 +201,11 @@ void MacroStripDock::showEditEditor(const QString &id)
 	auto existing = m_model.findById(id);
 	if (!existing)
 		return;
+	if (existing->kind != MacroControlKind::Action) {
+		if (auto edited = editMacroParameter(this, *existing))
+			m_model.replaceButtonById(id, *edited);
+		return;
+	}
 
 	TimelineEvent evt;
 	evt.id = existing->id;

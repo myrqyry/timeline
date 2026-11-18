@@ -19,6 +19,8 @@ set(TEST_SOURCES
     ../src/timeline-event-item.cpp
     ../src/timeline-serialization.cpp
     ../src/macro-button-model.cpp
+    ../src/macro-parameter.cpp
+    ../src/macro-parameter-widget.cpp
     ../src/macro-button-widget.cpp
     ../src/macro-serialization.cpp
     ../src/macro-strip-dock.cpp

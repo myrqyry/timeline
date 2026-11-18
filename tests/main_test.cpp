@@ -33,6 +33,13 @@
 #include "timeline-scheduler.h"
 #include "timeline-serialization.h"
 #include "macro-button.h"
+#include "macro-parameter.h"
+#include "macro-parameter-widget.h"
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QDial>
+#include <QSlider>
+#include <QCheckBox>
 #include "macro-button-model.h"
 #include "macro-button-widget.h"
 #include "macro-serialization.h"
@@ -84,6 +91,12 @@ void setOffscreenPlatform()
 	if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
 		qputenv("QT_QPA_PLATFORM", "offscreen");
 }
+
+struct ParameterProbe {
+	std::atomic<double> gain{0.25};
+	std::atomic<int> count{4};
+	std::atomic<bool> enabled{true};
+};
 
 struct MediaProbe {
 	std::atomic<enum obs_media_state> state{OBS_MEDIA_STATE_STOPPED};
@@ -224,6 +237,45 @@ private slots:
 		media.media_get_time = [](void *data) { return static_cast<MediaProbe *>(data)->position.load(); };
 		media.media_set_time = [](void *data, int64_t ms) { static_cast<MediaProbe *>(data)->position = ms; };
 		obs_register_source(&media);
+
+		// Real registered source/filter with grouped, typed properties and defaults.
+		obs_source_info parameter = {};
+		parameter.id = "timeline_parameter_probe";
+		parameter.type = OBS_SOURCE_TYPE_INPUT;
+		parameter.output_flags = OBS_SOURCE_VIDEO;
+		parameter.get_name = [](void *) { return "Parameter probe"; };
+		parameter.create = [](obs_data_t *, obs_source_t *) -> void * { return new ParameterProbe; };
+		parameter.destroy = [](void *data) { delete static_cast<ParameterProbe *>(data); };
+		parameter.update = [](void *data, obs_data_t *settings) {
+			auto *probe = static_cast<ParameterProbe *>(data);
+			probe->gain = obs_data_get_double(settings, "gain");
+			probe->count = static_cast<int>(obs_data_get_int(settings, "count"));
+			probe->enabled = obs_data_get_bool(settings, "enabled");
+		};
+		parameter.get_width = [](void *) -> uint32_t { return 64; };
+		parameter.get_height = [](void *) -> uint32_t { return 64; };
+		parameter.get_defaults = [](obs_data_t *settings) {
+			obs_data_set_default_double(settings, "gain", 0.25);
+			obs_data_set_default_int(settings, "count", 4);
+			obs_data_set_default_bool(settings, "enabled", true);
+			obs_data_set_default_string(settings, "untouched", "keep");
+		};
+		parameter.get_properties = [](void *) {
+			auto *props = obs_properties_create();
+			obs_properties_add_bool(props, "enabled", "Enabled");
+			auto *group = obs_properties_create();
+			obs_properties_add_float_slider(group, "gain", "Gain", -1, 1, 0.05);
+			obs_properties_add_int_slider(group, "count", "Count", 2, 10, 2);
+			obs_properties_add_group(props, "controls", "Controls", OBS_GROUP_NORMAL, group);
+			obs_properties_add_text(props, "untouched", "Text", OBS_TEXT_DEFAULT);
+			auto *hidden = obs_properties_add_float(props, "hidden", "Hidden", 0, 1, 0.1);
+			obs_property_set_visible(hidden, false);
+			return props;
+		};
+		obs_register_source(&parameter);
+		parameter.id = "timeline_parameter_filter";
+		parameter.type = OBS_SOURCE_TYPE_FILTER;
+		obs_register_source(&parameter);
 
 		// Register dummy filter
 		struct obs_source_info dummy_filter_info = {};
@@ -2007,6 +2059,183 @@ private slots:
 		QCOMPARE(item.getTimeMs(), 2500.0);
 		item.setCompactMode(false);
 		QCOMPARE(item.getTimeMs(), 2500.0);
+	}
+
+	void testMacroParameterBindingsAndDock()
+	{
+		auto release = [](obs_source_t *s) {
+			if (s) {
+				obs_source_remove(s);
+				obs_source_release(s);
+			}
+		};
+		using Source = std::unique_ptr<obs_source_t, decltype(release)>;
+		Source source(obs_source_create("timeline_parameter_probe", "Parameter source", nullptr, nullptr), release);
+		Source filter(obs_source_create_private("timeline_parameter_filter", "Parameter filter", nullptr), release);
+		QVERIFY(source && filter);
+		auto *settingsPatch = obs_data_create();
+		obs_data_set_string(settingsPatch, "untouched", "custom text");
+		obs_source_update(filter.get(), settingsPatch);
+		obs_data_release(settingsPatch);
+		obs_source_filter_add(source.get(), filter.get());
+		const auto cleanup = qScopeGuard([&] { if (obs_filter_get_parent(filter.get())) obs_source_filter_remove(source.get(), filter.get()); });
+		const QString sourceId = QString::fromUtf8(obs_source_get_uuid(source.get()));
+		const QString filterId = QString::fromUtf8(obs_source_get_uuid(filter.get()));
+		const auto targets = MacroParameter::targets();
+		QVERIFY(std::any_of(targets.cbegin(), targets.cend(), [&](const auto &t) {
+			return t.sourceUuid == sourceId && t.filterUuid == filterId;
+		}));
+		MacroButton slider;
+		slider.kind = MacroControlKind::Slider;
+		slider.label = "Gain";
+		slider.binding = {sourceId, filterId, "gain", MacroParameterType::Float};
+		const auto properties = MacroParameter::properties(slider.binding);
+		QCOMPARE(properties.size(), 3);
+		const auto spec = MacroParameter::describe(slider.binding);
+		QVERIFY(spec);
+		QCOMPARE(spec->min, -1.0);
+		QCOMPARE(spec->step, 0.05);
+		QCOMPARE(MacroParameter::read(slider.binding).value(), 0.25);
+		QVERIFY(MacroParameter::write(slider.binding, 0.78));
+		QVERIFY(qAbs(MacroParameter::read(slider.binding).value() - 0.8) < 0.0001);
+		MacroButton knob;
+		knob.kind = MacroControlKind::Knob;
+		knob.label = "Count";
+		knob.binding = {sourceId, {}, "count", MacroParameterType::Integer};
+		MacroButton toggle;
+		toggle.kind = MacroControlKind::Toggle;
+		toggle.label = "Enabled";
+		toggle.binding = {sourceId, {}, "enabled", MacroParameterType::Boolean};
+		MacroButton ordinary;
+		ordinary.label = "Normal action";
+
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		for (const auto &b : {ordinary, slider, knob, toggle})
+			dock.buttonModel()->addButton(b);
+		dock.resize(700, dock.minimumHeight());
+		dock.show();
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QCoreApplication::processEvents();
+		auto *s = dock.findChild<QSlider *>("macro-parameter-slider");
+		auto *k = dock.findChild<QDial *>("macro-parameter-knob");
+		auto *t = dock.findChild<QCheckBox *>("macro-parameter-toggle");
+		QVERIFY(s && k && t);
+		QVERIFY(s->isVisible() && k->isVisible() && t->isVisible());
+		QVERIFY(s->isEnabled() && k->isEnabled() && t->isEnabled());
+		QCOMPARE(s->value(), 36);
+		s->setValue(10);
+		k->setValue(4);
+		t->setChecked(false);
+		QTRY_VERIFY_WITH_TIMEOUT(qAbs(MacroParameter::read(slider.binding).value() + 0.5) < 0.0001, 2000);
+		QTRY_COMPARE(MacroParameter::read(knob.binding).value(), 10.0);
+		QTRY_COMPARE(MacroParameter::read(toggle.binding).value(), 0.0);
+		auto *sourceProbe = static_cast<ParameterProbe *>(obs_obj_get_data(source.get()));
+		auto *filterProbe = static_cast<ParameterProbe *>(obs_obj_get_data(filter.get()));
+		QVERIFY(sourceProbe && filterProbe);
+		QTRY_VERIFY(qAbs(filterProbe->gain.load() + 0.5) < 0.0001);
+		QTRY_COMPARE(sourceProbe->count.load(), 10);
+		QTRY_COMPARE(sourceProbe->enabled.load(), false);
+		MacroParameterBinding invalid = slider.binding;
+		invalid.key = "hidden";
+		QVERIFY(!MacroParameter::write(invalid, 0.3));
+		invalid = slider.binding;
+		invalid.type = MacroParameterType::Integer;
+		QVERIFY(!MacroParameter::write(invalid, 1));
+
+		// External OBS changes update the visible control, without writing back.
+		obs_data_t *patch = obs_data_create();
+		obs_data_set_double(patch, "gain", 0.4);
+		obs_source_update(filter.get(), patch);
+		obs_data_release(patch);
+		QTRY_COMPARE(s->value(), 28);
+		auto *settings = obs_source_get_settings(filter.get());
+		QCOMPARE(QString::fromUtf8(obs_data_get_string(settings, "untouched")), QString("custom text"));
+		obs_data_release(settings);
+
+		obs_source_set_name(source.get(), "Renamed source");
+		obs_source_set_name(filter.get(), "Renamed filter");
+		QVERIFY(MacroParameter::write(slider.binding, 0.15));
+		QTRY_COMPARE(s->value(), 23);
+		QVERIFY(dock.saveNow());
+		MacroStripDock restored(nullptr, dir.filePath("macro.json"));
+		QVERIFY(restored.loadNow());
+		QCOMPARE(restored.buttonModel()->count(), 4);
+		QCOMPARE(restored.buttonModel()->buttons()[0].kind, MacroControlKind::Action);
+		const auto saved = restored.buttonModel()->buttons()[1];
+		QCOMPARE(saved.kind, MacroControlKind::Slider);
+		QCOMPARE(saved.binding.filterUuid, filterId);
+		QCOMPARE(saved.binding.key, QString("gain"));
+		obs_source_filter_remove(source.get(), filter.get());
+		QTRY_VERIFY(!s->isEnabled());
+		QVERIFY(!MacroParameter::write(slider.binding, 1.0));
+		QVERIFY(!MacroParameter::read(slider.binding));
+	}
+
+	void testMacroParameterEditorSelectsAndPreservesBinding()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Editor parameter target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		MacroStripDock dock;
+		MacroButton initial;
+		initial.kind = MacroControlKind::Knob;
+		bool configured = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *kind = dialog->findChild<QComboBox *>("macro-parameter-kind");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			if (!target || !property || !kind || !buttons) {
+				dialog->reject();
+				return;
+			}
+			target->setCurrentIndex(target->findText("Editor parameter target"));
+			property->setCurrentIndex(property->findText("Controls / Gain"));
+			kind->setCurrentIndex(kind->findData(static_cast<int>(MacroControlKind::Knob)));
+			configured = buttons->button(QDialogButtonBox::Ok)->isEnabled();
+			if (configured)
+				buttons->button(QDialogButtonBox::Ok)->click();
+			else
+				dialog->reject();
+		});
+		const auto edited = editMacroParameter(&dock, initial);
+		QVERIFY(configured && edited);
+		QCOMPARE(edited->kind, MacroControlKind::Knob);
+		QCOMPARE(edited->binding.key, QString("gain"));
+		QCOMPARE(edited->binding.sourceUuid, QString::fromUtf8(obs_source_get_uuid(source)));
+		QCOMPARE(edited->label, QString("Gain"));
+
+		MacroButton missing = *edited;
+		missing.binding.key = "removed-property";
+		bool refusedDefault = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			refusedDefault = property && buttons && property->currentIndex() == -1 &&
+				!buttons->button(QDialogButtonBox::Ok)->isEnabled();
+			dialog->reject();
+		});
+		QVERIFY(!editMacroParameter(&dock, missing));
+		QVERIFY(refusedDefault);
+
+		MacroButtonModel model;
+		model.addButton(*edited);
+		QJsonObject root = MacroSerialization::toJsonObject(model);
+		auto array = root["buttons"].toArray();
+		auto item = array[0].toObject();
+		QCOMPARE(item["type"].toInt(), -1); // old binaries cannot execute it as an action
+		item["control"] = "future-control";
+		array[0] = item;
+		root["buttons"] = array;
+		QVERIFY(!MacroSerialization::fromJsonDocument(QJsonDocument(root), model));
+		QCOMPARE(model.buttons().first().binding.key, QString("gain"));
 	}
 
 	void testMacroButtonHasDefaults()

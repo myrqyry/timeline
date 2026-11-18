@@ -116,7 +116,9 @@ lifetime, and callback teardown must remain easy to trace.
 | `timeline-serialization.cpp/.h` | Timeline JSON document format and atomic file I/O | `QJsonDocument`, `QSaveFile` (writes), `QFile` (reads) |
 | `timeline-event-item.cpp/.h` | Render and drag one event bubble | `QGraphicsEllipseItem` |
 | `event-editor.cpp/.h` | Modal event creation/editing and OBS target discovery | Qt dialog and OBS enumeration |
-| `macro-strip-dock.cpp/.h` | Macro button UI and separate persistence | `MacroButtonModel` and shared executor |
+| `macro-strip-dock.cpp/.h` | Macro action and parameter-control UI, separate persistence | `MacroButtonModel`, shared executor, parameter bindings |
+| `macro-parameter.cpp/.h` | Source/filter identity, live property discovery, typed read/write | libobs source/property/settings API |
+| `macro-parameter-widget.cpp/.h` | Parameter editor and live slider/knob/toggle | Qt Widgets, MacroParameter |
 | `macro-serialization.cpp/.h` | Macro button JSON format and atomic file I/O | `QJsonDocument`, `QSaveFile` (writes), `QFile` (reads) |
 | `theme-helpers.h` | Theme-aware SVG paths and default colors | Qt palette and OBS theme widgets |
 | `timecode-display.cpp/.h` | Theme-aware playback clock | Qt custom widget |
@@ -253,11 +255,31 @@ remain outside event history. History is not serialized.
 
 ### MacroButton
 
-`MacroButton` is a compact action record with an ID, label, event type, target,
-optional filter, serialized string data, and color (`src/macro-button.h:8-16`).
-Macro buttons are not scheduled. Clicking one creates a temporary
-`TimelineEvent` and calls the shared executor immediately
-(`src/macro-strip-dock.cpp:112-125`).
+`MacroButton` is a strip record with stable ID, label and a control kind.
+Legacy action records retain event type, target, optional filter, serialized
+string data and color. Clicking an action creates a temporary
+`TimelineEvent` and calls the shared executor immediately. Parameter records
+instead bind an OBS source UUID, optional attached filter UUID, property key
+and scalar type. They never dispatch a timeline action.
+
+The target catalog traverses scene/group sources and enumerates standalone
+sources and their filters. Bindings resolve by UUID only; private filters are
+resolved through their owner. Property discovery walks visible, enabled
+numeric/boolean properties recursively, honoring checkable groups.
+The parameter editor reads the current property description, range, step and
+suffix; missing saved keys require explicit reassignment.
+
+Native Qt slider/dial/check box controls read current OBS settings without
+writing at startup. Visible widgets poll values every 250 ms, refresh the
+property schema approximately every two seconds, and block UI signals during
+readback. Continuous writes are coalesced at 80 ms intervals, with an immediate
+final write on slider release; boolean toggles write immediately. Each write
+checks the current property schema, quantizes to its current step and sends
+a typed one-key settings patch via `obs_source_update`. The live source owns
+the value. Parameter adjustments do not modify macro configuration/history.
+Unavailable targets disable interaction. Schema refresh and update callbacks
+run on the dock thread; performance depends on the target plugin's property
+and update implementation.
 
 ## Scheduler architecture
 
@@ -534,7 +556,11 @@ and type-specific data (`src/timeline-model.cpp:75-174`).
 
 Macro data uses an object with `buttons` and `version`. Each button stores its
 ID, label, type, source, optional filter, optional data, and color
-(`src/macro-serialization.cpp:9-29`). Invalid event types are skipped, duplicate
+Parameter records also store `control` and `binding` (sourceUuid, filterUuid,
+key, type), and use the reserved invalid numeric event type -1 so old builds
+cannot execute them as actions. Invalid/unknown parameter records reject the
+document without replacing the current model. Legacy invalid event types
+are skipped, duplicate
 or missing IDs are regenerated. Macro Strip loading attempts to rename files
 that cannot be opened or parsed with a `.broken-<timestamp>` suffix; valid JSON
 with an invalid document shape is rejected without that rename. Macro Strip stores the

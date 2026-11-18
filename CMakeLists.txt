@@ -58,6 +58,8 @@ set(
   src/timeline-serialization.cpp
   src/timecode-display.cpp
   src/macro-button-model.cpp
+  src/macro-parameter.cpp
+  src/macro-parameter-widget.cpp
   src/macro-button-widget.cpp
   src/macro-serialization.cpp
   src/macro-strip-dock.cpp

@@ -4,6 +4,7 @@
 #include <QColor>
 #include <QUuid>
 #include "event-types.h"
+#include "macro-parameter.h"
 
 struct MacroButton {
 	QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -13,4 +14,6 @@ struct MacroButton {
 	QString filterName;
 	QString data; // Serialized string; ObsExecutor reads via QVariant conversion when present
 	QColor color = QColor(0, 200, 255);
+	MacroControlKind kind = MacroControlKind::Action;
+	MacroParameterBinding binding;
 };
