@@ -260,10 +260,9 @@ fine BPM subdivisions (`src/timeline-scheduler.cpp:4-9`,
 ### Clock model
 
 `currentOffsetMs` stores the paused or stopped playhead position. `startTime`
-stores the `std::chrono::high_resolution_clock` reference captured when playback
-resumes. This clock is not guaranteed to be monotonic on every platform. While playing,
-`getCurrentTime()` returns `currentOffsetMs` plus elapsed high-resolution clock
-time (`src/timeline-scheduler.cpp:118-126`).
+stores the `std::chrono::steady_clock` reference captured when playback
+resumes. While playing, `getCurrentTime()` returns `currentOffsetMs` plus
+elapsed monotonic time, independently of wall-clock adjustments.
 
 This design means pause and resume preserve the playhead without accumulating
 timer drift. `stop()` preserves the current position; `restart()` stops the
@@ -273,9 +272,11 @@ timer and seeks to zero (`src/timeline-scheduler.cpp:54-78`).
 
 The model is sorted by start time, so the scheduler maintains
 `nextStartIndex`. Each tick advances that cursor only through events whose
-start time has arrived (`src/timeline-scheduler.cpp:178-186`). Duration end
-times are not sorted by start time, so the scheduler retains a separate scan for
-end events (`src/timeline-scheduler.cpp:188-197`).
+start time has arrived. Duration end times are not sorted by start time, so
+the scheduler retains a separate scan for end events. Due start and end cues
+are copied into a small batch, ordered by cue timestamp, and dispatched in
+that order. At equal timestamps, duration ends precede new starts. A delayed
+tick can recover cue ordering, but cannot recreate time that has already elapsed.
 
 `eventStartFired` and `eventEndFired` prevent repeated signals across timer
 ticks. Seeking clears both sets and marks events strictly before the new
@@ -287,9 +288,13 @@ ahead of the playhead to fire again naturally
 ### End time and looping
 
 When `endTimeMs` is positive and the current time reaches it, the scheduler
-either resets to zero and emits `looped()` or pauses and emits `finished()`
-(`src/timeline-scheduler.cpp:153-183`). The loop path emits a tick at zero before
-the `looped()` signal so the dock can update its visual state in order.
+first drains all outstanding cues through the end marker, inclusive. It never
+dispatches cues beyond that marker. Non-loop playback stops exactly at the
+marker and emits its final tick before `finished()`. Loop playback completes
+the outgoing cycle before a tick at zero, `looped()`, and the next cycle’s
+zero-time cues. As before, a loop restarts at zero rather than recovering
+multiple missed cycles. Durations extending beyond an explicit end marker
+are not implicitly shortened or cleaned up.
 
 ### Scheduler signals
 
@@ -611,8 +616,8 @@ must define validation, authorization, and disclosure rules before implementatio
 
 The scheduler uses an 8 ms timer and a monotonic start cursor. Start detection
 advances through each event once per forward pass; duration end detection remains
-O(n) per tick because end times are not ordered by start time
-(`src/timeline-scheduler.cpp:175-197`). This is appropriate for the expected
+O(n) per tick because end times are not ordered by start time. Only due cues
+are copied and sorted. This is appropriate for the expected
 small-to-medium timeline sizes, but duration-heavy timelines remain the first
 candidate for profiling.
 

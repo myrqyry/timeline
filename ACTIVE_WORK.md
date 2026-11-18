@@ -1,5 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+### Chronological playback and end-marker accuracy — 2026-11-18
+- Direction: keep the timeline and precise cue sequencing central; prioritize practical editing/playback improvements over a generic event-driven automation engine. Earlier state-trigger suggestions are not the current direction.
+- Reproduced three scheduler faults: a late tick crossing the end marker skipped final starts/ends; overdue starts fired before earlier duration ends; loops reset before draining the outgoing cycle.
+- Fixed chronological due-cue dispatch, duration ends before new starts at equal timestamps, inclusive final-cue processing, exact stopped playhead, and outgoing-loop completion before new zero-time cues. Uses steady_clock to avoid wall-clock discontinuities while retaining the existing start cursor and duration-end scan.
+- RED: all three new scheduler regressions failed on prior code. GREEN: native OBS32 module build and strict Xvfb Qt/libobs suite 68 passed, 0 failed, 0 skipped. Tests exercise real scheduler signals and a simulated blocked event loop, not live OBS rendering or hardware timing. Logs /tmp/timeline-boundary-red.log and /tmp/timeline-boundary-full.log.
+- Existing seek semantics, loop restart at zero, explicit end-marker truncation of longer durations, and persistence format retained. Late cues cannot recreate elapsed presentation time. No install, push, or profile change; real GUI and other platform/version checks remain open.
+
 ### Exact-time editing and drag preview — 2026-11-18
 - Corrected a Timeline editing defect: grid snapping previously applied inside ItemPositionChange during zoom, compact-mode changes, stacking and exact-time model updates. A 2345 ms marker displayed at 2500 ms under a 500 ms grid. Snap now applies only to an active user drag, not layout updates.
 - Drag guide now reports the post-clamp position, so it agrees with the visible marker and committed time at the timeline boundary.

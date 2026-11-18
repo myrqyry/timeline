@@ -1392,6 +1392,97 @@ private slots:
 		QCOMPARE(startedSpy.count(), 2);
 	}
 
+	void testSchedulerDrainsFinalCuesBeforeFinish()
+	{
+		TimelineModel model;
+		TimelineEvent span;
+		span.timeMs = 0.0;
+		span.hasDuration = true;
+		span.durationMs = 25.0;
+		model.addEvent(span);
+		TimelineEvent last;
+		last.timeMs = 25.0;
+		model.addEvent(last);
+		TimelineEvent outside;
+		outside.timeMs = 26.0;
+		model.addEvent(outside);
+
+		TimelineScheduler scheduler(&model);
+		scheduler.setEndTime(25.0);
+		QStringList trace;
+		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler, [&](const TimelineEvent &evt) {
+			trace << (evt.id == span.id ? "span:start" : evt.id == last.id ? "last:start" : "outside:start");
+		});
+		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler, [&](const TimelineEvent &) {
+			trace << "span:end";
+		});
+		connect(&scheduler, &TimelineScheduler::finished, &scheduler, [&] { trace << "finished"; });
+		QSignalSpy ticks(&scheduler, &TimelineScheduler::tick);
+		scheduler.start();
+		// Simulate a busy OBS UI thread: no timer callback before the end marker.
+		QTest::qSleep(40);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(trace, (QStringList{"span:start", "span:end", "last:start", "finished"}));
+		QVERIFY(!scheduler.isPlaying());
+		QCOMPARE(scheduler.getCurrentTime(), 25.0);
+		QVERIFY(!ticks.isEmpty());
+		QCOMPARE(ticks.last().at(0).toDouble(), 25.0);
+	}
+
+	void testSchedulerLateTickOrdersCueEdgesByTime()
+	{
+		TimelineModel model;
+		TimelineEvent span;
+		span.timeMs = 0;
+		span.hasDuration = true;
+		span.durationMs = 10;
+		model.addEvent(span);
+		TimelineEvent next;
+		next.timeMs = 20;
+		model.addEvent(next);
+		TimelineScheduler scheduler(&model);
+		QStringList trace;
+		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler, [&](const TimelineEvent &evt) {
+			trace << (evt.id == span.id ? "span:start" : "next:start");
+		});
+		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler, [&](const TimelineEvent &) {
+			trace << "span:end";
+		});
+		scheduler.start();
+		QTest::qSleep(35);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(trace, (QStringList{"span:start", "span:end", "next:start"}));
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(trace.size(), 3);
+		scheduler.stop();
+	}
+
+	void testSchedulerLoopFinishesOldCycleBeforeStartingNext()
+	{
+		TimelineModel model;
+		TimelineEvent span;
+		span.timeMs = 0;
+		span.hasDuration = true;
+		span.durationMs = 25;
+		model.addEvent(span);
+		TimelineScheduler scheduler(&model);
+		scheduler.setEndTime(25);
+		scheduler.setLooping(true);
+		QStringList trace;
+		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler, [&](const TimelineEvent &) {
+			trace << "start";
+		});
+		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler, [&](const TimelineEvent &) {
+			trace << "end";
+		});
+		connect(&scheduler, &TimelineScheduler::looped, &scheduler, [&] { trace << "loop"; });
+		scheduler.start();
+		QTest::qSleep(40);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(trace, (QStringList{"start", "end", "loop", "start"}));
+		scheduler.stop();
+	}
+
 	void testSchedulerLoopResetsState()
 	{
 		TimelineModel model;

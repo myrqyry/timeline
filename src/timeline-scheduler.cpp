@@ -1,5 +1,7 @@
 #include "timeline-scheduler.h"
 #include <obs-module.h>
+#include <algorithm>
+#include <vector>
 
 TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QObject(parent), model(model)
 {
@@ -46,7 +48,7 @@ void TimelineScheduler::start()
 
 	playing = true;
 	// Reset start time to now, preserving currentOffsetMs
-	startTime = std::chrono::high_resolution_clock::now();
+	startTime = std::chrono::steady_clock::now();
 	timer->start();
 	blog(LOG_INFO, "[Timeline] Playback started");
 }
@@ -86,7 +88,7 @@ void TimelineScheduler::seek(double timeMs)
 {
 	currentOffsetMs = timeMs;
 	if (playing) {
-		startTime = std::chrono::high_resolution_clock::now();
+		startTime = std::chrono::steady_clock::now();
 	}
 
 	// Reset fired status for events
@@ -120,7 +122,7 @@ double TimelineScheduler::getCurrentTime() const
 	if (!playing)
 		return currentOffsetMs;
 
-	auto now = std::chrono::high_resolution_clock::now();
+	auto now = std::chrono::steady_clock::now();
 	auto elapsed = std::chrono::duration<double, std::milli>(now - startTime).count();
 	return currentOffsetMs + elapsed;
 }
@@ -139,60 +141,82 @@ void TimelineScheduler::setLooping(bool loop)
 
 void TimelineScheduler::onTimerTick()
 {
-	double currentTime = getCurrentTime();
-	bool justLooped = false;
-
-	// Check if we've reached the end time
+	const double currentTime = getCurrentTime();
 	if (endTimeMs > 0 && currentTime >= endTimeMs) {
-		if (looping) {
-			// Reset state directly — avoid seek(0) which emits tick() re-entrantly
-			currentOffsetMs = 0.0;
-			startTime = std::chrono::high_resolution_clock::now();
-			eventStartFired.clear();
-			eventEndFired.clear();
-			nextStartIndex = 0;
-			currentTime = 0.0;
-			justLooped = true;
-			blog(LOG_DEBUG, "[Timeline] Looped back to start");
-		} else {
-			// Stop at end
-			pause();
+		const double boundary = endTimeMs;
+		// Drain the outgoing cycle, including cues exactly on the end marker.
+		// A late Qt timer tick must not drop these or run cues past the marker.
+		dispatchDueCues(boundary);
+		if (!looping) {
+			playing = false;
+			timer->stop();
+			currentOffsetMs = boundary;
+			emit tick(boundary);
 			emit finished();
 			blog(LOG_INFO, "[Timeline] End time reached - playback finished");
 			return;
 		}
+
+		currentOffsetMs = 0.0;
+		startTime = std::chrono::steady_clock::now();
+		eventStartFired.clear();
+		eventEndFired.clear();
+		nextStartIndex = 0;
+		emit tick(0.0);
+		emit looped();
+		dispatchDueCues(0.0);
+		blog(LOG_DEBUG, "[Timeline] Looped back to start");
+		return;
 	}
 
 	emit tick(currentTime);
+	dispatchDueCues(currentTime);
+}
 
-	// Emit looped after tick so UI sees t=0 before the loop signal
-	if (justLooped)
-		emit looped();
-
+void TimelineScheduler::dispatchDueCues(double timeMs)
+{
 	if (!model)
 		return;
 
-	// Reference to avoid an O(n) copy at the 125 Hz timer frequency.
+	struct Cue {
+		double time;
+		bool isEnd;
+		TimelineEvent event;
+	};
+	std::vector<Cue> due;
 	const auto &events = model->getEvents();
 
-	// Fire starts through the sorted cursor so future events are not inspected
-	// on every timer tick.
-	while (nextStartIndex < events.size() && events[nextStartIndex].timeMs <= currentTime) {
-		const TimelineEvent &evt = events[nextStartIndex++];
-		if (!eventStartFired.contains(evt.id)) {
-			emit eventStarted(evt);
-			eventStartFired.insert(evt.id);
-		}
+	// Retain the sorted start cursor. Only snapshot cues actually due, so
+	// signal handlers never hold references into the mutable model vector.
+	while (nextStartIndex < events.size() && events[nextStartIndex].timeMs <= timeMs) {
+		const auto &evt = events[nextStartIndex++];
+		if (!eventStartFired.contains(evt.id))
+			due.push_back({evt.timeMs, false, evt});
 	}
-
-	// End times are not sorted by start time, so retain a separate scan.
-	for (const TimelineEvent &evt : events) {
+	for (const auto &evt : events) {
 		if (!evt.hasDuration || evt.durationMs <= 0.0)
 			continue;
-		const double endMs = evt.timeMs + evt.durationMs;
-		if (!eventEndFired.contains(evt.id) && endMs <= currentTime) {
-			emit eventEnded(evt);
-			eventEndFired.insert(evt.id);
-		}
+		const double end = evt.timeMs + evt.durationMs;
+		if (end <= timeMs && !eventEndFired.contains(evt.id))
+			due.push_back({end, true, evt});
+	}
+
+	// A late tick can cover several distinct cue times. Execute them in
+	// chronological order; at a shared boundary, expire old spans before
+	// starting new cues so the new action wins.
+	std::stable_sort(due.begin(), due.end(), [](const Cue &a, const Cue &b) {
+		if (a.time != b.time)
+			return a.time < b.time;
+		return a.isEnd && !b.isEnd;
+	});
+	for (const auto &cue : due) {
+		auto &fired = cue.isEnd ? eventEndFired : eventStartFired;
+		if (fired.contains(cue.event.id))
+			continue;
+		fired.insert(cue.event.id);
+		if (cue.isEnd)
+			emit eventEnded(cue.event);
+		else
+			emit eventStarted(cue.event);
 	}
 }

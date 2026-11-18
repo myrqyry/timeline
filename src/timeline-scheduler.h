@@ -40,11 +40,12 @@ private slots:
 	void onTimerTick();
 
 private:
+	void dispatchDueCues(double timeMs);
 	TimelineModel *model = nullptr;
 	QTimer *timer = nullptr;
 
 	// Time tracking
-	std::chrono::high_resolution_clock::time_point startTime;
+	std::chrono::steady_clock::time_point startTime;
 	double currentOffsetMs = 0.0; // Where we are in the timeline relative to 0
 	double endTimeMs = 0.0;       // 0 = no end time (infinite)
 
