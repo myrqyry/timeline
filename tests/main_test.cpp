@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QScopeGuard>
 #include <QGraphicsSceneMouseEvent>
 #include <QTest>
 #include <QSignalSpy>
@@ -876,6 +877,95 @@ private slots:
 
 		// Just verify it doesn't crash
 		executor.executeEventStart(evt);
+	}
+
+	void testNestedVisibilityEditorTargetsExactSceneItem()
+	{
+		auto releaseScene = [](obs_scene_t *scene) {
+			if (scene) {
+				obs_source_remove(obs_scene_get_source(scene));
+				obs_scene_release(scene);
+			}
+		};
+		using ScenePtr = std::unique_ptr<obs_scene_t, decltype(releaseScene)>;
+		ScenePtr root(obs_scene_create("Visibility root"), releaseScene);
+		ScenePtr nested(obs_scene_create("Visibility nested"), releaseScene);
+		QVERIFY(root && nested && source_item);
+		auto *direct = obs_scene_add(root.get(), source_item);
+		auto *child = obs_scene_add(nested.get(), source_item);
+		QVERIFY(direct && child && obs_scene_add(root.get(), obs_scene_get_source(nested.get())));
+		auto *group = obs_scene_add_group(root.get(), "Visibility group");
+		QVERIFY(group);
+		auto *groupChild = obs_scene_add(obs_sceneitem_group_get_scene(group), source_item);
+		QVERIFY(groupChild);
+		obs_frontend_set_current_scene(obs_scene_get_source(root.get()));
+		auto restoreScene = qScopeGuard([this] { obs_frontend_set_current_scene(scene1); });
+		TimelineEvent saved;
+		saved.type = TimelineEventType::SourceHide;
+		EventEditor editor(saved);
+		auto *targets = editor.findChild<QComboBox *>("hotkeyTargetCombo");
+		QVERIFY(targets);
+		int selected = -1;
+		int groupSelected = -1;
+		for (int i = 0; i < targets->count(); ++i) {
+			if (targets->itemText(i).contains("Visibility nested") && targets->itemText(i).contains("MySource"))
+				selected = i;
+			if (targets->itemText(i).contains("Visibility group") && targets->itemText(i).contains("MySource"))
+				groupSelected = i;
+		}
+		QVERIFY2(selected >= 0, "Nested scene item must be selectable");
+		QVERIFY2(groupSelected >= 0, "Group child must be selectable");
+		targets->setCurrentIndex(selected);
+		TimelineEvent evt;
+		editor.getUpdatedEvent(evt);
+		QCOMPARE(evt.sourceName, QString("MySource"));
+		QVERIFY(!evt.data.toString().isEmpty());
+		TimelineModel model;
+		model.addEvent(evt);
+		TimelineModel restored;
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().front().data.toString(), evt.data.toString());
+		EventEditor reopened(restored.getEvents().front());
+		TimelineEvent edited;
+		reopened.getUpdatedEvent(edited);
+		QCOMPARE(edited.data.toString(), evt.data.toString());
+		MacroButtonModel macros;
+		MacroButton macro;
+		macro.type = edited.type;
+		macro.sourceName = edited.sourceName;
+		macro.data = edited.data.toString();
+		macros.addButton(macro);
+		MacroButtonModel reloaded;
+		QVERIFY(MacroSerialization::fromJsonDocument(
+			QJsonDocument(MacroSerialization::toJsonObject(macros)), reloaded));
+		QCOMPARE(reloaded.buttons().front().data, edited.data.toString());
+
+		obs_source_set_name(obs_scene_get_source(nested.get()), "Renamed nested");
+		obs_source_set_name(source_item, "Renamed source");
+		ObsExecutor executor;
+		executor.executeEventStart(edited);
+		QVERIFY(obs_sceneitem_visible(direct));
+		QVERIFY(!obs_sceneitem_visible(child));
+		QVERIFY(obs_sceneitem_visible(groupChild));
+		targets->setCurrentIndex(groupSelected);
+		TimelineEvent groupEvent;
+		editor.getUpdatedEvent(groupEvent);
+		executor.executeEventStart(groupEvent);
+		QVERIFY(!obs_sceneitem_visible(groupChild));
+		QVERIFY(obs_sceneitem_visible(direct));
+		edited.type = TimelineEventType::SourceShow;
+		executor.executeEventStart(edited);
+		QVERIFY(obs_sceneitem_visible(child));
+		obs_sceneitem_remove(child);
+		edited.type = TimelineEventType::SourceHide;
+		obs_frontend_set_current_scene(obs_scene_get_source(root.get()));
+		EventEditor missing(edited);
+		TimelineEvent missingEdited;
+		missing.getUpdatedEvent(missingEdited);
+		QCOMPARE(missingEdited.data.toString(), edited.data.toString());
+		executor.executeEventStart(missingEdited);
+		QVERIFY(obs_sceneitem_visible(direct));
+		obs_frontend_set_current_scene(scene1);
 	}
 
 	void testSourceVisibility()

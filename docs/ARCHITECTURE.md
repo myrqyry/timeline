@@ -207,6 +207,16 @@ The executor interprets duration and instant events differently:
 The mapping is implemented in `ObsExecutor::performAction()`
 (`src/obs-executor.cpp:110-162`).
 
+For new SourceShow/SourceHide actions, the shared EventEditor stores a
+`scene-item:v1:<owner UUID>:<item ID>:<source UUID>` string in the existing
+`data` field (including Macro Strip JSON). The owner may be a scene or group.
+The picker traverses nested scenes and groups once per underlying container.
+The executor resolves the owner UUID and item ID and verifies the referenced
+source UUID before changing the item's own visibility. It does not change
+parent visibility or fall back to a different item for invalid explicit keys.
+Legacy name-based actions retain their original lookup semantics. Do not run
+new exact-target actions in older plugin builds that ignore this data.
+
 ### TimelineModel
 
 `TimelineModel` owns a `std::vector<TimelineEvent>`. Every add, remove, time

@@ -1,5 +1,6 @@
 #include "obs-executor.h"
 #include "headless-timeline.h"
+#include "scene-item-target.h"
 #include <obs-module.h>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -286,6 +287,12 @@ void ObsExecutor::handleMediaStop(const TimelineEvent &evt)
 
 void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 {
+	const auto target = evt.data.toString();
+	if (SceneItemTarget::isExplicit(target)) {
+		if (!SceneItemTarget::setVisible(target, visible))
+			blog(LOG_WARNING, "[Timeline] Explicit scene item is missing or invalid; no fallback performed");
+		return;
+	}
 	if (evt.sourceName.isEmpty())
 		return;
 

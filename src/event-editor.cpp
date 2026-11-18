@@ -1,6 +1,7 @@
 #include "event-editor.h"
 #include "theme-helpers.h"
 #include "plugin-integrations.h"
+#include "scene-item-target.h"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -364,16 +365,12 @@ void EventEditor::populateTargets(TimelineEventType evtType)
         if (currentScene) {
             obs_scene_t *scene = obs_scene_from_source(currentScene);
             if (scene) {
-                obs_scene_enum_items(
-                    scene,
-                    [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-                        QComboBox *combo = static_cast<QComboBox *>(param);
-                        obs_source_t *source = obs_sceneitem_get_source(item);
-                        const char *name = obs_source_get_name(source);
-                        combo->addItem(QString::fromUtf8(name));
-                        return true;
-                    },
-                    targetCombo);
+                SceneItemTarget::visit(scene, QString::fromUtf8(obs_source_get_name(currentScene)),
+                    [this](obs_scene_t *owner, obs_sceneitem_t *item, const QString &name, const QString &path) {
+                        const auto key = SceneItemTarget::key(owner, item);
+                        targetCombo->addItem(path + QStringLiteral(" [%1]").arg(obs_sceneitem_get_id(item)),
+                                             QVariantList{name, key});
+                    });
             }
             obs_source_release(currentScene);
         }
@@ -558,6 +555,29 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
                                    QString::fromUtf8(obs_module_text("EventEditor.MissingHotkeys"))});
         }
         populateHotkeyPicker();
+    } else if (evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) {
+        const auto key = evt.data.toString();
+        const bool explicitTarget = SceneItemTarget::isExplicit(key);
+        int index = -1;
+        if (explicitTarget) {
+            for (int i = 0; i < targetCombo->count(); ++i) {
+                if (targetCombo->itemData(i).toList().value(1).toString() == key) {
+                    index = i;
+                    break;
+                }
+            }
+        }
+        if (index < 0 && !evt.sourceName.isEmpty()) {
+            // Preserve historical name-based targets and explicit targets outside this scene.
+            const auto suffix = QString::fromUtf8(obs_module_text(explicitTarget
+                ? "EventEditor.SavedSceneItem" : "EventEditor.LegacySourceTarget"));
+            targetCombo->addItem(evt.sourceName + QStringLiteral(" — ") + suffix,
+                                 QVariantList{evt.sourceName, explicitTarget ? key : QString()});
+            index = targetCombo->count() - 1;
+            targetCombo->setEnabled(true);
+        }
+        if (index >= 0)
+            targetCombo->setCurrentIndex(index);
     } else if (evt.type == TimelineEventType::FilterEnable ||
                evt.type == TimelineEventType::FilterDisable) {
         bool found = false;
@@ -614,8 +634,12 @@ void EventEditor::validateAndAccept()
             warn(obs_module_text("EventEditor.WarnSelectFile"));
             return;
         }
-    } else if (type == TimelineEventType::SceneSwitch || type == TimelineEventType::SourceShow ||
-               type == TimelineEventType::SourceHide || type == TimelineEventType::MediaStart ||
+    } else if (type == TimelineEventType::SourceShow || type == TimelineEventType::SourceHide) {
+        if (targetCombo->currentData().toList().value(0).toString().isEmpty()) {
+            warn(obs_module_text("EventEditor.WarnSelectTarget"));
+            return;
+        }
+    } else if (type == TimelineEventType::SceneSwitch || type == TimelineEventType::MediaStart ||
                type == TimelineEventType::MediaStop) {
         if (sourceText.isEmpty() || sourceText.startsWith("(")) {
             warn(obs_module_text("EventEditor.WarnSelectTarget"));
@@ -680,6 +704,9 @@ void EventEditor::pickColor()
          evt.timeMs = timeSpin->value() * 1000.0;
      }
 
+     if ((evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) &&
+         SceneItemTarget::isExplicit(evt.data.toString()))
+         evt.data = QVariant();
      evt.type = selectedActionType();
 
     if (evt.type == TimelineEventType::DownstreamKeyerScene) {
@@ -698,6 +725,10 @@ void EventEditor::pickColor()
         }
     } else if (evt.type == TimelineEventType::HotkeyTrigger) {
         evt.sourceName = targetCombo->currentData().toString();
+    } else if (evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) {
+        const auto target = targetCombo->currentData().toList();
+        evt.sourceName = target.value(0).toString();
+        evt.data = target.value(1);
     } else if (evt.type == TimelineEventType::FilterEnable ||
                evt.type == TimelineEventType::FilterDisable) {
         QVariantList data = targetCombo->currentData().toList();

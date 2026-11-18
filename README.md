@@ -56,8 +56,13 @@ types are unchanged.
 ### Scheduled actions
 
 - **Scene switch:** Switch to an OBS scene, optionally using a named transition.
-- **Source Visibility:** Choose Show or Hide for a source in the current scene
-  or scene collection.
+- **Source Visibility:** Choose Show or Hide for a specific scene item in the
+  current scene, including items inside groups and nested scenes. The picker
+  shows its path and item ID; saved targets continue to identify the same item
+  after scene/source renames or program scene changes. Shared nested scenes
+  share their underlying items. Missing targets are skipped, not redirected.
+  Existing name-based actions keep their old lookup behavior until explicitly
+  retargeted. Older plugin builds do not understand the new exact targets.
 - **Media Playback:** Choose Restart or Stop for a supported media source.
 - **Filter Visibility:** Choose Enable or Disable for a named source filter.
 - **Hotkey Trigger:** Trigger a registered OBS hotkey, including hotkeys

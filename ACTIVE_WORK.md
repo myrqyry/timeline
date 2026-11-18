@@ -1,5 +1,11 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+### Nested scene item targeting — 2026-11-18
+- Independently implemented the useful scene-traversal mechanism found in bitwraith21/obs-controls-toolkit (no upstream license identified; no source copied). Shared Timeline/Macro Strip Source Visibility picker now lists exact items in current scene, nested scenes and groups with path and ID; shared containers visited once.
+- Existing name-based actions retain their behavior; new actions encode owner UUID, scene item ID and source UUID in the existing string data field. Missing/invalid explicit targets fail closed instead of redirecting. Scene/source renames and program changes do not retarget. Older plugin binaries do not understand exact targeting and should not execute these new actions. Parent visibility is unchanged.
+- RED: real libobs nested scene item absent from editor. GREEN: module built against OBS32, strict Xvfb Qt/libobs suite 61 passed, 0 failed, 0 skipped; regression covers nested scenes, groups, duplicate references to a source, renames, Timeline/Macro JSON, missing target editor preservation and no fallback on deletion.
+- Native OBS GUI interaction and OBS31/33/cross-platform builds not yet verified for this slice; no install, push, or ordinary OBS profile changes. Further candidate harvesting: extended media controls/state-driven triggers, not yet implemented.
+
 ### OBS33 CI runner mismatch — 2026-11-12
 - GitHub Actions run 43324596988, job 131553756673, advertised \`(obs33, ubuntu-26.04)\` but booted Ubuntu 24.04.5 because \`.github/workflows/linux-build.yml\` pinned \`runs-on: ubuntu-24.04\` and ignored the matrix OS. OBS33 configure failed requiring FFmpeg >=8; Ubuntu24.04 supplies 6.1.
 - Changed only Linux CI job's runner selector to the existing matrix OS, preserving 24.04 for OBS31/32 and activating 26.04 for OBS33. Strengthened \`tests/test_obs33_readiness.py\` to reject a hard-coded runner. RED assertion failed before fix, GREEN after; strict local OBS32 suite 60 passed, 0 failed, 0 skipped.
