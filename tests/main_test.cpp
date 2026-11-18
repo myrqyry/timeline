@@ -219,24 +219,45 @@ private slots:
 		media.id = "timeline_media_probe";
 		media.type = OBS_SOURCE_TYPE_INPUT;
 		media.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CONTROLLABLE_MEDIA;
-		media.get_name = [](void *) { return "Timeline media probe"; };
-		media.create = [](obs_data_t *, obs_source_t *) -> void * { return new MediaProbe; };
-		media.destroy = [](void *data) { delete static_cast<MediaProbe *>(data); };
-		media.get_width = [](void *) -> uint32_t { return 64; };
-		media.get_height = [](void *) -> uint32_t { return 64; };
+		media.get_name = [](void *) {
+			return "Timeline media probe";
+		};
+		media.create = [](obs_data_t *, obs_source_t *) -> void * {
+			return new MediaProbe;
+		};
+		media.destroy = [](void *data) {
+			delete static_cast<MediaProbe *>(data);
+		};
+		media.get_width = [](void *) -> uint32_t {
+			return 64;
+		};
+		media.get_height = [](void *) -> uint32_t {
+			return 64;
+		};
 		media.media_play_pause = [](void *data, bool pause) {
-			static_cast<MediaProbe *>(data)->state = pause ? OBS_MEDIA_STATE_PAUSED : OBS_MEDIA_STATE_PLAYING;
+			static_cast<MediaProbe *>(data)->state = pause ? OBS_MEDIA_STATE_PAUSED
+								       : OBS_MEDIA_STATE_PLAYING;
 		};
 		media.media_restart = [](void *data) {
 			auto *probe = static_cast<MediaProbe *>(data);
 			probe->state = OBS_MEDIA_STATE_PLAYING;
 			probe->position = 0;
 		};
-		media.media_stop = [](void *data) { static_cast<MediaProbe *>(data)->state = OBS_MEDIA_STATE_STOPPED; };
-		media.media_get_state = [](void *data) { return static_cast<MediaProbe *>(data)->state.load(); };
-		media.media_get_duration = [](void *) -> int64_t { return 60000; };
-		media.media_get_time = [](void *data) { return static_cast<MediaProbe *>(data)->position.load(); };
-		media.media_set_time = [](void *data, int64_t ms) { static_cast<MediaProbe *>(data)->position = ms; };
+		media.media_stop = [](void *data) {
+			static_cast<MediaProbe *>(data)->state = OBS_MEDIA_STATE_STOPPED;
+		};
+		media.media_get_state = [](void *data) {
+			return static_cast<MediaProbe *>(data)->state.load();
+		};
+		media.media_get_duration = [](void *) -> int64_t {
+			return 60000;
+		};
+		media.media_get_time = [](void *data) {
+			return static_cast<MediaProbe *>(data)->position.load();
+		};
+		media.media_set_time = [](void *data, int64_t ms) {
+			static_cast<MediaProbe *>(data)->position = ms;
+		};
 		obs_register_source(&media);
 
 		// Real registered source/filter with grouped, typed properties and defaults.
@@ -244,17 +265,27 @@ private slots:
 		parameter.id = "timeline_parameter_probe";
 		parameter.type = OBS_SOURCE_TYPE_INPUT;
 		parameter.output_flags = OBS_SOURCE_VIDEO;
-		parameter.get_name = [](void *) { return "Parameter probe"; };
-		parameter.create = [](obs_data_t *, obs_source_t *) -> void * { return new ParameterProbe; };
-		parameter.destroy = [](void *data) { delete static_cast<ParameterProbe *>(data); };
+		parameter.get_name = [](void *) {
+			return "Parameter probe";
+		};
+		parameter.create = [](obs_data_t *, obs_source_t *) -> void * {
+			return new ParameterProbe;
+		};
+		parameter.destroy = [](void *data) {
+			delete static_cast<ParameterProbe *>(data);
+		};
 		parameter.update = [](void *data, obs_data_t *settings) {
 			auto *probe = static_cast<ParameterProbe *>(data);
 			probe->gain = obs_data_get_double(settings, "gain");
 			probe->count = static_cast<int>(obs_data_get_int(settings, "count"));
 			probe->enabled = obs_data_get_bool(settings, "enabled");
 		};
-		parameter.get_width = [](void *) -> uint32_t { return 64; };
-		parameter.get_height = [](void *) -> uint32_t { return 64; };
+		parameter.get_width = [](void *) -> uint32_t {
+			return 64;
+		};
+		parameter.get_height = [](void *) -> uint32_t {
+			return 64;
+		};
 		parameter.get_defaults = [](obs_data_t *settings) {
 			obs_data_set_default_double(settings, "gain", 0.25);
 			obs_data_set_default_int(settings, "count", 4);
@@ -457,7 +488,8 @@ private slots:
 	{
 		auto &integrations = PluginIntegrations::instance();
 		integrations.setStoragePath(QString());
-		integrations.setDetectedModules({{"obs-browser", "OBS Browser"}, {"downstream-keyer", "Downstream Keyer"}});
+		integrations.setDetectedModules(
+			{{"obs-browser", "OBS Browser"}, {"downstream-keyer", "Downstream Keyer"}});
 		QVERIFY(integrations.actionAvailable(TimelineEventType::DownstreamKeyerScene));
 		QMenu menu;
 		integrations.populateMenu(menu);
@@ -526,7 +558,9 @@ private slots:
 		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
 		QVERIFY(types);
 		QCOMPARE(types->currentData().toInt(), static_cast<int>(saved.type));
-		QVERIFY(!types->model()->flags(types->model()->index(types->currentIndex(), 0)).testFlag(Qt::ItemIsEnabled));
+		QVERIFY(!types->model()
+				 ->flags(types->model()->index(types->currentIndex(), 0))
+				 .testFlag(Qt::ItemIsEnabled));
 		TimelineEvent unchanged;
 		editor.getUpdatedEvent(unchanged);
 		QCOMPARE(unchanged.type, saved.type);
@@ -749,8 +783,10 @@ private slots:
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::SourceHide)), -1);
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::MediaStop)), -1);
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::FilterDisable)), -1);
-		QCOMPARE(types->count(), 7 + (PluginIntegrations::instance().actionAvailable(
-			TimelineEventType::DownstreamKeyerScene) ? 1 : 0));
+		QCOMPARE(types->count(),
+			 7 + (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene)
+				      ? 1
+				      : 0));
 		struct Case {
 			TimelineEventType category;
 			TimelineEventType other;
@@ -818,8 +854,8 @@ private slots:
 	void testUnifiedActionsPreserveSerializedTypes()
 	{
 		const TimelineEventType types[] = {
-			TimelineEventType::SourceShow, TimelineEventType::SourceHide,
-			TimelineEventType::MediaStart, TimelineEventType::MediaStop,
+			TimelineEventType::SourceShow,   TimelineEventType::SourceHide,
+			TimelineEventType::MediaStart,   TimelineEventType::MediaStop,
 			TimelineEventType::FilterEnable, TimelineEventType::FilterDisable,
 		};
 		TimelineModel model;
@@ -848,8 +884,8 @@ private slots:
 			macros.addButton(b);
 		}
 		MacroButtonModel reloaded;
-		QVERIFY(MacroSerialization::fromJsonDocument(
-			QJsonDocument(MacroSerialization::toJsonObject(macros)), reloaded));
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(macros)),
+							     reloaded));
 		QCOMPARE(reloaded.buttons().size(), 6);
 		for (int i = 0; i < 6; ++i) {
 			QCOMPARE(reloaded.buttons().at(i).type, types[i]);
@@ -864,16 +900,14 @@ private slots:
 			{QStringLiteral("test_filter"), QStringLiteral("Unrelated")},
 			{QStringLiteral("move_source_filter"), QStringLiteral("Animate Intro")},
 		};
-		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Animate Intro", filters),
-			 QString("Move · Facecam"));
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Animate Intro", filters), QString("Move · Facecam"));
 		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Animate Intro Hold", filters),
 			 QString("Move · Facecam"));
-		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Unrelated", filters),
-			 QString("Source · Facecam"));
-		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Another Action", filters),
-			 QString("Source · Facecam"));
-		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Animate Intro",
-						 {{QStringLiteral("unrelated_move"), QStringLiteral("Animate Intro")}}),
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Unrelated", filters), QString("Source · Facecam"));
+		QCOMPARE(HotkeyCatalog::sourceGroup("Facecam", "Another Action", filters), QString("Source · Facecam"));
+		QCOMPARE(HotkeyCatalog::sourceGroup(
+				 "Facecam", "Animate Intro",
+				 {{QStringLiteral("unrelated_move"), QStringLiteral("Animate Intro")}}),
 			 QString("Source · Facecam"));
 
 		QVERIFY(source_item);
@@ -881,9 +915,11 @@ private slots:
 		filter_item = obs_source_create("test_filter", "Unrelated", nullptr, nullptr);
 		QVERIFY(filter_item);
 		obs_source_filter_add(source_item, filter_item);
-		const auto frontend = obs_hotkey_register_frontend("timeline.tests.frontend", "Frontend marker",
+		const auto frontend = obs_hotkey_register_frontend(
+			"timeline.tests.frontend", "Frontend marker",
 			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
-		const auto source = obs_hotkey_register_source(source_item, "timeline.tests.source", "Source marker",
+		const auto source = obs_hotkey_register_source(
+			source_item, "timeline.tests.source", "Source marker",
 			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
 		auto catalog = HotkeyCatalog::collect();
 		auto find = [&catalog](const QString &id) {
@@ -901,10 +937,12 @@ private slots:
 	void testHotkeyPickerSearchGroupingAndStableId()
 	{
 		QVERIFY(source_item);
-		const auto sourceId = obs_hotkey_register_source(source_item, "timeline.tests.move", "Move intro",
+		const auto sourceId = obs_hotkey_register_source(
+			source_item, "timeline.tests.move", "Move intro",
 			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
-		const auto frontendId = obs_hotkey_register_frontend("timeline.tests.search", "Search marker",
-			[](void *, obs_hotkey_id, obs_hotkey_t *, bool) {}, nullptr);
+		const auto frontendId = obs_hotkey_register_frontend(
+			"timeline.tests.search", "Search marker", [](void *, obs_hotkey_id, obs_hotkey_t *, bool) {},
+			nullptr);
 		{
 			EventEditor editor(0.0);
 			auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
@@ -916,7 +954,9 @@ private slots:
 			QVERIFY(target->findData(QStringLiteral("timeline.tests.move")) >= 0);
 			int sourceIdx = target->findData(QStringLiteral("timeline.tests.move"));
 			QVERIFY(sourceIdx > 0);
-			QVERIFY(!target->model()->flags(target->model()->index(sourceIdx - 1, 0)).testFlag(Qt::ItemIsEnabled));
+			QVERIFY(!target->model()
+					 ->flags(target->model()->index(sourceIdx - 1, 0))
+					 .testFlag(Qt::ItemIsEnabled));
 
 			search->setText("move intro");
 			QCOMPARE(target->findData(QStringLiteral("timeline.tests.move")) >= 0, true);
@@ -964,8 +1004,10 @@ private slots:
 			}
 		};
 		using SourcePtr = std::unique_ptr<obs_source_t, decltype(releaseSource)>;
-		SourcePtr clip(obs_source_create("timeline_media_probe", "Media example", nullptr, nullptr), releaseSource);
-		SourcePtr other(obs_source_create("timeline_media_probe", "Other media", nullptr, nullptr), releaseSource);
+		SourcePtr clip(obs_source_create("timeline_media_probe", "Media example", nullptr, nullptr),
+			       releaseSource);
+		SourcePtr other(obs_source_create("timeline_media_probe", "Other media", nullptr, nullptr),
+				releaseSource);
 		QVERIFY(clip && other);
 		QVERIFY(obs_source_get_output_flags(clip.get()) & OBS_SOURCE_CONTROLLABLE_MEDIA);
 		auto releaseScene = [](obs_scene_t *scene) {
@@ -1002,7 +1044,8 @@ private slots:
 		targets->setCurrentIndex(clipIndex);
 		TimelineEvent event;
 		editor.getUpdatedEvent(event);
-		QCOMPARE(MediaTarget::decode(event.data.toString()).uuid, QString::fromUtf8(obs_source_get_uuid(clip.get())));
+		QCOMPARE(MediaTarget::decode(event.data.toString()).uuid,
+			 QString::fromUtf8(obs_source_get_uuid(clip.get())));
 		obs_source_set_name(clip.get(), "Renamed clip");
 		obs_source_set_name(other.get(), "Media example");
 		ObsExecutor executor;
@@ -1098,8 +1141,8 @@ private slots:
 			macros.addButton(macro);
 		}
 		MacroButtonModel reloaded;
-		QVERIFY(MacroSerialization::fromJsonDocument(
-			QJsonDocument(MacroSerialization::toJsonObject(macros)), reloaded));
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(macros)),
+							     reloaded));
 		QCOMPARE(reloaded.buttons().size(), 3);
 		QCOMPARE(reloaded.buttons().last().type, seek);
 		QCOMPARE(reloaded.buttons().last().data, edited.data.toString());
@@ -1149,9 +1192,11 @@ private slots:
 		int selected = -1;
 		int groupSelected = -1;
 		for (int i = 0; i < targets->count(); ++i) {
-			if (targets->itemText(i).contains("Visibility nested") && targets->itemText(i).contains("MySource"))
+			if (targets->itemText(i).contains("Visibility nested") &&
+			    targets->itemText(i).contains("MySource"))
 				selected = i;
-			if (targets->itemText(i).contains("Visibility group") && targets->itemText(i).contains("MySource"))
+			if (targets->itemText(i).contains("Visibility group") &&
+			    targets->itemText(i).contains("MySource"))
 				groupSelected = i;
 		}
 		QVERIFY2(selected >= 0, "Nested scene item must be selectable");
@@ -1177,8 +1222,8 @@ private slots:
 		macro.data = edited.data.toString();
 		macros.addButton(macro);
 		MacroButtonModel reloaded;
-		QVERIFY(MacroSerialization::fromJsonDocument(
-			QJsonDocument(MacroSerialization::toJsonObject(macros)), reloaded));
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(macros)),
+							     reloaded));
 		QCOMPARE(reloaded.buttons().front().data, edited.data.toString());
 
 		obs_source_set_name(obs_scene_get_source(nested.get()), "Renamed nested");
@@ -1414,11 +1459,12 @@ private slots:
 		b.timeMs = 1280.0; // overlap at 32px, clear at 22px (100px/s)
 		a.label = "First cue";
 		a.showLabel = true;
-		model->addEvents({a,b});
+		model->addEvents({a, b});
 		QCoreApplication::processEvents();
 		auto marker = [&](const QString &id) -> TimelineEventItem * {
 			for (auto *graphics : view->scene()->items())
-				if (auto *item = dynamic_cast<TimelineEventItem *>(graphics); item && item->getEventId() == id)
+				if (auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+				    item && item->getEventId() == id)
 					return item;
 			return nullptr;
 		};
@@ -1597,7 +1643,8 @@ private slots:
 		QVERIFY(undo->isEnabled() && redo->isEnabled());
 		QJsonDocument saved;
 		QTRY_VERIFY_WITH_TIMEOUT(TimelineSerialization::loadFromFile(path, saved) &&
-			saved.object()["events"].toArray() == model->toJson(), 1500);
+						 saved.object()["events"].toArray() == model->toJson(),
+					 1500);
 		QCOMPARE(saved.object()["events"].toArray(), model->toJson());
 		dock.load();
 		QVERIFY(!undo->isEnabled() && !redo->isEnabled());
@@ -1836,11 +1883,12 @@ private slots:
 		scheduler.setEndTime(25.0);
 		QStringList trace;
 		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler, [&](const TimelineEvent &evt) {
-			trace << (evt.id == span.id ? "span:start" : evt.id == last.id ? "last:start" : "outside:start");
+			trace << (evt.id == span.id   ? "span:start"
+				  : evt.id == last.id ? "last:start"
+						      : "outside:start");
 		});
-		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler, [&](const TimelineEvent &) {
-			trace << "span:end";
-		});
+		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler,
+			[&](const TimelineEvent &) { trace << "span:end"; });
 		connect(&scheduler, &TimelineScheduler::finished, &scheduler, [&] { trace << "finished"; });
 		QSignalSpy ticks(&scheduler, &TimelineScheduler::tick);
 		scheduler.start();
@@ -1867,12 +1915,10 @@ private slots:
 		model.addEvent(next);
 		TimelineScheduler scheduler(&model);
 		QStringList trace;
-		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler, [&](const TimelineEvent &evt) {
-			trace << (evt.id == span.id ? "span:start" : "next:start");
-		});
-		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler, [&](const TimelineEvent &) {
-			trace << "span:end";
-		});
+		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler,
+			[&](const TimelineEvent &evt) { trace << (evt.id == span.id ? "span:start" : "next:start"); });
+		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler,
+			[&](const TimelineEvent &) { trace << "span:end"; });
 		scheduler.start();
 		QTest::qSleep(35);
 		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
@@ -1894,12 +1940,10 @@ private slots:
 		scheduler.setEndTime(25);
 		scheduler.setLooping(true);
 		QStringList trace;
-		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler, [&](const TimelineEvent &) {
-			trace << "start";
-		});
-		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler, [&](const TimelineEvent &) {
-			trace << "end";
-		});
+		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler,
+			[&](const TimelineEvent &) { trace << "start"; });
+		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler,
+			[&](const TimelineEvent &) { trace << "end"; });
 		connect(&scheduler, &TimelineScheduler::looped, &scheduler, [&] { trace << "loop"; });
 		scheduler.start();
 		QTest::qSleep(40);
@@ -2149,8 +2193,14 @@ private slots:
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Defined cue target", nullptr, nullptr);
 		QVERIFY(source);
-		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
-		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)),
+					      {},
+					      "gain",
+					      MacroParameterType::Float};
 		EventEditor editor(100.0);
 		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
 		QVERIFY(types);
@@ -2164,7 +2214,10 @@ private slots:
 			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
 			if (!dialog)
 				return;
-			auto close = qScopeGuard([&] { if (!configured) dialog->reject(); });
+			auto close = qScopeGuard([&] {
+				if (!configured)
+					dialog->reject();
+			});
 			auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
 			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
 			auto *value = dialog->findChild<QDoubleSpinBox *>("parameter-defined-value");
@@ -2222,7 +2275,10 @@ private slots:
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Cue filter owner", nullptr, nullptr);
 		QVERIFY(source);
-		auto releaseSource = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		auto releaseSource = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
 		auto *filter = obs_source_create_private("timeline_parameter_filter", "Cue private filter", nullptr);
 		QVERIFY(filter);
 		obs_source_filter_add(source, filter);
@@ -2232,7 +2288,8 @@ private slots:
 			obs_source_release(filter);
 		});
 		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)),
-			QString::fromUtf8(obs_source_get_uuid(filter)), "count", MacroParameterType::Integer};
+					      QString::fromUtf8(obs_source_get_uuid(filter)), "count",
+					      MacroParameterType::Integer};
 		MacroButton knob;
 		knob.kind = MacroControlKind::Knob;
 		knob.binding = binding;
@@ -2255,7 +2312,8 @@ private slots:
 		MacroButtonModel model;
 		model.addButton(preset);
 		MacroButtonModel restored;
-		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(model)), restored));
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(model)),
+							     restored));
 		QCOMPARE(restored.buttons().first().data, preset.data);
 		QCOMPARE(restored.buttons().first().type, preset.type);
 
@@ -2271,7 +2329,10 @@ private slots:
 			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
 			if (!dialog)
 				return;
-			auto close = qScopeGuard([&] { if (!configured) dialog->reject(); });
+			auto close = qScopeGuard([&] {
+				if (!configured)
+					dialog->reject();
+			});
 			auto *choice = dialog->findChild<QComboBox *>("parameter-defined-bool");
 			auto *number = dialog->findChild<QDoubleSpinBox *>("parameter-defined-value");
 			auto *buttons = dialog->findChild<QDialogButtonBox *>();
@@ -2299,7 +2360,10 @@ private slots:
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Knob gesture target", nullptr, nullptr);
 		QVERIFY(source);
-		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
 		MacroButton knob;
 		knob.kind = MacroControlKind::Knob;
 		knob.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
@@ -2314,8 +2378,8 @@ private slots:
 		QCOMPARE(dial->value(), 25);
 		const QPoint start(4, 22);
 		auto move = [&](const QPoint &point, Qt::KeyboardModifiers mods = Qt::NoModifier) {
-			QMouseEvent ev(QEvent::MouseMove, QPointF(point),
-				QPointF(dial->mapToGlobal(point)), Qt::NoButton, Qt::LeftButton, mods);
+			QMouseEvent ev(QEvent::MouseMove, QPointF(point), QPointF(dial->mapToGlobal(point)),
+				       Qt::NoButton, Qt::LeftButton, mods);
 			QCoreApplication::sendEvent(dial, &ev);
 		};
 		QSignalSpy changes(dial, &QDial::valueChanged);
@@ -2350,12 +2414,12 @@ private slots:
 		QCoreApplication::sendEvent(dial, &arrow);
 		QCOMPARE(dial->value(), 34);
 		QWheelEvent wheel(QPointF(start), QPointF(dial->mapToGlobal(start)), QPoint(), QPoint(0, 120),
-			Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+				  Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
 		QCoreApplication::sendEvent(dial, &wheel);
 		QCOMPARE(dial->value(), 35);
 		dial->clearFocus();
 		QWheelEvent unfocused(QPointF(start), QPointF(dial->mapToGlobal(start)), QPoint(), QPoint(0, -120),
-			Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+				      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
 		QCoreApplication::sendEvent(dial, &unfocused);
 		QCOMPARE(dial->value(), 35);
 		QVERIFY(!unfocused.isAccepted());
@@ -2390,7 +2454,7 @@ private slots:
 			if (!input)
 				input = control->findChild<QCheckBox *>();
 			QVERIFY(input);
-			QVERIFY(qAbs(input->mapTo(&dock, QPoint(0, input->height()/2)).y() - center) <= 1);
+			QVERIFY(qAbs(input->mapTo(&dock, QPoint(0, input->height() / 2)).y() - center) <= 1);
 		}
 	}
 
@@ -2403,15 +2467,20 @@ private slots:
 			}
 		};
 		using Source = std::unique_ptr<obs_source_t, decltype(release)>;
-		Source source(obs_source_create("timeline_parameter_probe", "Parameter source", nullptr, nullptr), release);
-		Source filter(obs_source_create_private("timeline_parameter_filter", "Parameter filter", nullptr), release);
+		Source source(obs_source_create("timeline_parameter_probe", "Parameter source", nullptr, nullptr),
+			      release);
+		Source filter(obs_source_create_private("timeline_parameter_filter", "Parameter filter", nullptr),
+			      release);
 		QVERIFY(source && filter);
 		auto *settingsPatch = obs_data_create();
 		obs_data_set_string(settingsPatch, "untouched", "custom text");
 		obs_source_update(filter.get(), settingsPatch);
 		obs_data_release(settingsPatch);
 		obs_source_filter_add(source.get(), filter.get());
-		const auto cleanup = qScopeGuard([&] { if (obs_filter_get_parent(filter.get())) obs_source_filter_remove(source.get(), filter.get()); });
+		const auto cleanup = qScopeGuard([&] {
+			if (obs_filter_get_parent(filter.get()))
+				obs_source_filter_remove(source.get(), filter.get());
+		});
 		const QString sourceId = QString::fromUtf8(obs_source_get_uuid(source.get()));
 		const QString filterId = QString::fromUtf8(obs_source_get_uuid(filter.get()));
 		const auto targets = MacroParameter::targets();
@@ -2509,11 +2578,17 @@ private slots:
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Live catalog original", nullptr, nullptr);
 		QVERIFY(source);
-		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
 		MacroStripDock dock;
 		MacroButton initial;
 		initial.kind = MacroControlKind::Knob;
-		initial.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		initial.binding = {QString::fromUtf8(obs_source_get_uuid(source)),
+				   {},
+				   "gain",
+				   MacroParameterType::Float};
 		bool done = false;
 		QTimer::singleShot(0, &dock, [&] {
 			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
@@ -2525,9 +2600,13 @@ private slots:
 			auto *buttons = dialog->findChild<QDialogButtonBox *>();
 			QVERIFY(target && property && kind && buttons);
 			QCOMPARE(property->currentText(), QString("Controls / Gain"));
-			auto *added = obs_source_create("timeline_parameter_probe", "New live catalog source", nullptr, nullptr);
+			auto *added = obs_source_create("timeline_parameter_probe", "New live catalog source", nullptr,
+							nullptr);
 			QVERIFY(added);
-			auto removeAdded = qScopeGuard([&] { obs_source_remove(added); obs_source_release(added); });
+			auto removeAdded = qScopeGuard([&] {
+				obs_source_remove(added);
+				obs_source_release(added);
+			});
 			obs_source_set_name(source, "Renamed live catalog original");
 			QTRY_VERIFY_WITH_TIMEOUT(target->findText("New live catalog source") >= 0, 3500);
 			QCOMPARE(target->currentText(), QString("Renamed live catalog original"));
@@ -2543,21 +2622,26 @@ private slots:
 			auto *group = obs_scene_add_group(scene, "Catalog group");
 			QVERIFY(group);
 			QVERIFY(obs_scene_add(obs_sceneitem_group_get_scene(group), added));
-			auto *filter = obs_source_create_private("timeline_parameter_filter", "New catalog filter", nullptr);
+			auto *filter =
+				obs_source_create_private("timeline_parameter_filter", "New catalog filter", nullptr);
 			QVERIFY(filter);
 			obs_source_filter_add(added, filter);
 			auto removeFilter = qScopeGuard([&] {
 				obs_source_filter_remove(added, filter);
 				obs_source_release(filter);
 			});
-			const QString filterLabel = "Catalog root / Catalog group / New live catalog source / Filter: New catalog filter";
+			const QString filterLabel =
+				"Catalog root / Catalog group / New live catalog source / Filter: New catalog filter";
 			QTRY_VERIFY_WITH_TIMEOUT(target->findText(filterLabel) >= 0, 3500);
 			const auto catalog = MacroParameter::targets();
 			const QString addedId = QString::fromUtf8(obs_source_get_uuid(added));
 			const QString filterId = QString::fromUtf8(obs_source_get_uuid(filter));
-			QCOMPARE(std::count_if(catalog.cbegin(), catalog.cend(), [&](const auto &entry) {
-				return entry.sourceUuid == addedId && entry.filterUuid == filterId;
-			}), 1);
+			QCOMPARE(std::count_if(catalog.cbegin(), catalog.cend(),
+					       [&](const auto &entry) {
+						       return entry.sourceUuid == addedId &&
+							      entry.filterUuid == filterId;
+					       }),
+				 1);
 			QCOMPARE(target->currentText(), QString("Renamed live catalog original"));
 			auto *patch = obs_data_create();
 			obs_data_set_bool(patch, "enabled", false);
@@ -2580,9 +2664,13 @@ private slots:
 
 	void testMacroParameterEditorSelectsAndPreservesBinding()
 	{
-		auto *source = obs_source_create("timeline_parameter_probe", "Editor parameter target", nullptr, nullptr);
+		auto *source =
+			obs_source_create("timeline_parameter_probe", "Editor parameter target", nullptr, nullptr);
 		QVERIFY(source);
-		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
 		MacroStripDock dock;
 		MacroButton initial;
 		initial.kind = MacroControlKind::Knob;
@@ -2625,7 +2713,7 @@ private slots:
 			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
 			auto *buttons = dialog->findChild<QDialogButtonBox *>();
 			refusedDefault = property && buttons && property->currentIndex() == -1 &&
-				!buttons->button(QDialogButtonBox::Ok)->isEnabled();
+					 !buttons->button(QDialogButtonBox::Ok)->isEnabled();
 			dialog->reject();
 		});
 		QVERIFY(!editMacroParameter(&dock, missing));
@@ -2782,7 +2870,7 @@ private slots:
 		QVERIFY(control->height() >= check->height() + MacroButtonWidget::kLabelHeight);
 		QCOMPARE(button->height(), control->height());
 		QVERIFY(scroll->viewport()->height() >= control->height());
-		QVERIFY(control->rect().contains(check->mapTo(control, QPoint(0, check->height()-1))));
+		QVERIFY(control->rect().contains(check->mapTo(control, QPoint(0, check->height() - 1))));
 		QVERIFY(dock.maximumHeight() > dock.minimumHeight());
 	}
 

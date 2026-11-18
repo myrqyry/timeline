@@ -12,13 +12,12 @@ TimelineModel::TimelineModel(QObject *parent) : QObject(parent)
 namespace {
 bool sameEvent(const TimelineEvent &a, const TimelineEvent &b)
 {
-	return a.id == b.id && a.timeMs == b.timeMs && a.type == b.type &&
-	       a.sourceName == b.sourceName && a.filterName == b.filterName &&
-	       a.data == b.data && a.color == b.color && a.customIconPath == b.customIconPath &&
-	       a.label == b.label && a.showLabel == b.showLabel &&
+	return a.id == b.id && a.timeMs == b.timeMs && a.type == b.type && a.sourceName == b.sourceName &&
+	       a.filterName == b.filterName && a.data == b.data && a.color == b.color &&
+	       a.customIconPath == b.customIconPath && a.label == b.label && a.showLabel == b.showLabel &&
 	       a.hasDuration == b.hasDuration && a.durationMs == b.durationMs;
 }
-}
+} // namespace
 
 void TimelineModel::setHistoryEnabled(bool enabled)
 {
@@ -98,7 +97,8 @@ void TimelineModel::removeEventsById(const QStringList &ids)
 	const QSet<QString> selected(ids.begin(), ids.end());
 	auto next = events;
 	next.erase(std::remove_if(next.begin(), next.end(),
-				[&](const TimelineEvent &evt) { return selected.contains(evt.id); }), next.end());
+				  [&](const TimelineEvent &evt) { return selected.contains(evt.id); }),
+		   next.end());
 	commitEdit(std::move(next));
 }
 
@@ -286,5 +286,5 @@ void TimelineModel::fromJson(const QJsonArray &json)
 void TimelineModel::sortEvents()
 {
 	std::stable_sort(events.begin(), events.end(),
-		  [](const TimelineEvent &a, const TimelineEvent &b) { return a.timeMs < b.timeMs; });
+			 [](const TimelineEvent &a, const TimelineEvent &b) { return a.timeMs < b.timeMs; });
 }

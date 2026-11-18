@@ -63,8 +63,8 @@ protected:
 		// Small discrete ranges need only eight pixels per step.
 		const double pixels = std::max(1.0, std::min(160.0, span * 8.0));
 		const double fine = event->modifiers().testFlag(Qt::ShiftModifier) ? 0.1 : 1.0;
-		dragValue = std::clamp(dragValue + delta * span / pixels * fine,
-			static_cast<double>(minimum()), static_cast<double>(maximum()));
+		dragValue = std::clamp(dragValue + delta * span / pixels * fine, static_cast<double>(minimum()),
+				       static_cast<double>(maximum()));
 		setValue(static_cast<int>(std::round(dragValue)));
 		event->accept();
 	}
@@ -82,7 +82,8 @@ protected:
 	bool event(QEvent *event) override
 	{
 		if ((event->type() == QEvent::UngrabMouse ||
-		     (event->type() == QEvent::EnabledChange && !isEnabled())) && isSliderDown())
+		     (event->type() == QEvent::EnabledChange && !isEnabled())) &&
+		    isSliderDown())
 			setSliderDown(false);
 		return QDial::event(event);
 	}
@@ -120,8 +121,8 @@ protected:
 		const int steps = wheelRemainder / 120;
 		wheelRemainder %= 120;
 		const auto next = static_cast<qint64>(value()) + static_cast<qint64>(steps) * singleStep();
-		setValue(static_cast<int>(std::clamp(next, static_cast<qint64>(minimum()),
-			static_cast<qint64>(maximum()))));
+		setValue(static_cast<int>(
+			std::clamp(next, static_cast<qint64>(minimum()), static_cast<qint64>(maximum()))));
 		event->accept();
 	}
 
@@ -133,8 +134,7 @@ private:
 
 class ParameterWidget final : public QWidget {
 public:
-	ParameterWidget(const MacroButton &button, QWidget *parent)
-		: QWidget(parent), binding(button.binding)
+	ParameterWidget(const MacroButton &button, QWidget *parent) : QWidget(parent), binding(button.binding)
 	{
 		setObjectName("macro-parameter-control");
 		setContextMenuPolicy(Qt::CustomContextMenu);
@@ -201,9 +201,8 @@ public:
 		// same strip context menu (edit/reorder/delete).
 		QWidget *input = slider ? static_cast<QWidget *>(slider) : static_cast<QWidget *>(toggle);
 		input->setContextMenuPolicy(Qt::CustomContextMenu);
-		connect(input, &QWidget::customContextMenuRequested, this, [this, input](const QPoint &p) {
-			emit customContextMenuRequested(input->mapTo(this, p));
-		});
+		connect(input, &QWidget::customContextMenuRequested, this,
+			[this, input](const QPoint &p) { emit customContextMenuRequested(input->mapTo(this, p)); });
 		writeTimer.setSingleShot(true);
 		writeTimer.setInterval(80);
 		connect(&writeTimer, &QTimer::timeout, this, [this] { flush(); });
@@ -218,14 +217,15 @@ public:
 
 	QSize requiredRows() const
 	{
-		const int labelHeight = std::max(MacroButtonWidget::kLabelHeight,
-			QFontMetrics(label->font()).height() + 2);
+		const int labelHeight =
+			std::max(MacroButtonWidget::kLabelHeight, QFontMetrics(label->font()).height() + 2);
 		auto *input = slider ? static_cast<QWidget *>(slider) : static_cast<QWidget *>(toggle);
 		input->ensurePolished();
 		// A dial has an intentional fixed size; native sliders and toggles
 		// need their theme's actual size hint, not a guessed pixel height.
-		const int height = qobject_cast<QDial *>(input) ? input->height() :
-			std::max(input->sizeHint().height(), input->minimumSizeHint().height());
+		const int height = qobject_cast<QDial *>(input)
+					   ? input->height()
+					   : std::max(input->sizeHint().height(), input->minimumSizeHint().height());
 		return QSize(labelHeight, std::max(MacroButtonWidget::kControlHeight, height));
 	}
 	void setRowHeights(int labelHeight, int controlHeight)
@@ -235,6 +235,7 @@ public:
 		setFixedHeight(labelHeight + controlHeight);
 		updateGeometry();
 	}
+
 private:
 	void queueValue(double value)
 	{
@@ -264,8 +265,9 @@ private:
 	{
 		if (!spec)
 			return;
-		const QString display = spec->type == MacroParameterType::Boolean ?
-			(value != 0 ? tr("On") : tr("Off")) : QString::number(value, 'g', 7) + spec->suffix;
+		const QString display = spec->type == MacroParameterType::Boolean
+						? (value != 0 ? tr("On") : tr("Off"))
+						: QString::number(value, 'g', 7) + spec->suffix;
 		label->setText(title + " · " + display);
 	}
 	void refresh(bool schema)
@@ -292,7 +294,8 @@ private:
 			updateLabel(*value);
 			setToolTip(spec->label + " (" + binding.key + ")");
 			if (qobject_cast<QDial *>(slider))
-				slider->setToolTip(tr("Drag up/down · Shift: fine adjustment · Focus then scroll: one step"));
+				slider->setToolTip(
+					tr("Drag up/down · Shift: fine adjustment · Focus then scroll: one step"));
 		} else {
 			label->setText(title + " · " + tr("Unavailable"));
 			setToolTip(tr("Bound source, filter or property is unavailable. Right-click to edit."));
@@ -310,7 +313,7 @@ private:
 	QTimer writeTimer;
 	int pollCount = 0;
 };
-}
+} // namespace
 
 QWidget *createMacroParameterWidget(const MacroButton &button, QWidget *parent)
 {
@@ -331,11 +334,11 @@ void setMacroParameterRows(QWidget *widget, int labelHeight, int controlHeight)
 }
 
 static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButton &initial,
-					 std::optional<double> *definedValue)
+						std::optional<double> *definedValue)
 {
 	QDialog dialog(parent);
-	dialog.setWindowTitle(definedValue ? QObject::tr("Define parameter value") :
-		QObject::tr("Bind source or filter parameter"));
+	dialog.setWindowTitle(definedValue ? QObject::tr("Define parameter value")
+					   : QObject::tr("Bind source or filter parameter"));
 	dialog.setMinimumWidth(440);
 	auto *form = new QFormLayout(&dialog);
 	auto *targetCombo = new QComboBox(&dialog);
@@ -399,16 +402,18 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	MacroParameterBinding valueBinding = initial.binding;
 	std::optional<double> previousValue = definedValue ? *definedValue : std::nullopt;
 	auto sameBinding = [](const MacroParameterBinding &a, const MacroParameterBinding &b) {
-		return a.sourceUuid == b.sourceUuid && a.filterUuid == b.filterUuid &&
-			a.key == b.key && a.type == b.type;
+		return a.sourceUuid == b.sourceUuid && a.filterUuid == b.filterUuid && a.key == b.key &&
+		       a.type == b.type;
 	};
 	// Preserve a manually chosen value across catalog refreshes, including
 	// changes in the selected property's declared range.
 	if (definedValue) {
 		QObject::connect(valueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), &dialog,
-			[&](double v) { previousValue = v; });
-		QObject::connect(boolValue, qOverload<int>(&QComboBox::currentIndexChanged), &dialog,
-			[&](int i) { if (i >= 0) previousValue = boolValue->currentData().toDouble(); });
+				 [&](double v) { previousValue = v; });
+		QObject::connect(boolValue, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int i) {
+			if (i >= 0)
+				previousValue = boolValue->currentData().toDouble();
+		});
 	}
 	auto updateKind = [&] {
 		const int index = propertyCombo->currentIndex();
@@ -426,8 +431,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		if (definedValue) {
 			const auto binding = selectedBinding();
 			const bool same = sameBinding(binding, valueBinding);
-			const double start = same && previousValue ? *previousValue :
-				MacroParameter::read(binding).value_or(spec.min);
+			const double start = same && previousValue ? *previousValue
+								   : MacroParameter::read(binding).value_or(spec.min);
 			valueBinding = binding;
 			const QSignalBlocker spinBlock(valueSpin);
 			const QSignalBlocker boolBlock(boolValue);
@@ -465,13 +470,16 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		const int kindIndex = kindCombo->findData(static_cast<int>(preferred));
 		if (kindIndex >= 0)
 			kindCombo->setCurrentIndex(kindIndex);
-		info->setText(spec.type == MacroParameterType::Boolean ? spec.key :
-			QObject::tr("%1 · %2 to %3 · step %4").arg(spec.key)
-				.arg(spec.min).arg(spec.max).arg(spec.step));
+		info->setText(spec.type == MacroParameterType::Boolean ? spec.key
+								       : QObject::tr("%1 · %2 to %3 · step %4")
+										 .arg(spec.key)
+										 .arg(spec.min)
+										 .arg(spec.max)
+										 .arg(spec.step));
 	};
 	auto updateProperties = [&](const MacroParameterBinding &selection, bool force) {
-		const auto fresh = selection.sourceUuid.isEmpty() ?
-			QList<MacroParameter::Spec>{} : MacroParameter::properties(selection);
+		const auto fresh = selection.sourceUuid.isEmpty() ? QList<MacroParameter::Spec>{}
+								  : MacroParameter::properties(selection);
 		if (!force && fresh == specs)
 			return;
 		const QSignalBlocker block(propertyCombo);
@@ -514,7 +522,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		selection.key.clear();
 		updateProperties(selection, true);
 	});
-	QObject::connect(propertyCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int) { updateKind(); });
+	QObject::connect(propertyCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog,
+			 [&](int) { updateKind(); });
 	QObject::connect(kindCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int index) {
 		if (index >= 0)
 			preferred = static_cast<MacroControlKind>(kindCombo->currentData().toInt());
@@ -524,8 +533,9 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	catalogTimer.setInterval(1000);
 	QObject::connect(&catalogTimer, &QTimer::timeout, &dialog, [&] {
 		// Do not disrupt an open dropdown; refresh after it closes.
-		if ((definedValue && valueSpin->hasFocus()) || targetCombo->view()->isVisible() || propertyCombo->view()->isVisible() ||
-		    kindCombo->view()->isVisible() || (definedValue && boolValue->view()->isVisible()))
+		if ((definedValue && valueSpin->hasFocus()) || targetCombo->view()->isVisible() ||
+		    propertyCombo->view()->isVisible() || kindCombo->view()->isVisible() ||
+		    (definedValue && boolValue->view()->isVisible()))
 			return;
 		refreshCatalog(selectedBinding(), false);
 	});
@@ -547,8 +557,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	if (!current)
 		return std::nullopt;
 	if (definedValue) {
-		const double requested = spec.type == MacroParameterType::Boolean ?
-			boolValue->currentData().toDouble() : valueSpin->value();
+		const double requested = spec.type == MacroParameterType::Boolean ? boolValue->currentData().toDouble()
+										  : valueSpin->value();
 		*definedValue = current->valueAt(current->indexOf(requested));
 	}
 	return result;
@@ -560,7 +570,7 @@ std::optional<MacroButton> editMacroParameter(QWidget *parent, const MacroButton
 }
 
 std::optional<MacroButton> editDefinedParameter(QWidget *parent, const MacroButton &initial,
-					       std::optional<double> &value)
+						std::optional<double> &value)
 {
 	return editParameter(parent, initial, &value);
 }

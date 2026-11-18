@@ -27,7 +27,8 @@ struct Target {
 	QString sourceUuid;
 	QString filterUuid;
 	QString label;
-	bool operator==(const Target &other) const {
+	bool operator==(const Target &other) const
+	{
 		return sourceUuid == other.sourceUuid && filterUuid == other.filterUuid && label == other.label;
 	}
 };
@@ -40,9 +41,10 @@ struct Spec {
 	double min;
 	double max;
 	double step;
-	bool operator==(const Spec &other) const {
-		return key == other.key && label == other.label && suffix == other.suffix &&
-			type == other.type && min == other.min && max == other.max && step == other.step;
+	bool operator==(const Spec &other) const
+	{
+		return key == other.key && label == other.label && suffix == other.suffix && type == other.type &&
+		       min == other.min && max == other.max && step == other.step;
 	}
 	int steps() const;
 	double valueAt(int index) const;

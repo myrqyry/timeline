@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### CI formatting correction — 2026-11-18
+- Push at `72e6c51` triggered formatting failures in GitHub Actions run 44422058880: full logs identify 17 C++ files and tests/CMakeLists.txt. Landlock messages are runner warnings, not the formatter failure.
+- Reproduced all failures locally with the exact CI versions (clang-format 19.1.1, gersemi 0.21.0) in a temporary uv virtual environment. Applied the repository formatting configuration to the changed C++/CMake files; both repository check scripts now pass with `--fail-error --check`. No intended behavioral changes or CI bypass.
+- Native OBS32 module rebuilt and full strict Qt/libobs suite passed again: 84 passed, 0 failed, 0 skipped. Before future pushes, run both exact-version format checks on all changed relevant files in addition to runtime tests. Remote CI for the corrective commit remains pending at this checkpoint.
+
+
 ### Documentation and synchronization checkpoint — 2026-11-18
 - Runtime baseline: `59c3c25`, native OBS32 build, 84 strict Qt/libobs tests passed with no failures/skips. README, architecture, release checklist and durable project context reconciled with the implemented editor, scheduling, dynamic parameter controls and layout changes.
 - User requested pushing the verified local series to existing main. The historical notes below retain their original per-checkpoint install/push status. Last installed runtime remains `3681512`; newer changes need native OBS interactive acceptance. No release, tag or install in this documentation pass.

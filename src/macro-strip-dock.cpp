@@ -162,7 +162,7 @@ void MacroStripDock::updateStripHeight()
 	// Keep the content strip compact, reserving its horizontal scrollbar
 	// even when it is not currently visible. The outer dock stays resizable.
 	const int scrollHeight = contentHeight + m_scrollArea->horizontalScrollBar()->sizeHint().height() +
-		2 * m_scrollArea->frameWidth();
+				 2 * m_scrollArea->frameWidth();
 	m_scrollArea->setFixedHeight(scrollHeight);
 	const auto margins = layout()->contentsMargins();
 	setMinimumHeight(std::max(scrollHeight, m_addButton->height()) + margins.top() + margins.bottom());

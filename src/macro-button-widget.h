@@ -45,7 +45,6 @@ public:
 	static constexpr int kControlCenterY = kLabelHeight + kControlHeight / 2;
 	void setRowHeights(int labelHeight, int controlHeight);
 
-
 signals:
 	void fireRequested(const MacroButton &button);
 

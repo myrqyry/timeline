@@ -32,11 +32,14 @@ Source resolve(const MacroParameterBinding &binding)
 		obs_source_t *result = nullptr;
 	} lookup{binding.filterUuid};
 	// Filters can be private; resolve through their actual owner.
-	obs_source_enum_filters(parent.get(), [](obs_source_t *, obs_source_t *filter, void *opaque) {
-		auto *lookup = static_cast<Lookup *>(opaque);
-		if (!lookup->result && !obs_source_removed(filter) && uuid(filter) == lookup->id)
-			lookup->result = obs_source_get_ref(filter);
-	}, &lookup);
+	obs_source_enum_filters(
+		parent.get(),
+		[](obs_source_t *, obs_source_t *filter, void *opaque) {
+			auto *lookup = static_cast<Lookup *>(opaque);
+			if (!lookup->result && !obs_source_removed(filter) && uuid(filter) == lookup->id)
+				lookup->result = obs_source_get_ref(filter);
+		},
+		&lookup);
 	return Source(lookup.result, obs_source_release);
 }
 
@@ -79,9 +82,8 @@ void collectProperties(obs_properties_t *props, obs_data_t *settings, const QStr
 			continue;
 		}
 		const double steps = (spec.max - spec.min) / spec.step;
-		if (!key.isEmpty() && std::isfinite(spec.min) && std::isfinite(spec.max) &&
-		    std::isfinite(spec.step) && spec.step > 0 && std::isfinite(steps) &&
-		    steps >= 1 && steps <= 1000000)
+		if (!key.isEmpty() && std::isfinite(spec.min) && std::isfinite(spec.max) && std::isfinite(spec.step) &&
+		    spec.step > 0 && std::isfinite(steps) && steps >= 1 && steps <= 1000000)
 			out.append(spec);
 	}
 }
@@ -105,17 +107,21 @@ std::optional<MacroParameter::Spec> describeFor(obs_source_t *source, const Macr
 			return spec;
 	return std::nullopt;
 }
-}
+} // namespace
 
 namespace MacroParameter {
 QString encodeValue(const DefinedValue &cue)
 {
 	const auto &b = cue.binding;
-	return QString::fromUtf8(QJsonDocument(QJsonObject{
-		{"version", 1}, {"sourceUuid", b.sourceUuid}, {"filterUuid", b.filterUuid},
-		{"key", b.key}, {"type", b.type == MacroParameterType::Integer ? "int" :
-			b.type == MacroParameterType::Float ? "float" : "bool"}, {"value", cue.value}
-	}).toJson(QJsonDocument::Compact));
+	return QString::fromUtf8(QJsonDocument(QJsonObject{{"version", 1},
+							   {"sourceUuid", b.sourceUuid},
+							   {"filterUuid", b.filterUuid},
+							   {"key", b.key},
+							   {"type", b.type == MacroParameterType::Integer ? "int"
+								    : b.type == MacroParameterType::Float ? "float"
+													  : "bool"},
+							   {"value", cue.value}})
+					 .toJson(QJsonDocument::Compact));
 }
 std::optional<DefinedValue> decodeValue(const QString &payload)
 {
@@ -124,24 +130,26 @@ std::optional<DefinedValue> decodeValue(const QString &payload)
 		return std::nullopt;
 	const auto obj = doc.object();
 	const QString type = obj["type"].toString();
-	if (obj["version"].toInt(-1) != 1 || !obj["sourceUuid"].isString() ||
-	    obj["sourceUuid"].toString().isEmpty() || !obj["filterUuid"].isString() ||
-	    obj["key"].toString().isEmpty() || !obj["value"].isDouble() ||
+	if (obj["version"].toInt(-1) != 1 || !obj["sourceUuid"].isString() || obj["sourceUuid"].toString().isEmpty() ||
+	    !obj["filterUuid"].isString() || obj["key"].toString().isEmpty() || !obj["value"].isDouble() ||
 	    (type != "int" && type != "float" && type != "bool"))
 		return std::nullopt;
 	const double value = obj["value"].toDouble();
 	if (!std::isfinite(value) || (type == "bool" && value != 0 && value != 1) ||
 	    (type == "int" && value != std::round(value)))
 		return std::nullopt;
-	return DefinedValue{{obj["sourceUuid"].toString(), obj["filterUuid"].toString(),
-		obj["key"].toString(), type == "int" ? MacroParameterType::Integer :
-		type == "float" ? MacroParameterType::Float : MacroParameterType::Boolean}, value};
+	return DefinedValue{{obj["sourceUuid"].toString(), obj["filterUuid"].toString(), obj["key"].toString(),
+			     type == "int"     ? MacroParameterType::Integer
+			     : type == "float" ? MacroParameterType::Float
+					       : MacroParameterType::Boolean},
+			    value};
 }
 QString displayValue(const DefinedValue &cue)
 {
-	return cue.binding.key + " = " + (cue.binding.type == MacroParameterType::Boolean ?
-		(cue.value != 0 ? QStringLiteral("On") : QStringLiteral("Off")) :
-		QString::number(cue.value, 'g', 12));
+	return cue.binding.key + " = " +
+	       (cue.binding.type == MacroParameterType::Boolean
+			? (cue.value != 0 ? QStringLiteral("On") : QStringLiteral("Off"))
+			: QString::number(cue.value, 'g', 12));
 }
 int Spec::steps() const
 {
@@ -168,29 +176,43 @@ QList<Target> targets()
 				return;
 			seen.insert(id);
 			out.append({id, {}, label});
-			struct FilterContext { Context *self; QString id; QString label; } fc{this, id, label};
-			obs_source_enum_filters(source, [](obs_source_t *, obs_source_t *filter, void *opaque) {
-				auto *fc = static_cast<FilterContext *>(opaque);
-				if (!obs_source_removed(filter) && !uuid(filter).isEmpty())
-					fc->self->out.append({fc->id, uuid(filter),
-						fc->label + " / Filter: " + QString::fromUtf8(obs_source_get_name(filter))});
-			}, &fc);
+			struct FilterContext {
+				Context *self;
+				QString id;
+				QString label;
+			} fc{this, id, label};
+			obs_source_enum_filters(
+				source,
+				[](obs_source_t *, obs_source_t *filter, void *opaque) {
+					auto *fc = static_cast<FilterContext *>(opaque);
+					if (!obs_source_removed(filter) && !uuid(filter).isEmpty())
+						fc->self->out.append(
+							{fc->id, uuid(filter),
+							 fc->label + " / Filter: " +
+								 QString::fromUtf8(obs_source_get_name(filter))});
+				},
+				&fc);
 		}
 	} ctx;
-	obs_enum_scenes([](void *opaque, obs_source_t *source) {
-		auto *ctx = static_cast<Context *>(opaque);
-		const QString name = QString::fromUtf8(obs_source_get_name(source));
-		ctx->add(source, name);
-		SceneItemTarget::visit(obs_group_or_scene_from_source(source), name,
-			[&](obs_scene_t *, obs_sceneitem_t *item, const QString &, const QString &path) {
-				ctx->add(obs_sceneitem_get_source(item), path);
-			});
-		return true;
-	}, &ctx);
-	obs_enum_sources([](void *opaque, obs_source_t *source) {
-		static_cast<Context *>(opaque)->add(source, QString::fromUtf8(obs_source_get_name(source)));
-		return true;
-	}, &ctx);
+	obs_enum_scenes(
+		[](void *opaque, obs_source_t *source) {
+			auto *ctx = static_cast<Context *>(opaque);
+			const QString name = QString::fromUtf8(obs_source_get_name(source));
+			ctx->add(source, name);
+			SceneItemTarget::visit(obs_group_or_scene_from_source(source), name,
+					       [&](obs_scene_t *, obs_sceneitem_t *item, const QString &,
+						   const QString &path) {
+						       ctx->add(obs_sceneitem_get_source(item), path);
+					       });
+			return true;
+		},
+		&ctx);
+	obs_enum_sources(
+		[](void *opaque, obs_source_t *source) {
+			static_cast<Context *>(opaque)->add(source, QString::fromUtf8(obs_source_get_name(source)));
+			return true;
+		},
+		&ctx);
 	return ctx.out;
 }
 
@@ -226,9 +248,15 @@ std::optional<double> read(const MacroParameterBinding &binding)
 	}
 	double value = 0;
 	switch (binding.type) {
-	case MacroParameterType::Integer: value = obs_data_get_int(settings.get(), key.constData()); break;
-	case MacroParameterType::Float: value = obs_data_get_double(settings.get(), key.constData()); break;
-	case MacroParameterType::Boolean: value = obs_data_get_bool(settings.get(), key.constData()) ? 1 : 0; break;
+	case MacroParameterType::Integer:
+		value = obs_data_get_int(settings.get(), key.constData());
+		break;
+	case MacroParameterType::Float:
+		value = obs_data_get_double(settings.get(), key.constData());
+		break;
+	case MacroParameterType::Boolean:
+		value = obs_data_get_bool(settings.get(), key.constData()) ? 1 : 0;
+		break;
 	}
 	return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
 }
@@ -248,9 +276,15 @@ bool write(const MacroParameterBinding &binding, double value)
 	Data patch(obs_data_create(), obs_data_release);
 	const auto key = binding.key.toUtf8();
 	switch (binding.type) {
-	case MacroParameterType::Integer: obs_data_set_int(patch.get(), key.constData(), std::llround(value)); break;
-	case MacroParameterType::Float: obs_data_set_double(patch.get(), key.constData(), value); break;
-	case MacroParameterType::Boolean: obs_data_set_bool(patch.get(), key.constData(), value != 0); break;
+	case MacroParameterType::Integer:
+		obs_data_set_int(patch.get(), key.constData(), std::llround(value));
+		break;
+	case MacroParameterType::Float:
+		obs_data_set_double(patch.get(), key.constData(), value);
+		break;
+	case MacroParameterType::Boolean:
+		obs_data_set_bool(patch.get(), key.constData(), value != 0);
+		break;
 	}
 	obs_source_update(source.get(), patch.get());
 	return true;

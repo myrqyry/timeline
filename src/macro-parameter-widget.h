@@ -10,4 +10,4 @@ void setMacroParameterRows(QWidget *widget, int labelHeight, int controlHeight);
 std::optional<MacroButton> editMacroParameter(QWidget *parent, const MacroButton &initial);
 
 std::optional<MacroButton> editDefinedParameter(QWidget *parent, const MacroButton &initial,
-					       std::optional<double> &value);
+						std::optional<double> &value);

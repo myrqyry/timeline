@@ -49,7 +49,8 @@ static const std::vector<double> ZOOM_LEVELS = {5.0,   10.0,  15.0,  20.0,  30.0
 						100.0, 150.0, 200.0, 300.0, 500.0, 750.0, 1000.0};
 
 TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
-	: QWidget(parent), storageFilePath(storageFilePath)
+	: QWidget(parent),
+	  storageFilePath(storageFilePath)
 {
 	blog(LOG_INFO, "[Timeline] Dock constructor started");
 	model = new TimelineModel(this);
@@ -424,18 +425,19 @@ void TimelineDock::setupUi()
 	addEventButton->setToolTip(obs_module_text("TimelineDock.AddEventTooltip"));
 	undoButton = new QPushButton(this);
 	undoButton->setObjectName("timeline-undo-btn");
-	undoButton->setToolTip(QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.UndoEdit"),
-		QKeySequence(QKeySequence::Undo).toString(QKeySequence::NativeText)));
+	undoButton->setToolTip(
+		QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.UndoEdit"),
+					      QKeySequence(QKeySequence::Undo).toString(QKeySequence::NativeText)));
 	undoButton->setAccessibleName(obs_module_text("TimelineDock.UndoEdit"));
 	redoButton = new QPushButton(this);
 	redoButton->setObjectName("timeline-redo-btn");
-	redoButton->setToolTip(QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.RedoEdit"),
-		QKeySequence(QKeySequence::Redo).toString(QKeySequence::NativeText)));
+	redoButton->setToolTip(
+		QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.RedoEdit"),
+					      QKeySequence(QKeySequence::Redo).toString(QKeySequence::NativeText)));
 	redoButton->setAccessibleName(obs_module_text("TimelineDock.RedoEdit"));
 	connect(undoButton, &QPushButton::clicked, this, &TimelineDock::undoEdit);
 	connect(redoButton, &QPushButton::clicked, this, &TimelineDock::redoEdit);
 	updateHistoryControls();
-
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
 	connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
@@ -751,7 +753,6 @@ void TimelineDock::setupUi()
 	historyShortcut(QKeySequence::Undo, &TimelineDock::undoEdit);
 	historyShortcut(QKeySequence::Redo, &TimelineDock::redoEdit);
 
-
 	// Initial layout
 	blog(LOG_INFO, "[Timeline] ├─ UI layout initialized");
 	updateLayout();
@@ -993,12 +994,12 @@ void TimelineDock::updateViewportGeometry()
 	// of imposing an unbounded minimum height on the OBS main window.
 	const int bubble = compactMode ? TimelineEventItem::COMPACT_SIZE : TimelineEventItem::ITEM_SIZE;
 	const int minimumViewport = 30 + bubble + 8;
-	const int minHeight = minimumViewport + view->horizontalScrollBar()->sizeHint().height() +
-		2 * view->frameWidth();
+	const int minHeight =
+		minimumViewport + view->horizontalScrollBar()->sizeHint().height() + 2 * view->frameWidth();
 	if (view->minimumHeight() != minHeight)
 		view->setMinimumHeight(minHeight);
 	const double height = std::max({static_cast<double>(view->viewport()->height()),
-		static_cast<double>(minimumViewport), eventContentHeight});
+					static_cast<double>(minimumViewport), eventContentHeight});
 	QRectF rect = scene->sceneRect();
 	rect.setHeight(height);
 	scene->setSceneRect(rect);
@@ -1326,7 +1327,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		if (event->type() == QEvent::MouseButtonRelease) {
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			if (mouseEvent->button() == Qt::LeftButton) {
-				bool consumed = draggingPlayhead || draggingEndMarker; // Let event items receive their release.
+				bool consumed = draggingPlayhead ||
+						draggingEndMarker; // Let event items receive their release.
 				if (isDragging) {
 					isDragging = false;
 					updateHistoryControls();
@@ -2205,7 +2207,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &
 
 	if (editor.exec() == QDialog::Accepted) {
 		editor.getUpdatedEvent(evt);
-		evt.id = eventId;              // Preserve ID
+		evt.id = eventId; // Preserve ID
 		model->replaceEventById(eventId, evt);
 		debounceSaveTimer->start();
 	}

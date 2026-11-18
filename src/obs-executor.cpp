@@ -267,7 +267,8 @@ void ObsExecutor::handleMediaAction(const TimelineEvent &evt, bool start)
 		return; // Never interpret absent seek data as zero.
 	auto *source = MediaTarget::resolve(evt.sourceName, selection);
 	if (!source) {
-		blog(LOG_WARNING, "[Timeline] Media target missing or invalid: %s", evt.sourceName.toUtf8().constData());
+		blog(LOG_WARNING, "[Timeline] Media target missing or invalid: %s",
+		     evt.sourceName.toUtf8().constData());
 		return;
 	}
 	switch (evt.type) {
@@ -284,7 +285,8 @@ void ObsExecutor::handleMediaAction(const TimelineEvent &evt, bool start)
 		break;
 	case TimelineEventType::MediaSeekTo: {
 		const auto duration = obs_source_media_get_duration(source);
-		const auto position = duration > 0 ? qMin<qint64>(selection.positionMs, duration) : selection.positionMs;
+		const auto position = duration > 0 ? qMin<qint64>(selection.positionMs, duration)
+						   : selection.positionMs;
 		obs_source_media_set_time(source, position);
 		break;
 	}
@@ -299,7 +301,8 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 	const auto target = evt.data.toString();
 	if (SceneItemTarget::isExplicit(target)) {
 		if (!SceneItemTarget::setVisible(target, visible))
-			blog(LOG_WARNING, "[Timeline] Explicit scene item is missing or invalid; no fallback performed");
+			blog(LOG_WARNING,
+			     "[Timeline] Explicit scene item is missing or invalid; no fallback performed");
 		return;
 	}
 	if (evt.sourceName.isEmpty())

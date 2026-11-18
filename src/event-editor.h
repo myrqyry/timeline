@@ -13,65 +13,65 @@ class QCheckBox;
 class QDoubleSpinBox;
 
 class EventEditor : public QDialog {
-    Q_OBJECT
+	Q_OBJECT
 
 public:
-    explicit EventEditor(const TimelineEvent &evt, QWidget *parent = nullptr);
-    explicit EventEditor(double timeMs, QWidget *parent = nullptr);
+	explicit EventEditor(const TimelineEvent &evt, QWidget *parent = nullptr);
+	explicit EventEditor(double timeMs, QWidget *parent = nullptr);
 
-    void getUpdatedEvent(TimelineEvent &evt) const;
+	void getUpdatedEvent(TimelineEvent &evt) const;
 
 private:
-    void buildUi();
-    void populateTargets(TimelineEventType evtType);
-    void populateHotkeyPicker();
-    void filterHotkeys(const QString &query);
-    void populateActionChoices(TimelineEventType category, TimelineEventType selected);
-    TimelineEventType selectedActionType() const;
-    void preSelectFromEvent(const TimelineEvent &evt);
-    void validateAndAccept();
-    void onTypeChanged(int index);
-    void onActionChanged(int index);
-    void pickColor();
-    void chooseDefinedParameter();
-    void updateDefinedParameterLabel();
+	void buildUi();
+	void populateTargets(TimelineEventType evtType);
+	void populateHotkeyPicker();
+	void filterHotkeys(const QString &query);
+	void populateActionChoices(TimelineEventType category, TimelineEventType selected);
+	TimelineEventType selectedActionType() const;
+	void preSelectFromEvent(const TimelineEvent &evt);
+	void validateAndAccept();
+	void onTypeChanged(int index);
+	void onActionChanged(int index);
+	void pickColor();
+	void chooseDefinedParameter();
+	void updateDefinedParameterLabel();
 
-    QComboBox *typeCombo = nullptr;
-    QLabel *actionLabel = nullptr;
-    QComboBox *actionCombo = nullptr;
-    QWidget *parameterWidget = nullptr;
-    QPushButton *parameterButton = nullptr;
-    QLabel *parameterSummary = nullptr;
-    QString parameterPayload;
-    QString parameterTarget;
-    QWidget *mediaSeekWidget = nullptr;
-    QDoubleSpinBox *mediaSeekSpin = nullptr;
-    QLabel *targetLabel = nullptr;
-    QComboBox *targetCombo = nullptr;
-    QLineEdit *hotkeySearchEdit = nullptr;
-    QList<HotkeyChoice> hotkeyChoices;
-    QString preferredHotkeyId;
-    QWidget *fileWidget = nullptr;
-    QLineEdit *fileEdit = nullptr;
-    QWidget *transitionWidget = nullptr;
-    QComboBox *transitionCombo = nullptr;
-    QWidget *dskWidget = nullptr;
-    QLineEdit *dskNameEdit = nullptr;
-    QLineEdit *dskSceneEdit = nullptr;
-    QLineEdit *dskViewEdit = nullptr;
-    QPushButton *colorButton = nullptr;
-    QLineEdit *iconPathEdit = nullptr;
-     QCheckBox *durationCheck = nullptr;
-     QDoubleSpinBox *durationSpin = nullptr;
-     QLabel *timeInfoLabel = nullptr;
+	QComboBox *typeCombo = nullptr;
+	QLabel *actionLabel = nullptr;
+	QComboBox *actionCombo = nullptr;
+	QWidget *parameterWidget = nullptr;
+	QPushButton *parameterButton = nullptr;
+	QLabel *parameterSummary = nullptr;
+	QString parameterPayload;
+	QString parameterTarget;
+	QWidget *mediaSeekWidget = nullptr;
+	QDoubleSpinBox *mediaSeekSpin = nullptr;
+	QLabel *targetLabel = nullptr;
+	QComboBox *targetCombo = nullptr;
+	QLineEdit *hotkeySearchEdit = nullptr;
+	QList<HotkeyChoice> hotkeyChoices;
+	QString preferredHotkeyId;
+	QWidget *fileWidget = nullptr;
+	QLineEdit *fileEdit = nullptr;
+	QWidget *transitionWidget = nullptr;
+	QComboBox *transitionCombo = nullptr;
+	QWidget *dskWidget = nullptr;
+	QLineEdit *dskNameEdit = nullptr;
+	QLineEdit *dskSceneEdit = nullptr;
+	QLineEdit *dskViewEdit = nullptr;
+	QPushButton *colorButton = nullptr;
+	QLineEdit *iconPathEdit = nullptr;
+	QCheckBox *durationCheck = nullptr;
+	QDoubleSpinBox *durationSpin = nullptr;
+	QLabel *timeInfoLabel = nullptr;
 
-     QDoubleSpinBox *timeSpin = nullptr;
+	QDoubleSpinBox *timeSpin = nullptr;
 
-    QLineEdit *labelEdit = nullptr;
-    QCheckBox *showLabelCheck = nullptr;
+	QLineEdit *labelEdit = nullptr;
+	QCheckBox *showLabelCheck = nullptr;
 
-    QColor selectedColor;
-    double eventTimeMs = 0.0;
-    double initialDisplayedTimeSeconds = 0.0;
-    bool isNewMode = false;
+	QColor selectedColor;
+	double eventTimeMs = 0.0;
+	double initialDisplayedTimeSeconds = 0.0;
+	bool isNewMode = false;
 };
