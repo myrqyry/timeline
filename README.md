@@ -156,7 +156,10 @@ Macro Strip also supports live parameter controls alongside action buttons.
 Click **+ → Parameter control**, choose a source or a filter (including
 nested scene/group sources), and select an exposed property. Choose a
 **Slider** or **Knob** for integer/float properties, or a **Toggle** for
-boolean properties. The control uses the property's declared range and step
+boolean properties. Knobs use relative vertical dragging: up increases, down
+decreases, and holding Shift gives ten-times finer movement. Clicking does
+not change the value. Focus the knob to adjust by individual steps with the
+mouse wheel or arrow keys; an unfocused knob does not consume wheel scrolling. The control uses the property's declared range and step
 and displays its current value. Right-click to edit, move or remove a control.
 The assignment dialog refreshes its source/filter catalog and the selected
 target's property definitions once per second, without rebuilding unchanged

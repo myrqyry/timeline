@@ -7,6 +7,10 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDial>
+#include <QMouseEvent>
+#include <QKeyEvent>
+#include <QWheelEvent>
+#include <algorithm>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -20,6 +24,112 @@
 #include <cmath>
 
 namespace {
+// Keep the native Qt appearance and keyboard/accessibility behavior, but
+// use relative movement rather than QDial's absolute mouse-angle mapping.
+class RelativeDial final : public QDial {
+public:
+	explicit RelativeDial(QWidget *parent) : QDial(parent)
+	{
+		setFocusPolicy(Qt::StrongFocus);
+		setCursor(Qt::SizeVerCursor);
+	}
+
+protected:
+	void mousePressEvent(QMouseEvent *event) override
+	{
+		if (event->button() != Qt::LeftButton || !isEnabled()) {
+			event->ignore();
+			return;
+		}
+		setFocus(Qt::MouseFocusReason);
+		lastPosition = event->globalPosition();
+		dragValue = value();
+		setSliderDown(true);
+		event->accept();
+	}
+
+	void mouseMoveEvent(QMouseEvent *event) override
+	{
+		if (!isSliderDown() || !(event->buttons() & Qt::LeftButton)) {
+			event->ignore();
+			return;
+		}
+		const auto position = event->globalPosition();
+		const double delta = lastPosition.y() - position.y();
+		lastPosition = position;
+		const double span = static_cast<double>(maximum()) - minimum();
+		// Wide ranges cover their full travel in 160 logical pixels.
+		// Small discrete ranges need only eight pixels per step.
+		const double pixels = std::max(1.0, std::min(160.0, span * 8.0));
+		const double fine = event->modifiers().testFlag(Qt::ShiftModifier) ? 0.1 : 1.0;
+		dragValue = std::clamp(dragValue + delta * span / pixels * fine,
+			static_cast<double>(minimum()), static_cast<double>(maximum()));
+		setValue(static_cast<int>(std::round(dragValue)));
+		event->accept();
+	}
+
+	void mouseReleaseEvent(QMouseEvent *event) override
+	{
+		if (event->button() == Qt::LeftButton && isSliderDown()) {
+			setSliderDown(false);
+			event->accept();
+		} else {
+			event->ignore();
+		}
+	}
+
+	bool event(QEvent *event) override
+	{
+		if ((event->type() == QEvent::UngrabMouse ||
+		     (event->type() == QEvent::EnabledChange && !isEnabled())) && isSliderDown())
+			setSliderDown(false);
+		return QDial::event(event);
+	}
+
+	void keyPressEvent(QKeyEvent *event) override
+	{
+		if (isSliderDown()) {
+			event->ignore();
+			return;
+		}
+		switch (event->key()) {
+		case Qt::Key_Left:
+		case Qt::Key_Down:
+			setValue(std::max(minimum(), value() - singleStep()));
+			break;
+		case Qt::Key_Right:
+		case Qt::Key_Up:
+			setValue(std::min(maximum(), value() + singleStep()));
+			break;
+		default:
+			QDial::keyPressEvent(event);
+			return;
+		}
+		event->accept();
+	}
+
+	void wheelEvent(QWheelEvent *event) override
+	{
+		// Scrolling the strip must not accidentally adjust an unfocused knob.
+		if (!hasFocus() || isSliderDown() || !isEnabled() || event->angleDelta().y() == 0) {
+			event->ignore();
+			return;
+		}
+		wheelRemainder += event->angleDelta().y();
+		const int steps = wheelRemainder / 120;
+		wheelRemainder %= 120;
+		const auto next = static_cast<qint64>(value()) + static_cast<qint64>(steps) * singleStep();
+		setValue(static_cast<int>(std::clamp(next, static_cast<qint64>(minimum()),
+			static_cast<qint64>(maximum()))));
+		event->accept();
+	}
+
+private:
+	QPointF lastPosition;
+	double dragValue = 0;
+	int wheelRemainder = 0;
+};
+
 class ParameterWidget final : public QWidget {
 public:
 	ParameterWidget(const MacroButton &button, QWidget *parent)
@@ -61,7 +171,7 @@ public:
 			});
 		} else {
 			if (button.kind == MacroControlKind::Knob) {
-				auto *dial = new QDial(this);
+				auto *dial = new RelativeDial(this);
 				dial->setObjectName("macro-parameter-knob");
 				dial->setWrapping(false);
 				dial->setNotchesVisible(false);
@@ -121,8 +231,13 @@ private:
 		writeTimer.stop();
 		const auto value = pending;
 		pending.reset();
-		if (value && isVisible())
-			refresh(!MacroParameter::write(binding, *value));
+		if (value && isVisible()) {
+			const bool written = MacroParameter::write(binding, *value);
+			// Readback during a drag must not move the knob under the cursor.
+			// A failed write still invalidates an unavailable binding immediately.
+			if (!written || !(slider && slider->isSliderDown()))
+				refresh(!written);
+		}
 	}
 	void updateLabel(double value)
 	{
@@ -155,6 +270,8 @@ private:
 		if (valid) {
 			updateLabel(*value);
 			setToolTip(spec->label + " (" + binding.key + ")");
+			if (qobject_cast<QDial *>(slider))
+				slider->setToolTip(tr("Drag up/down · Shift: fine adjustment · Focus then scroll: one step"));
 		} else {
 			label->setText(title + " · " + tr("Unavailable"));
 			setToolTip(tr("Bound source, filter or property is unavailable. Right-click to edit."));

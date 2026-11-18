@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Relative Macro Strip knob interaction — 2026-11-18
+- User reports the stock knob interaction feels bad. Reproduced absolute-angle jump (press changed step 25 to step 3 without dragging). Replaced stock mouse-angle behavior with relative vertical dragging, fractional movement accumulator, clamped endpoints with immediate reversal, Shift fine mode, focused wheel/arrow steps and no unfocused wheel capture. Native dial rendering and saved bindings unchanged.
+- Avoid successful write readback interrupting an active slider/knob gesture; final release synchronizes, failed writes still validate the binding. Gesture test verifies no click jump, live write/readback, fine drag, endpoint reversal, release, keyboard handler and wheel focus behavior.
+- RED: /tmp/timeline-knob-red.log. GREEN: native OBS32 build and full strict Xvfb Qt/libobs suite 82 passed, zero failures/skips (/tmp/timeline-knob-full.log). Direct Qt key event handler verified, real native OBS shortcut routing and subjective mouse feel not yet verified.
+- Sensitivity chosen for first pass: 160 logical pixels/full range, up to eight pixels per step for small discrete ranges; Shift scales motion to 10%. No install/push; normal OBS remains running and must not be interrupted.
+
+
 ### Shared strip alignment and scheduled defined parameter values — 2026-11-18
 - User requests aligned labels/vertically centered controls and scheduled parameter value assignment. Shared Macro Strip label row (18 px), control row (34 px), center and caption font across the action bubble and native controls. Geometry regression tests all three native control kinds.
 - Added SetParameterValue (append-only ID 14) with versioned string payload, existing live property catalog and assignment dialog, numeric or On/Off value fields. No writes while configuring; cue sets one property at start, with live bounds/step validation and no duration-end action. Shared executor supports timeline and immediate Macro Strip action buttons. Missing/invalid bindings fail closed; ordinary saved event IDs unchanged. Existing live controls read back the value.

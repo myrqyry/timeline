@@ -2215,6 +2215,72 @@ private slots:
 		QVERIFY(!MacroParameter::read(enabled));
 	}
 
+	void testMacroKnobRelativeDragAndFineControl()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Knob gesture target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		MacroButton knob;
+		knob.kind = MacroControlKind::Knob;
+		knob.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		QWidget host;
+		auto *control = createMacroParameterWidget(knob, &host);
+		host.resize(200, 100);
+		control->resize(control->sizeHint());
+		host.show();
+		QCoreApplication::processEvents();
+		auto *dial = control->findChild<QDial *>("macro-parameter-knob");
+		QVERIFY(dial && dial->isEnabled());
+		QCOMPARE(dial->value(), 25);
+		const QPoint start(4, 22);
+		auto move = [&](const QPoint &point, Qt::KeyboardModifiers mods = Qt::NoModifier) {
+			QMouseEvent ev(QEvent::MouseMove, QPointF(point),
+				QPointF(dial->mapToGlobal(point)), Qt::NoButton, Qt::LeftButton, mods);
+			QCoreApplication::sendEvent(dial, &ev);
+		};
+		QSignalSpy changes(dial, &QDial::valueChanged);
+		QTest::mousePress(dial, Qt::LeftButton, Qt::NoModifier, start);
+		QCOMPARE(dial->value(), 25); // no absolute-angle jump on click
+		QVERIFY(dial->isSliderDown());
+		move(start + QPoint(0, -20));
+		QCOMPARE(dial->value(), 30);
+		QTest::qWait(150); // coalesced live write must not reset gesture
+		QCOMPARE(dial->value(), 30);
+		move(start + QPoint(0, -40), Qt::ShiftModifier);
+		QVERIFY(dial->value() >= 30 && dial->value() <= 31);
+		move(start + QPoint(0, 0));
+		QVERIFY(dial->value() < 25);
+		move(start + QPoint(0, -1000));
+		QCOMPARE(dial->value(), dial->maximum());
+		move(start + QPoint(0, -980)); // reversing at limit responds immediately
+		QCOMPARE(dial->value(), dial->maximum() - 5);
+		QTest::mouseRelease(dial, Qt::LeftButton, Qt::NoModifier, start + QPoint(0, -980));
+		QVERIFY(!dial->isSliderDown());
+		QTRY_VERIFY(qAbs(MacroParameter::read(knob.binding).value() - 0.75) < 1e-9);
+		const int before = changes.count();
+		QTest::mousePress(dial, Qt::LeftButton, Qt::NoModifier, start);
+		QTest::mouseRelease(dial, Qt::LeftButton, Qt::NoModifier, start);
+		QCOMPARE(changes.count(), before);
+		QApplication::setActiveWindow(&host);
+		dial->setFocus();
+		QTRY_VERIFY(dial->hasFocus());
+		QVERIFY(!dial->isSliderDown());
+		QCOMPARE(dial->singleStep(), 1);
+		QKeyEvent arrow(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier);
+		QCoreApplication::sendEvent(dial, &arrow);
+		QCOMPARE(dial->value(), 34);
+		QWheelEvent wheel(QPointF(start), QPointF(dial->mapToGlobal(start)), QPoint(), QPoint(0, 120),
+			Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+		QCoreApplication::sendEvent(dial, &wheel);
+		QCOMPARE(dial->value(), 35);
+		dial->clearFocus();
+		QWheelEvent unfocused(QPointF(start), QPointF(dial->mapToGlobal(start)), QPoint(), QPoint(0, -120),
+			Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+		QCoreApplication::sendEvent(dial, &unfocused);
+		QCOMPARE(dial->value(), 35);
+		QVERIFY(!unfocused.isAccepted());
+	}
+
 	void testMacroControlRowsAligned()
 	{
 		MacroStripDock dock;

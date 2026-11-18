@@ -286,7 +286,11 @@ refresh while a dropdown popup is open. Final acceptance revalidates the
 binding against the current property schema.
 
 Native Qt slider/dial/check box controls read current OBS settings without
-writing at startup. Visible widgets poll values every 250 ms, refresh the
+writing at startup. The dial retains Qt rendering but uses relative vertical
+mouse movement with a fractional accumulator, saturates at range endpoints,
+and scales drag motion by 0.1 with Shift. Successful coalesced writes do not
+read back into controls during an active drag; final release resumes normal
+readback. Focused wheel and arrow events adjust individual steps. Visible widgets poll values every 250 ms, refresh the
 property schema approximately every two seconds, and block UI signals during
 readback. Continuous writes are coalesced at 80 ms intervals, with an immediate
 final write on slider release; boolean toggles write immediately. Each write
