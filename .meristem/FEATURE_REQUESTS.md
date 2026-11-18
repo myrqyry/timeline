@@ -5,8 +5,8 @@ Track only requested capabilities that are not implemented. No new feature was r
 
 ## Deferred ideas already documented
 
-The `README.md` roadmap lists undo/redo, multi-selection, unified visibility events, HTTP action events and fully tested cross-platform installers. These are **not current features**. Use the README and issue tracker as the authoritative list; do not silently promote roadmap entries into active work.
+The `README.md` roadmap now lists additional multi-selection tools, HTTP action events and tested cross-platform installers. Unified action categories, event undo/redo and batch paste/delete/nudge are implemented. Live scalar controls and instantaneous scheduled parameter assignment are implemented; animated parameter ramps, non-scalar property controls and custom ranges are not current capabilities. Use the README and issue tracker as the authoritative list; do not silently promote roadmap entries into active work.
 
 ## Current focus
 
-Before expanding the feature set, finish the interactive OBS validation and release-readiness gates in `docs/RELEASE_CHECKLIST.md`. This is release validation, not a new feature request.
+For release readiness, finish the interactive OBS validation and release-readiness gates in `docs/RELEASE_CHECKLIST.md`. This is release validation, not a new feature request.

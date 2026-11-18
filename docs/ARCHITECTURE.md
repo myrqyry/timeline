@@ -186,7 +186,7 @@ generated during default construction.
 | `hasDuration` | Whether the scheduler emits an end event |
 | `durationMs` | Duration in milliseconds |
 
-The enum contains fourteen values, with IDs preserved and new operations
+The enum contains fifteen values, with IDs preserved and new operations
 appended. Historical `MediaSeek` (ID 3) is reserved; the shared editor
 groups the five current media actions under Media Playback.
 
@@ -209,6 +209,7 @@ The executor interprets duration and instant events differently:
 | `SceneSwitch` | Switch scene | No end action |
 | `HotkeyTrigger` | Trigger named hotkey | No end action |
 | `TriggerTimeline` | Start nested file | No end action |
+| `DownstreamKeyerScene` | Select or hide named keyer scene | Hide overlay |
 
 New media actions use appended IDs 11–13; historical ID 3
 (`MediaSeek`) remains reserved and does not execute. The common editor
@@ -276,13 +277,15 @@ Existing live parameter widgets read the resulting OBS value normally.
 The target catalog traverses scene/group sources and enumerates standalone
 sources and their filters. Bindings resolve by UUID only; private filters are
 resolved through their owner. Property discovery walks visible, enabled
-numeric/boolean properties recursively, honoring checkable groups.
+numeric/boolean properties recursively, honoring checkable groups. Dedicated
+action adapters are not required for standard scalar properties.
 The parameter editor reads the current property description, range, step and
 suffix; missing saved keys require explicit reassignment. The editor refreshes the live
 target catalog and selected target schema at one-second intervals, comparing
 records before changing combo box contents. It retains valid UUID/key/type
 selections and the chosen control kind, clears invalid choices, and defers
-refresh while a dropdown popup is open. Final acceptance revalidates the
+refresh while a dropdown popup is open (or the numeric defined-value field
+has focus). Final acceptance revalidates the
 binding against the current property schema.
 
 Native Qt slider/dial/check box controls read current OBS settings without
@@ -290,7 +293,8 @@ writing at startup. The dial retains Qt rendering but uses relative vertical
 mouse movement with a fractional accumulator, saturates at range endpoints,
 and scales drag motion by 0.1 with Shift. Successful coalesced writes do not
 read back into controls during an active drag; final release resumes normal
-readback. Focused wheel and arrow events adjust individual steps. Visible widgets poll values every 250 ms, refresh the
+readback. Focused wheel and arrow events adjust individual steps. Visible
+widgets poll values every 250 ms, refresh the
 property schema approximately every two seconds, and block UI signals during
 readback. Continuous writes are coalesced at 80 ms intervals, with an immediate
 final write on slider release; boolean toggles write immediately. Each write
@@ -385,20 +389,24 @@ required whenever a source survives the list lifetime.
 
 ### Source visibility
 
-The executor first checks the current scene. If the source is not found there,
-it enumerates all frontend scenes and stops at the first matching scene item
-(`src/obs-executor.cpp:259-303`). The fallback search is potentially expensive
-for large scene collections, so callers should not move it into a high-frequency
-render path.
+Explicit scene-item targets resolve the owner UUID, item ID and source UUID
+through `SceneItemTarget::setVisible()`. Missing or invalid identities do not
+fall back. Legacy name-based actions check the current scene first, then
+enumerate frontend scenes and stop at the first matching item. The fallback
+search can be expensive in large scene collections.
 
-### Media and filters
+### Media, filters and properties
 
-Media start and stop resolve a source by name and call
-`obs_source_media_restart()` or `obs_source_media_stop()`
-(`src/obs-executor.cpp:227-257`). Filter operations resolve the source, find the
-named filter, toggle it, and release both source references
-(`src/obs-executor.cpp:305-334`). Missing targets produce warnings rather than
-throwing or terminating playback.
+Media actions use `MediaTarget` for explicit UUID or legacy name resolution,
+then call restart, stop, play/pause, or set-time via libobs. Seek clamps to
+known positive media duration. Filter enable/disable still resolves a named
+source and filter. Missing targets produce warnings rather than terminating
+playback.
+
+`SetParameterValue` decodes its versioned payload and calls
+`MacroParameter::write()` on start only. Live controls use that same validated
+typed patch path without going through the scheduler or executor. OBS owns
+the settings; the target plugin owns the result of applying them.
 
 ### Hotkeys
 
@@ -475,7 +483,8 @@ The viewport event filter implements:
 
 - Context-menu event insertion at a clicked time.
 - Control-wheel stepped zoom.
-- Horizontal wheel scrolling.
+- Horizontal wheel scrolling, with Shift-wheel scrolling additional lanes
+  vertically when needed.
 - Playhead scrubbing.
 - End-marker dragging.
 - Hover time display.
@@ -484,6 +493,22 @@ These paths are implemented in `src/timeline-dock.cpp:1067-1257`. Event items
 handle their own drag, hover, selection, edit, color, and delete signals
 (`src/timeline-event-item.cpp:165-225`). The dock converts those signals into
 model mutations in `src/timeline-dock.cpp:1830-1872`.
+
+### Compact layout and viewport bounds
+
+Compact mode updates toolbar icon sizes, timecode, marker dimensions and
+stacking together, on toggle and document load. Zoom also recomputes lanes
+while preserving item identity and exact timestamps. The minimum graphics
+viewport reserves the ruler, one complete event bubble and decoration, plus
+horizontal scrollbar/frame space. Scene height is the larger of the viewport
+and event content height; additional lanes become vertically scrollable
+instead of imposing an unbounded minimum dock height. The ruler currently
+scrolls with the scene. Playhead, grid and end marker use the scene height.
+
+Macro Strip uses shared caption and control rows derived from caption font
+metrics, native slider/toggle size hints and the fixed dial size. The inner
+scroll area reserves horizontal scrollbar space; the outer dock remains
+resizable. Rows recalculate on model rebuild and frontend theme changes.
 
 ### Grid, snapping, and BPM
 
@@ -507,7 +532,9 @@ change this to `deleteLater()` without re-evaluating rapid rebuild behavior.
 
 ### Keyboard shortcuts
 
-The dock registers Space, Delete, Home, copy, and paste shortcuts. Space uses
+The dock registers Space, Delete, Home, copy, paste, and native Undo/Redo
+shortcuts. Undo/Redo is scoped to dock children and disabled for playback
+and active drags; history edits never execute OBS actions. Space uses
 `WidgetWithChildrenShortcut` but ignores activation while a line edit or combo
 box has focus (`src/timeline-dock.cpp:683-696`). Left and Right nudge selected
 events by one second; Shift reduces the nudge to 100 ms
@@ -575,13 +602,12 @@ and type-specific data (`src/timeline-model.cpp:75-174`).
 ### Macro Strip JSON
 
 Macro data uses an object with `buttons` and `version`. Each button stores its
-ID, label, type, source, optional filter, optional data, and color
+ID, label, type, source, optional filter, optional data, and color.
 Parameter records also store `control` and `binding` (sourceUuid, filterUuid,
 key, type), and use the reserved invalid numeric event type -1 so old builds
 cannot execute them as actions. Invalid/unknown parameter records reject the
 document without replacing the current model. Legacy invalid event types
-are skipped, duplicate
-or missing IDs are regenerated. Macro Strip loading attempts to rename files
+are skipped; duplicate or missing IDs are regenerated. Macro Strip loading attempts to rename files
 that cannot be opened or parsed with a `.broken-<timestamp>` suffix; valid JSON
 with an invalid document shape is rejected without that rename. Macro Strip stores the
 current file in the writable OBS plugin configuration directory; if absent,
@@ -661,7 +687,7 @@ The plugin reads and writes local JSON files. Timeline paths can be selected in
 the event editor and nested timeline paths are opened directly by Qt
 (`src/event-editor.cpp:60-76`, `src/headless-timeline.cpp:35-70`). Treat imported
 timeline files as trusted local configuration: they can cause OBS scene,
-source, filter, media, and hotkey operations when played.
+source, filter, media, property-setting, and hotkey operations when played.
 
 The plugin does not execute shell commands or interpret JSON as code. It passes
 event fields to OBS APIs and Qt file APIs. A future network or command event
@@ -755,9 +781,10 @@ TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
   build_x86_64/tests/run_tests testSchedulerStartCursorResets
 ```
 
-The test doubles are intentionally incomplete OBS source implementations. They
-verify dispatch and lifetime paths but cannot prove all behavior of real OBS
-scene, media, filter, transition, or graphics objects (`tests/AGENTS.md:25-30`).
+Tests use real Qt widgets, libobs scenes and registered fixture sources,
+with mocked OBS frontend and WebSocket functions. They verify dispatch,
+property callbacks, editing and lifetime paths but cannot prove all behavior
+of actual third-party sources, FFmpeg/VLC playback, or rendered output (`tests/AGENTS.md:25-30`).
 The release checklist therefore requires a real OBS smoke test in addition to
 the automated suite (`docs/RELEASE_CHECKLIST.md:11-49`).
 

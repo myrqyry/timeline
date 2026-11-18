@@ -1,6 +1,10 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Documentation and synchronization checkpoint — 2026-11-18
+- Runtime baseline: `59c3c25`, native OBS32 build, 84 strict Qt/libobs tests passed with no failures/skips. README, architecture, release checklist and durable project context reconciled with the implemented editor, scheduling, dynamic parameter controls and layout changes.
+- User requested pushing the verified local series to existing main. The historical notes below retain their original per-checkpoint install/push status. Last installed runtime remains `3681512`; newer changes need native OBS interactive acceptance. No release, tag or install in this documentation pass.
+
 ### Dock height constraints and restored Timeline compact mode — 2026-11-18
 - User requests non-cropping height limits and restored compact mode. Timeline compact toggle/load now updates toolbar/timecode, marker size and lane assignments; zoom also recomputes lanes. Viewport minimum includes a complete single event row, ruler, selection/hover padding, horizontal scrollbar and frame. Additional lanes extend scene height and can be reached via vertical scrollbar or Shift+wheel, without forcing an unbounded dock height. Grid/playhead/end/drag markers cover the full scene height; horizontal playhead following preserves vertical view. Geometry notifications corrected for label/duration changes.
 - Macro Strip measures caption and actual themed slider/toggle dimensions, retains the intentionally sized knob, applies common row heights to action and live controls, and reserves scrollbar space. Inner content/scroll height constrained; outer dock remains resizable. RED: compact toolbar remained 32px instead of 28px; oversized 42px checkbox was clipped. GREEN: focused tests and native OBS32 build/full strict Xvfb Qt/libobs suite 84 passed, zero failures/skips (logs /tmp/timeline-height-red.log, /tmp/timeline-strip-height-red.log, /tmp/timeline-height-full.log).

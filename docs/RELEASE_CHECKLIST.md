@@ -28,6 +28,22 @@ This is an evidence record, **not approval to tag**. Repeat the relevant checks
 after additional commits. Windows/macOS **runtime installation and interactive
 use have not been demonstrated**.
 
+## Recent local checkpoint (2026-11-18)
+
+- Source commit `59c3c25`: native OBS32 module build; strict Xvfb Qt/libobs
+  suite **84 passed, 0 failed, 0 skipped**. Covers exact-time editing,
+  late-tick cue ordering, undo/redo, live scalar property controls,
+  scheduled parameter values, relative knob gestures, and compact dock sizing.
+- Earlier commit `3681512`: installed in native OBS 32.2.0, with both docks
+  and the WebSocket vendor registering in isolated OBS startup. Existing
+  configuration checksums were unchanged.
+- The actual HyperShaderFX property smoke verified effect opacity and a
+  shader-specific numeric uniform through the binding layer, not rendered
+  pixels.
+- Latest UI changes still require installation and manual visual testing.
+  Current remote CI, OBS31/33 and Windows/macOS runtime are not verified
+  by this local checkpoint.
+
 ## Before tagging (release blockers)
 
 - [ ] Confirm the exact commit, its six build jobs, two Linux test jobs and
@@ -78,17 +94,31 @@ runtime check**. Run the OBS 31 suite with `obs31` in its own build tree.
   View → Docks without a crash or startup error.
 - [ ] Add, edit, drag, duplicate/copy, delete and paste events. Verify grid
   snapping, zoom, duration handles and playhead seeking.
+- [ ] Test compact mode toggle/reload, minimum dock height, and stacked lane
+  scrolling. Resize Macro Strip with mixed controls, long labels and visible
+  horizontal scrollbar under the active OBS theme.
+- [ ] Verify undo/redo for exact-time edits, dragging and grouped operations;
+  confirm it does not execute OBS actions and is disabled during playback.
 - [ ] Save/restart/reload both timeline and Macro Strip state; import valid and
   invalid JSON. Corrupt imports must not erase current data.
 - [ ] Verify Macro Strip migration from legacy Linux storage, scene-collection
   backup fallback, and protection of newer or unsaved edits.
 - [ ] Trigger scene switch (default and named temporary transition), source
-  show/hide, filter enable/disable, media start/stop, OBS hotkey and nested
+  show/hide (including nested items), filter enable/disable, media
+  restart/stop/pause/resume/seek, OBS hotkey and nested
   timeline events against actual OBS sources.
+- [ ] Bind sliders, knobs and toggles to actual source/filter properties. Check
+  live discovery after rename/add/remove or shader change, relative/Shift
+  drag, key/wheel routing, external readback and binding persistence. Verify
+  missing targets cannot redirect writes.
+- [ ] Schedule numeric and boolean Set Parameter Value cues and trigger
+  immediate preset buttons; verify no configuration-time writes, actual
+  plugin behavior, and Macro Strip readback.
 - [ ] Stop a parent timeline while a nested temporary transition is active:
   OBS must return to the original transition.
 - [ ] Verify looping, pause/resume, seeking across duration boundaries and
-  stopping during an active duration event.
+  stopping during an active duration event. Check final cues at the end
+  marker and chronological ordering after a delayed UI timer tick.
 - [ ] Check WebSocket-off builds run normally; independently test vendor
   integration only if the proper `obs-websocket-api.h` was available at build
   time. Do not confuse the optional vendor integration with the OBS WebSocket
