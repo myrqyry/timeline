@@ -1,5 +1,11 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+### Exact-time editing and drag preview — 2026-11-18
+- Corrected a Timeline editing defect: grid snapping previously applied inside ItemPositionChange during zoom, compact-mode changes, stacking and exact-time model updates. A 2345 ms marker displayed at 2500 ms under a 500 ms grid. Snap now applies only to an active user drag, not layout updates.
+- Drag guide now reports the post-clamp position, so it agrees with the visible marker and committed time at the timeline boundary.
+- RED: both new QGraphicsScene regressions failed on the existing implementation (2345 became 2500; preview 2000 vs clamped 1750). GREEN: native OBS32 module built; strict Xvfb Qt/libobs suite 65 passed, 0 failed, 0 skipped. Tests cover zoom, compact mode, stacking, exact time updates, snapping while dragging and end-marker clamping.
+- Scope is the existing Timeline editor; no event schema change, new trigger model, installation or profile modification. Manual GUI and cross-platform checks remain outstanding. Logs /tmp/timeline-snap-red.log and /tmp/timeline-snap-full.log.
+
 ### Media playback actions — 2026-11-18
 - Shared Timeline/Macro Strip Media Playback now offers Restart, Stop, Pause, Resume and Seek to (absolute seconds, millisecond precision). Timed Pause resumes at the end and timed Resume pauses at the end; Seek is instant and clamps to known duration. Legacy Restart/Stop inverses retained. New numeric IDs 11–13 appended; historical ID 3 stays reserved.
 - Media picker uses OBS controllable-media output flag, current scene then other scene collection roots, nested groups/scenes, source UUID deduplication. New media target data string carries UUID and seek milliseconds; legacy name-based actions remain readable. Missing explicit UUID and malformed versioned data refuse execution; no silent retarget. Older binaries do not understand new actions/target identity.

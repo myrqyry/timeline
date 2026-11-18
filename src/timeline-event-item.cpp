@@ -407,45 +407,32 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
 		// Keep Y at stacked position
 		newPos.setY(baseY + (stackOffset * (mItemSize + 4)));
 
-		// Snap to grid if enabled
-		if (snapEnabled && snapIntervalMs > 0) {
-			double centerX = newPos.x() + mItemSize / 2.0;
-			double timeMs = centerX / pixelsPerSecond * 1000.0;
-
-			double snappedTimeMs = std::round(timeMs / snapIntervalMs) * snapIntervalMs;
-
-			double snappedCenterX = snappedTimeMs / 1000.0 * pixelsPerSecond;
-			newPos.setX(snappedCenterX - mItemSize / 2.0);
-
-			if (isBeingDragged && !suppressDragSignals) {
-				if (!dragStartedEmitted) {
-					dragStartedEmitted = true;
-					emit dragStarted();
-				}
-				emit dragMoved(std::max(0.0, snappedTimeMs));
-			}
-		} else {
-			double centerX = newPos.x() + mItemSize / 2.0;
-			double timeMs = centerX / pixelsPerSecond * 1000.0;
-			if (timeMs < 0)
-				timeMs = 0;
-			if (isBeingDragged && !suppressDragSignals) {
-				if (!dragStartedEmitted) {
-					dragStartedEmitted = true;
-					emit dragStarted();
-				}
-				emit dragMoved(timeMs);
-			}
+		// Snapping is an editing gesture, not a layout operation. Zoom,
+		// compact mode, stacking and model updates must preserve exact time.
+		const bool userDrag = isBeingDragged && !suppressDragSignals;
+		if (userDrag && snapEnabled && snapIntervalMs > 0) {
+			const double timeMs = (newPos.x() + mItemSize / 2.0) / pixelsPerSecond * 1000.0;
+			const double snapped = std::round(timeMs / snapIntervalMs) * snapIntervalMs;
+			newPos.setX(snapped / 1000.0 * pixelsPerSecond - mItemSize / 2.0);
 		}
 
-		double minX = -mItemSize / 2.0;
+		const double minX = -mItemSize / 2.0;
 		if (newPos.x() < minX)
 			newPos.setX(minX);
 
 		if (maxTimeMs >= 0) {
-			double maxX = (maxTimeMs / 1000.0) * pixelsPerSecond - mItemSize / 2.0;
+			const double maxX = maxTimeMs / 1000.0 * pixelsPerSecond - mItemSize / 2.0;
 			if (newPos.x() > maxX)
 				newPos.setX(maxX);
+		}
+
+		// The guide and committed position must agree, even at the end marker.
+		if (userDrag) {
+			if (!dragStartedEmitted) {
+				dragStartedEmitted = true;
+				emit dragStarted();
+			}
+			emit dragMoved((newPos.x() + mItemSize / 2.0) / pixelsPerSecond * 1000.0);
 		}
 
 		return newPos;

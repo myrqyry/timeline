@@ -1,3 +1,4 @@
+#include <QGraphicsScene>
 #include <QApplication>
 #include <QScopeGuard>
 #include <QDoubleSpinBox>
@@ -1564,6 +1565,57 @@ private slots:
 		item.mouseReleaseEvent(&releaseEvent);
 
 		QCOMPARE(movedSpy.count(), 0);
+	}
+
+	void testEventItemSnapDoesNotRoundExactTimeDuringLayout()
+	{
+		QGraphicsScene scene;
+		auto *item = new ExposedTimelineEventItem(2345.0, 100.0, TimelineEventType::SceneSwitch);
+		scene.addItem(item);
+		item->setSnapEnabled(true);
+		item->setSnapInterval(500.0);
+		QSignalSpy moved(item, &TimelineEventItem::eventMoved);
+		item->setPixelsPerSecond(200.0);
+		QCOMPARE(item->getTimeMs(), 2345.0);
+		item->setCompactMode(true);
+		QCOMPARE(item->getTimeMs(), 2345.0);
+		item->setStackOffset(2);
+		QCOMPARE(item->getTimeMs(), 2345.0);
+		item->setTimeMs(1375.0);
+		QCOMPARE(item->getTimeMs(), 1375.0);
+		item->setSuppressDragSignals(true);
+		item->setPixelsPerSecond(100.0);
+		item->setSuppressDragSignals(false);
+		QCOMPARE(item->getTimeMs(), 1375.0);
+		QCOMPARE(moved.count(), 0);
+	}
+
+	void testEventItemDragSnapsAndReportsClampedPosition()
+	{
+		QGraphicsScene scene;
+		auto *item = new ExposedTimelineEventItem(1000.0, 100.0, TimelineEventType::SceneSwitch);
+		scene.addItem(item);
+		item->setSnapEnabled(true);
+		item->setSnapInterval(500.0);
+		item->setMaxTime(1750.0);
+		QSignalSpy preview(item, &TimelineEventItem::dragMoved);
+		QSignalSpy committed(item, &TimelineEventItem::eventMoved);
+		QGraphicsSceneMouseEvent press(QEvent::GraphicsSceneMousePress);
+		press.setButton(Qt::LeftButton);
+		press.setButtons(Qt::LeftButton);
+		item->mousePressEvent(&press);
+		item->setX(137.0 - TimelineEventItem::ITEM_SIZE / 2.0);
+		QCOMPARE(item->getTimeMs(), 1500.0);
+		QCOMPARE(preview.last().at(0).toDouble(), 1500.0);
+		item->setX(210.0 - TimelineEventItem::ITEM_SIZE / 2.0);
+		QCOMPARE(item->getTimeMs(), 1750.0);
+		QCOMPARE(preview.last().at(0).toDouble(), 1750.0);
+		QGraphicsSceneMouseEvent release(QEvent::GraphicsSceneMouseRelease);
+		release.setButton(Qt::LeftButton);
+		release.setButtons(Qt::NoButton);
+		item->mouseReleaseEvent(&release);
+		QCOMPARE(committed.count(), 1);
+		QCOMPARE(committed.last().at(0).toDouble(), 1750.0);
 	}
 
 	void testEventItemCompactModePreservesTime()
