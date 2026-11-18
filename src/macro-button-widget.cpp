@@ -63,7 +63,16 @@ QSize MacroButtonWidget::sizeHint() const
 	labelFont.setBold(true);
 	const int labelWidth = QFontMetrics(labelFont).horizontalAdvance(fallbackLabel(m_button)) + 8;
 	// Keep labels readable without making a long macro name dominate the strip.
-	return QSize(qBound(static_cast<int>(kBubbleSize) + 12, labelWidth, 160), kWidgetHeight);
+	return QSize(qBound(static_cast<int>(kBubbleSize) + 12, labelWidth, 160), m_labelHeight + m_controlHeight);
+}
+
+void MacroButtonWidget::setRowHeights(int labelHeight, int controlHeight)
+{
+	m_labelHeight = labelHeight;
+	m_controlHeight = controlHeight;
+	setFixedHeight(labelHeight + controlHeight);
+	updateGeometry();
+	update();
 }
 
 QSize MacroButtonWidget::minimumSizeHint() const
@@ -118,7 +127,7 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	const double bubble = kBubbleSize;
 	const double bubbleGrowth = m_isPressed ? -1.0 : (m_isHovered ? 3.0 : 0.0);
 	const double radius = (bubble + bubbleGrowth) / 2.0;
-	const QPointF center(width() / 2.0, kControlCenterY); // shared control row center
+	const QPointF center(width() / 2.0, m_labelHeight + m_controlHeight / 2.0); // shared control row center
 
 	// Hover glow
 	if (m_isHovered && !m_isPressed) {
@@ -153,7 +162,7 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		QFontMetrics fm(font);
 		const int textW = fm.horizontalAdvance(label);
 		const int boxW = qMin(textW + padX * 2, width());
-		const int boxH = kLabelHeight;
+		const int boxH = m_labelHeight;
 		const int boxX = (width() - boxW) / 2;
 		const int boxY = 0;
 

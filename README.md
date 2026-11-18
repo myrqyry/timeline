@@ -107,6 +107,19 @@ types remain unchanged, so previously saved Show/Hide, Start/Stop, and
 Enable/Disable events load and edit with the correct operation selected. Timed
 actions retain their existing inverse operation on duration end.
 
+### Compact layout and dock height
+
+**Settings → Compact mode** shrinks Timeline markers, toolbar buttons and
+timecode together, recalculates event stacking, and persists when loading
+a timeline. The dock retains enough height for the ruler, one complete
+event row, and the horizontal scrollbar. If overlapping events need more
+lanes than fit, use the vertical scrollbar or Shift + mouse wheel. Normal
+wheel scrolling remains horizontal; Ctrl + wheel zooms.
+
+Macro Strip measures its themed controls and uses a shared caption and
+control row. Its content height includes scrollbar space without forcing
+the outer OBS dock to expand vertically.
+
 ### Setting a parameter at a scheduled time
 
 Select **Set Parameter Value** when adding an event, then **Choose parameter

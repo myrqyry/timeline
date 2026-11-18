@@ -74,6 +74,7 @@ private:
 	bool m_dirty = false;
 
 	void setupUi();
+	void updateStripHeight();
 	void connectModel();
 	void showAddEditor();
 	void showEditEditor(const QString &id);

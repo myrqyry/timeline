@@ -1,6 +1,7 @@
 #include "macro-parameter-widget.h"
 #include "macro-button-widget.h"
 #include <QDoubleSpinBox>
+#include <QFontMetrics>
 
 #include <QAbstractSlider>
 #include <QAbstractItemView>
@@ -154,7 +155,7 @@ public:
 		label->setText(title);
 		label->setAttribute(Qt::WA_TransparentForMouseEvents);
 		layout->addWidget(label);
-		auto *controlRow = new QWidget(this);
+		controlRow = new QWidget(this);
 		controlRow->setFixedHeight(MacroButtonWidget::kControlHeight);
 		auto *controlLayout = new QVBoxLayout(controlRow);
 		controlLayout->setContentsMargins(0, 0, 0, 0);
@@ -213,6 +214,26 @@ public:
 		});
 		refresh(true);
 		readTimer.start();
+	}
+
+	QSize requiredRows() const
+	{
+		const int labelHeight = std::max(MacroButtonWidget::kLabelHeight,
+			QFontMetrics(label->font()).height() + 2);
+		auto *input = slider ? static_cast<QWidget *>(slider) : static_cast<QWidget *>(toggle);
+		input->ensurePolished();
+		// A dial has an intentional fixed size; native sliders and toggles
+		// need their theme's actual size hint, not a guessed pixel height.
+		const int height = qobject_cast<QDial *>(input) ? input->height() :
+			std::max(input->sizeHint().height(), input->minimumSizeHint().height());
+		return QSize(labelHeight, std::max(MacroButtonWidget::kControlHeight, height));
+	}
+	void setRowHeights(int labelHeight, int controlHeight)
+	{
+		label->setFixedHeight(labelHeight);
+		controlRow->setFixedHeight(controlHeight);
+		setFixedHeight(labelHeight + controlHeight);
+		updateGeometry();
 	}
 private:
 	void queueValue(double value)
@@ -283,6 +304,7 @@ private:
 	QAbstractSlider *slider = nullptr;
 	QCheckBox *toggle = nullptr;
 	QLabel *label = nullptr;
+	QWidget *controlRow = nullptr;
 	QString title;
 	QTimer readTimer;
 	QTimer writeTimer;
@@ -293,6 +315,19 @@ private:
 QWidget *createMacroParameterWidget(const MacroButton &button, QWidget *parent)
 {
 	return new ParameterWidget(button, parent);
+}
+
+QSize macroParameterRequiredRows(QWidget *widget)
+{
+	if (auto *control = dynamic_cast<ParameterWidget *>(widget))
+		return control->requiredRows();
+	return QSize(0, 0);
+}
+
+void setMacroParameterRows(QWidget *widget, int labelHeight, int controlHeight)
+{
+	if (auto *control = dynamic_cast<ParameterWidget *>(widget))
+		control->setRowHeights(labelHeight, controlHeight);
 }
 
 static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButton &initial,

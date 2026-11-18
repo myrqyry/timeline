@@ -43,6 +43,9 @@ public:
 	QString getEventLabel() const { return eventLabel; }
 	void setShowLabel(bool show)
 	{
+		if (showLabel == show)
+			return;
+		prepareGeometryChange();
 		showLabel = show;
 		update();
 	}

@@ -85,6 +85,8 @@ private:
 	void applyTimelineDocument(const TimelineDocument &doc);
 	void updatePlayhead(double timeMs);
 	void updateLayout();
+	void updateViewportGeometry();
+	double eventContentHeight = 0.0;
 	void drawRuler();
 	void drawGrid();
 	void clearRuler();

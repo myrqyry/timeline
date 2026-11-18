@@ -45,7 +45,7 @@ double TimelineEventItem::getTimeMs() const
 
 QRectF TimelineEventItem::boundingRect() const
 {
-	double padding = 6.0; // Enough for selection ring
+	double padding = 8.0; // Selection ring and hover glow
 	QRectF baseRect(0, 0, mItemSize, mItemSize);
 	QRectF totalRect = baseRect.adjusted(-padding, -padding, padding, padding);
 
@@ -62,14 +62,14 @@ QRectF TimelineEventItem::boundingRect() const
 	}
 
 	// Account for label pill above the bubble
-	if (!eventLabel.isEmpty()) {
+	if (showLabel && !eventLabel.isEmpty()) {
 		QFont f;
 		f.setPointSize(8);
 		f.setBold(true);
 		QFontMetrics fm(f);
 		int boxW = fm.horizontalAdvance(eventLabel) + 8;
 		int boxH = fm.ascent() + fm.descent() + 2;
-		QRectF labelRect(mItemSize / 2.0 - boxW / 2.0, -boxH - 3.0, boxW, boxH);
+		QRectF labelRect(mItemSize / 2.0 - boxW / 2.0, -boxH - 4.0, boxW, boxH + 4.0);
 		totalRect = totalRect.united(labelRect);
 	}
 
@@ -85,6 +85,7 @@ void TimelineEventItem::setPixelsPerSecond(double pxPerSec)
 {
 	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	double currentTime = getTimeMs();
+	prepareGeometryChange();
 	pixelsPerSecond = pxPerSec;
 	// Recalculate position (center aligned)
 	setPos(((currentTime / 1000.0) * pixelsPerSecond) - (mItemSize / 2.0), y());
@@ -139,6 +140,9 @@ void TimelineEventItem::refreshRenderer()
 
 void TimelineEventItem::setEventLabel(const QString &label)
 {
+	if (eventLabel == label)
+		return;
+	prepareGeometryChange();
 	eventLabel = label;
 	update();
 }
@@ -349,12 +353,18 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 
 void TimelineEventItem::setDuration(double duration)
 {
+	if (durationMs == duration)
+		return;
+	prepareGeometryChange();
 	durationMs = duration;
 	update();
 }
 
 void TimelineEventItem::setHasDuration(bool enabled)
 {
+	if (hasDuration == enabled)
+		return;
+	prepareGeometryChange();
 	hasDuration = enabled;
 	update();
 }

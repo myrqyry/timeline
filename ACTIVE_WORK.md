@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Dock height constraints and restored Timeline compact mode — 2026-11-18
+- User requests non-cropping height limits and restored compact mode. Timeline compact toggle/load now updates toolbar/timecode, marker size and lane assignments; zoom also recomputes lanes. Viewport minimum includes a complete single event row, ruler, selection/hover padding, horizontal scrollbar and frame. Additional lanes extend scene height and can be reached via vertical scrollbar or Shift+wheel, without forcing an unbounded dock height. Grid/playhead/end/drag markers cover the full scene height; horizontal playhead following preserves vertical view. Geometry notifications corrected for label/duration changes.
+- Macro Strip measures caption and actual themed slider/toggle dimensions, retains the intentionally sized knob, applies common row heights to action and live controls, and reserves scrollbar space. Inner content/scroll height constrained; outer dock remains resizable. RED: compact toolbar remained 32px instead of 28px; oversized 42px checkbox was clipped. GREEN: focused tests and native OBS32 build/full strict Xvfb Qt/libobs suite 84 passed, zero failures/skips (logs /tmp/timeline-height-red.log, /tmp/timeline-strip-height-red.log, /tmp/timeline-height-full.log).
+- Deliberate choice: vertical overflow scrolls the scene (including ruler) instead of compressing or hiding extra lanes. Native OBS dock appearance and subjective layout still need user testing. No installation or push; normal OBS running.
+
+
 ### Relative Macro Strip knob interaction — 2026-11-18
 - User reports the stock knob interaction feels bad. Reproduced absolute-angle jump (press changed step 25 to step 3 without dragging). Replaced stock mouse-angle behavior with relative vertical dragging, fractional movement accumulator, clamped endpoints with immediate reversal, Shift fine mode, focused wheel/arrow steps and no unfocused wheel capture. Native dial rendering and saved bindings unchanged.
 - Avoid successful write readback interrupting an active slider/knob gesture; final release synchronizes, failed writes still validate the binding. Gesture test verifies no click jump, live write/readback, fine drag, endpoint reversal, release, keyboard handler and wheel focus behavior.

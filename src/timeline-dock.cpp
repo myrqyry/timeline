@@ -352,6 +352,7 @@ void TimelineDock::applyTimelineDocument(const TimelineDocument &doc)
 	compactModeCheckbox->blockSignals(true);
 	compactModeCheckbox->setChecked(compactMode);
 	compactModeCheckbox->blockSignals(false);
+	updateToolbarIcons();
 	showEndTimeOnDock = doc.showEndTimeOnDock;
 	showEndTimeCheckbox->blockSignals(true);
 	showEndTimeCheckbox->setChecked(showEndTimeOnDock);
@@ -568,14 +569,12 @@ void TimelineDock::setupUi()
 
 	// Compact mode checkbox (shrinks event icons to toolbar button size)
 	compactModeCheckbox = new QCheckBox(obs_module_text("TimelineDock.CompactMode"), this);
+	compactModeCheckbox->setObjectName("timeline-compact-mode");
 	compactModeCheckbox->setToolTip(obs_module_text("TimelineDock.CompactModeTooltip"));
 	compactModeCheckbox->setChecked(compactMode);
 	connect(compactModeCheckbox, &QCheckBox::toggled, this, [this](bool checked) {
 		compactMode = checked;
-		for (TimelineEventItem *item : eventItemMap) {
-			if (item)
-				item->setCompactMode(compactMode);
-		}
+		updateToolbarIcons();
 		updateLayout();
 		debounceSaveTimer->start();
 	});
@@ -683,7 +682,7 @@ void TimelineDock::setupUi()
 	hoverTimeLabel->raise();
 	view->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 	view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
-	view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	view->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
 	// Initial scene rect - height will be updated in resizeEvent
 	scene->setSceneRect(0, 0, 5000, view->height());
@@ -982,28 +981,37 @@ void TimelineDock::onCenterControlsToggled(bool checked)
 void TimelineDock::resizeEvent(QResizeEvent *event)
 {
 	QWidget::resizeEvent(event);
-	if (view && scene) {
-		QRectF rect = scene->sceneRect();
-		rect.setHeight(view->viewport()->height());
-		scene->setSceneRect(rect);
+	updateViewportGeometry();
+}
 
-		// Update playhead height
-		if (playheadItem) {
-			QLineF line = playheadItem->line();
-			line.setP2(QPointF(line.x1(), view->viewport()->height()));
-			playheadItem->setLine(line);
+void TimelineDock::updateViewportGeometry()
+{
+	if (!view || !scene)
+		return;
+	// Reserve enough room for one event plus ruler, hover/selection
+	// padding, frame and horizontal scrollbar. More lanes scroll instead
+	// of imposing an unbounded minimum height on the OBS main window.
+	const int bubble = compactMode ? TimelineEventItem::COMPACT_SIZE : TimelineEventItem::ITEM_SIZE;
+	const int minimumViewport = 30 + bubble + 8;
+	const int minHeight = minimumViewport + view->horizontalScrollBar()->sizeHint().height() +
+		2 * view->frameWidth();
+	if (view->minimumHeight() != minHeight)
+		view->setMinimumHeight(minHeight);
+	const double height = std::max({static_cast<double>(view->viewport()->height()),
+		static_cast<double>(minimumViewport), eventContentHeight});
+	QRectF rect = scene->sceneRect();
+	rect.setHeight(height);
+	scene->setSceneRect(rect);
+	for (auto *lineItem : {playheadItem, dragGuideItem}) {
+		if (lineItem) {
+			QLineF line = lineItem->line();
+			line.setP2(QPointF(line.x1(), height));
+			lineItem->setLine(line);
 		}
-
-		// Update drag guide height
-		if (dragGuideItem) {
-			QLineF line = dragGuideItem->line();
-			line.setP2(QPointF(line.x1(), view->viewport()->height()));
-			dragGuideItem->setLine(line);
-		}
-
-		drawGrid();
-		updateZoomLabelPosition();
 	}
+	drawGrid();
+	updateEndMarker();
+	updateZoomLabelPosition();
 }
 
 // Helper to update event items
@@ -1019,20 +1027,11 @@ void TimelineDock::updateLayout()
 	// allowing the first half of a marker placed at 0s to be visible and grabbable.
 	scene->setSceneRect(-20, 0, std::max(5000.0, 300.0 * pixelsPerSecond) + 20, view->viewport()->height());
 
-	// 2. Update event item positions and theme colors for zoom/resize
-	QColor borderColor = palette().color(QPalette::Text);
-	QColor selectionColor = palette().color(QPalette::Highlight);
-	QColor bgColor = palette().color(QPalette::Base);
-	for (TimelineEventItem *item : eventItemMap) {
-		if (item) {
-			item->setSuppressDragSignals(true);
-			item->setPixelsPerSecond(pixelsPerSecond);
-			item->setBorderColor(borderColor);
-			item->setSelectionColor(selectionColor);
-			item->setBackgroundColor(bgColor);
-			item->setSuppressDragSignals(false);
-		}
-	}
+	// Recompute lanes whenever the bubble width or time scale changes.
+	// Reuse existing graphics items, preserving their identity/selection.
+	if (!eventItemMap.isEmpty() || !model->getEvents().empty())
+		rebuildEventItems();
+	updateViewportGeometry();
 
 	// 3. Redraw ruler and grid
 	drawRuler();
@@ -1167,6 +1166,9 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			}
 		}
 
+		if (event->type() == QEvent::Resize) {
+			QTimer::singleShot(0, this, [this] { updateViewportGeometry(); });
+		}
 		if (event->type() == QEvent::Wheel) {
 			QWheelEvent *wheelEvent = static_cast<QWheelEvent *>(event);
 			if (wheelEvent->modifiers() & Qt::ControlModifier) {
@@ -1175,6 +1177,11 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				} else {
 					onZoomOutClicked();
 				}
+				return true;
+			} else if (wheelEvent->modifiers() & Qt::ShiftModifier &&
+				   view->verticalScrollBar()->maximum() > 0) {
+				auto *bar = view->verticalScrollBar();
+				bar->setValue(bar->value() - wheelEvent->angleDelta().y());
 				return true;
 			} else {
 				// Horizontal scrolling with standard wheel
@@ -1540,7 +1547,7 @@ void TimelineDock::updateEndMarker()
 	}
 
 	double x = (endTimeMs / 1000.0) * pixelsPerSecond;
-	double h = view->viewport()->height();
+	double h = scene->sceneRect().height();
 	QColor link = palette().color(QPalette::Link);
 	link.setAlpha(180);
 
@@ -1724,7 +1731,7 @@ void TimelineDock::drawGrid()
 	if (!scene || !view)
 		return;
 
-	double sceneHeight = view->viewport()->height();
+	double sceneHeight = scene->sceneRect().height();
 	if (cachedGridPxPerSec == pixelsPerSecond && cachedGridBpm == bpm && cachedGridNoteBeats == noteLengthBeats &&
 	    cachedGridToBpm == gridToBpm && cachedAlternatingBg == alternatingBg &&
 	    cachedGridSceneHeight == sceneHeight)
@@ -1829,7 +1836,7 @@ void TimelineDock::updatePlayhead(double timeMs)
 	if (!playheadItem || !view)
 		return;
 	double x = (timeMs / 1000.0) * pixelsPerSecond;
-	double h = view->viewport()->height();
+	double h = scene->sceneRect().height();
 	playheadItem->setLine(x, 0, x, h);
 	QPen pen(playheadColor, 2);
 	pen.setCosmetic(true);
@@ -1848,7 +1855,7 @@ void TimelineDock::updatePlayhead(double timeMs)
 	// Only auto-scroll when playhead is near an edge
 	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
 	if (x < visible.left() + 20.0 || x > visible.right() - 20.0) {
-		view->ensureVisible(QRectF(x, 0, 10, h), 50, 0);
+		view->ensureVisible(QRectF(x, visible.top(), 10, visible.height()), 50, 0);
 	}
 }
 
@@ -1926,14 +1933,14 @@ void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &ev
 		if (dragGuideItem) {
 			dragGuideItem->setVisible(true);
 			double x = (item->getTimeMs() / 1000.0) * pixelsPerSecond;
-			dragGuideItem->setLine(x, 0, x, view->viewport()->height());
+			dragGuideItem->setLine(x, 0, x, scene->sceneRect().height());
 		}
 	});
 
 	connect(item, &TimelineEventItem::dragMoved, [this, item](double timeMs) {
 		if (dragGuideItem) {
 			double x = (timeMs / 1000.0) * pixelsPerSecond;
-			dragGuideItem->setLine(x, 0, x, view->viewport()->height());
+			dragGuideItem->setLine(x, 0, x, scene->sceneRect().height());
 		}
 	});
 
@@ -2038,6 +2045,7 @@ void TimelineDock::rebuildEventItems()
 		} else {
 			// Update existing item properties
 			item->setSuppressDragSignals(true);
+			item->setCompactMode(compactMode);
 			item->setPixelsPerSecond(pixelsPerSecond);
 			item->setTimeMs(evt.timeMs);
 			item->setMaxTime(scheduler && scheduler->getEndTime() > 0 ? scheduler->getEndTime() : -1.0);
@@ -2145,6 +2153,12 @@ void TimelineDock::rebuildEventItems()
 			++it;
 		}
 	}
+
+	eventContentHeight = 0;
+	for (auto *item : eventItemMap)
+		if (item)
+			eventContentHeight = std::max(eventContentHeight, item->sceneBoundingRect().bottom());
+	updateViewportGeometry();
 
 	// Empty hint
 	if (events.empty()) {

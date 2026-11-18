@@ -1386,6 +1386,86 @@ private slots:
 			 static_cast<int>(TimelineHitTesting::kMarkerGrabRadiusPx * 2.0));
 	}
 
+	void testTimelineCompactModeRefreshesLayoutAndFitsMarkers()
+	{
+		QTemporaryDir dir;
+		TimelineDock dock(nullptr, dir.filePath("timeline.json"));
+		dock.resize(1000, 180);
+		dock.show();
+		QCoreApplication::processEvents();
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *play = dock.findChild<QPushButton *>("timeline-play-btn");
+		auto *undo = dock.findChild<QPushButton *>("timeline-undo-btn");
+		auto *settings = dock.findChild<QPushButton *>("timeline-settings-btn");
+		QVERIFY(model && view && play && undo && settings);
+		QTest::mouseClick(settings, Qt::LeftButton);
+		QTRY_VERIFY(QApplication::activePopupWidget());
+		auto *menu = QApplication::activePopupWidget();
+		QCheckBox *compact = nullptr;
+		for (auto *box : menu->findChildren<QCheckBox *>())
+			if (box->objectName() == QString("timeline-compact-mode"))
+				compact = box;
+		QVERIFY(compact);
+		menu->hide();
+
+		TimelineEvent a, b;
+		a.timeMs = 1000.0;
+		b.timeMs = 1280.0; // overlap at 32px, clear at 22px (100px/s)
+		a.label = "First cue";
+		a.showLabel = true;
+		model->addEvents({a,b});
+		QCoreApplication::processEvents();
+		auto marker = [&](const QString &id) -> TimelineEventItem * {
+			for (auto *graphics : view->scene()->items())
+				if (auto *item = dynamic_cast<TimelineEventItem *>(graphics); item && item->getEventId() == id)
+					return item;
+			return nullptr;
+		};
+		QVERIFY(marker(a.id) && marker(b.id));
+		QCOMPARE(marker(b.id)->getStackOffset(), 1);
+		QCOMPARE(play->height(), 32);
+		const int normalMinimum = dock.minimumSizeHint().height();
+		compact->setChecked(true);
+		QCoreApplication::processEvents();
+		QCOMPARE(play->height(), 28);
+		QCOMPARE(undo->height(), 24);
+		QVERIFY(marker(a.id)->isCompactMode());
+		QCOMPARE(marker(b.id)->getStackOffset(), 0);
+		QCOMPARE(marker(a.id)->getTimeMs(), a.timeMs);
+		QVERIFY(dock.minimumSizeHint().height() < normalMinimum);
+		dock.resize(1000, 1);
+		QCoreApplication::processEvents();
+		QVERIFY(view->viewport()->height() >= marker(a.id)->sceneBoundingRect().bottom());
+		dock.save();
+		compact->setChecked(false);
+		QCoreApplication::processEvents();
+		QCOMPARE(play->height(), 32);
+		dock.load();
+		QCoreApplication::processEvents();
+		QCOMPARE(play->height(), 28);
+		QVERIFY(marker(a.id)->isCompactMode());
+		QCOMPARE(marker(b.id)->getStackOffset(), 0);
+
+		// Stacked events stay reachable in a short dock without forcing a
+		// huge minimum height onto the entire OBS main window.
+		for (int i = 0; i < 8; ++i) {
+			TimelineEvent crowded;
+			crowded.timeMs = a.timeMs;
+			model->addEvent(crowded);
+		}
+		QCoreApplication::processEvents();
+		QCoreApplication::processEvents();
+		double bottom = 0;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				bottom = std::max(bottom, item->sceneBoundingRect().bottom());
+		QVERIFY(view->sceneRect().bottom() >= bottom);
+		QVERIFY(view->verticalScrollBar()->maximum() > 0);
+		view->verticalScrollBar()->setValue(view->verticalScrollBar()->maximum());
+		QVERIFY(view->mapToScene(view->viewport()->rect()).boundingRect().bottom() >= bottom);
+	}
+
 	void testTimelineDockUndoRedoAndPersistence()
 	{
 		QTemporaryDir dir;
@@ -2672,6 +2752,38 @@ private slots:
 		TestTimelineMacroButtonAccessor::clickBubble(w);
 		QCOMPARE(spy.count(), 1);
 		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
+	}
+
+	void testMacroStripFitsThemeSizedControls()
+	{
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		dock.setStyleSheet("QCheckBox::indicator { width: 28px; height: 42px; }");
+		MacroButton action;
+		action.label = "Action";
+		dock.buttonModel()->addButton(action);
+		MacroButton toggle;
+		toggle.kind = MacroControlKind::Toggle;
+		toggle.label = "Toggle";
+		dock.buttonModel()->addButton(toggle);
+		for (int i = 0; i < 5; ++i)
+			dock.buttonModel()->addButton(MacroButton{});
+		dock.resize(160, 1);
+		dock.show();
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QCoreApplication::processEvents();
+		auto *scroll = dock.findChild<QScrollArea *>();
+		auto *button = dock.findChild<MacroButtonWidget *>();
+		auto *control = dock.findChild<QWidget *>("macro-parameter-control");
+		auto *check = control ? control->findChild<QCheckBox *>() : nullptr;
+		QVERIFY(scroll && button && control && check);
+		QVERIFY(scroll->horizontalScrollBar()->maximum() > 0);
+		QVERIFY(check->height() >= check->sizeHint().height());
+		QVERIFY(control->height() >= check->height() + MacroButtonWidget::kLabelHeight);
+		QCOMPARE(button->height(), control->height());
+		QVERIFY(scroll->viewport()->height() >= control->height());
+		QVERIFY(control->rect().contains(check->mapTo(control, QPoint(0, check->height()-1))));
+		QVERIFY(dock.maximumHeight() > dock.minimumHeight());
 	}
 
 	void testMacroStripFitsEventsWhenHorizontallyScrollable()

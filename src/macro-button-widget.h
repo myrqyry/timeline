@@ -43,6 +43,8 @@ public:
 	static constexpr int kControlHeight = 34;
 	static constexpr int kWidgetHeight = kLabelHeight + kControlHeight;
 	static constexpr int kControlCenterY = kLabelHeight + kControlHeight / 2;
+	void setRowHeights(int labelHeight, int controlHeight);
+
 
 signals:
 	void fireRequested(const MacroButton &button);
@@ -61,6 +63,8 @@ public:
 private:
 	void rebuildRenderer();
 
+	int m_labelHeight = kLabelHeight;
+	int m_controlHeight = kControlHeight;
 	MacroButton m_button;
 	QSvgRenderer *m_renderer = nullptr;
 

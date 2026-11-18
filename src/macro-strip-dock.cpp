@@ -10,6 +10,7 @@
 #include <obs-module.h>
 
 #include <QPushButton>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -63,11 +64,7 @@ void MacroStripDock::setupUi()
 	m_scrollArea->setWidgetResizable(true);
 	m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-	const int scrollHeight = MacroButtonWidget::kWidgetHeight +
-				 m_scrollArea->horizontalScrollBar()->sizeHint().height() +
-				 2 * m_scrollArea->frameWidth();
-	m_scrollArea->setMinimumHeight(scrollHeight);
-	setMinimumHeight(scrollHeight + root->contentsMargins().top() + root->contentsMargins().bottom());
+	m_scrollArea->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
 	m_buttonContainer = new QWidget(m_scrollArea);
 	m_buttonLayout = new QHBoxLayout(m_buttonContainer);
@@ -134,7 +131,41 @@ void MacroStripDock::rebuildFromModel()
 		m_buttonLayout->addWidget(w, 0, Qt::AlignVCenter);
 	}
 	m_buttonLayout->addStretch();
+	updateStripHeight();
 	emit saveRequested();
+}
+
+void MacroStripDock::updateStripHeight()
+{
+	QFont captionFont = font();
+	captionFont.setPointSize(8);
+	captionFont.setBold(true);
+	int labelHeight = std::max(MacroButtonWidget::kLabelHeight, QFontMetrics(captionFont).height() + 2);
+	int controlHeight = MacroButtonWidget::kControlHeight;
+	for (int i = 0; i < m_buttonLayout->count(); ++i) {
+		if (auto *widget = m_buttonLayout->itemAt(i)->widget()) {
+			const QSize required = macroParameterRequiredRows(widget);
+			labelHeight = std::max(labelHeight, required.width());
+			controlHeight = std::max(controlHeight, required.height());
+		}
+	}
+	for (int i = 0; i < m_buttonLayout->count(); ++i) {
+		if (auto *widget = m_buttonLayout->itemAt(i)->widget()) {
+			if (auto *action = qobject_cast<MacroButtonWidget *>(widget))
+				action->setRowHeights(labelHeight, controlHeight);
+			else
+				setMacroParameterRows(widget, labelHeight, controlHeight);
+		}
+	}
+	const int contentHeight = labelHeight + controlHeight;
+	m_buttonContainer->setFixedHeight(contentHeight);
+	// Keep the content strip compact, reserving its horizontal scrollbar
+	// even when it is not currently visible. The outer dock stays resizable.
+	const int scrollHeight = contentHeight + m_scrollArea->horizontalScrollBar()->sizeHint().height() +
+		2 * m_scrollArea->frameWidth();
+	m_scrollArea->setFixedHeight(scrollHeight);
+	const auto margins = layout()->contentsMargins();
+	setMinimumHeight(std::max(scrollHeight, m_addButton->height()) + margins.top() + margins.bottom());
 }
 
 void MacroStripDock::onButtonFired(const MacroButton &button)
