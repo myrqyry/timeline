@@ -33,10 +33,17 @@ private:
     void onTypeChanged(int index);
     void onActionChanged(int index);
     void pickColor();
+    void chooseDefinedParameter();
+    void updateDefinedParameterLabel();
 
     QComboBox *typeCombo = nullptr;
     QLabel *actionLabel = nullptr;
     QComboBox *actionCombo = nullptr;
+    QWidget *parameterWidget = nullptr;
+    QPushButton *parameterButton = nullptr;
+    QLabel *parameterSummary = nullptr;
+    QString parameterPayload;
+    QString parameterTarget;
     QWidget *mediaSeekWidget = nullptr;
     QDoubleSpinBox *mediaSeekSpin = nullptr;
     QLabel *targetLabel = nullptr;

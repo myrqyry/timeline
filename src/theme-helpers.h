@@ -297,6 +297,8 @@ inline QByteArray getIconSvg(TimelineEventType type, const QString &color = "whi
 		return wrapIconMoon(MOON_PAUSE, color);
 	case TimelineEventType::MediaResume:
 		return wrapIconMoon(MOON_PLAY, color);
+	case TimelineEventType::SetParameterValue:
+		return wrapIconMoon("<path d=\"M5 5V19M12 5V19M19 5V19M2 9H8M9 15H15M16 8H22\"/>", color);
 	case TimelineEventType::MediaSeekTo:
 		return wrapIconMoon("<path d=\"M5 12H19M13 6L19 12L13 18M5 6V18\"/>", color);
 	case TimelineEventType::FilterEnable:
@@ -331,6 +333,8 @@ inline QColor getDefaultColor(TimelineEventType type)
 		return QColor("#F5A623");
 	case TimelineEventType::MediaResume:
 		return QColor("#BD10E0");
+	case TimelineEventType::SetParameterValue:
+		return QColor("#36B8A5");
 	case TimelineEventType::MediaSeekTo:
 		return QColor("#9975E8");
 	case TimelineEventType::FilterEnable:
@@ -365,6 +369,8 @@ inline QString typeDisplayName(TimelineEventType type)
 		return QStringLiteral("Pause Media");
 	case TimelineEventType::MediaResume:
 		return QStringLiteral("Resume Media");
+	case TimelineEventType::SetParameterValue:
+		return QStringLiteral("Set Parameter Value");
 	case TimelineEventType::MediaSeekTo:
 		return QStringLiteral("Seek Media");
 	case TimelineEventType::FilterEnable:

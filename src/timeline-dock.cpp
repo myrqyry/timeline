@@ -1,3 +1,4 @@
+#include "macro-parameter.h"
 #include "timeline-dock.h"
 #include "media-target.h"
 #include <obs-module.h>
@@ -2080,6 +2081,9 @@ void TimelineDock::rebuildEventItems()
 		case TimelineEventType::MediaResume:
 			typeStr = obs_module_text("EventType.MediaResume");
 			break;
+		case TimelineEventType::SetParameterValue:
+			typeStr = obs_module_text("EventType.SetParameterValue");
+			break;
 		case TimelineEventType::MediaSeekTo:
 			typeStr = obs_module_text("EventType.MediaSeekTo");
 			break;
@@ -2106,6 +2110,10 @@ void TimelineDock::rebuildEventItems()
 		QString targetDisplay = evt.sourceName;
 		if (!evt.filterName.isEmpty()) {
 			targetDisplay += "::" + evt.filterName;
+		}
+		if (evt.type == TimelineEventType::SetParameterValue) {
+			if (const auto cue = MacroParameter::decodeValue(evt.data.toString()))
+				targetDisplay += " / " + MacroParameter::displayValue(*cue);
 		}
 		if (evt.type == TimelineEventType::MediaSeekTo) {
 			const auto media = MediaTarget::decode(evt.data.toString());

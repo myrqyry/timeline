@@ -1,3 +1,4 @@
+#include "macro-parameter.h"
 #include "obs-executor.h"
 #include "headless-timeline.h"
 #include "scene-item-target.h"
@@ -125,6 +126,14 @@ void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 {
 	switch (evt.type) {
+	case TimelineEventType::SetParameterValue: {
+		if (isStartAction) {
+			const auto cue = MacroParameter::decodeValue(evt.data.toString());
+			if (!cue || !MacroParameter::write(cue->binding, cue->value))
+				blog(LOG_WARNING, "[Timeline] Set parameter value: invalid or unavailable binding");
+		}
+		break;
+	}
 	case TimelineEventType::SourceShow:
 	case TimelineEventType::SourceHide: {
 		bool visible = evt.type == TimelineEventType::SourceShow;

@@ -118,7 +118,7 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	const double bubble = kBubbleSize;
 	const double bubbleGrowth = m_isPressed ? -1.0 : (m_isHovered ? 3.0 : 0.0);
 	const double radius = (bubble + bubbleGrowth) / 2.0;
-	const QPointF center(width() / 2.0, bubble + 4.0); // center in the label-aware widget width
+	const QPointF center(width() / 2.0, kControlCenterY); // shared control row center
 
 	// Hover glow
 	if (m_isHovered && !m_isPressed) {
@@ -142,20 +142,18 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		m_renderer->render(&painter, iconRect);
 	}
 
-	// Label pill (drawn above bubble; bubble center sits ~4 px above widget bottom so the pill fits)
+	// Label pill uses the same caption row and font as live controls.
 	const QString label = fallbackLabel(m_button);
 	if (!label.isEmpty()) {
 		const int padX = 4;
-		const int padY = 1;
 		QFont font = painter.font();
 		font.setPointSize(8);
 		font.setBold(true);
 		painter.setFont(font);
 		QFontMetrics fm(font);
 		const int textW = fm.horizontalAdvance(label);
-		const int textH = fm.ascent() + fm.descent();
 		const int boxW = qMin(textW + padX * 2, width());
-		const int boxH = textH + padY * 2;
+		const int boxH = kLabelHeight;
 		const int boxX = (width() - boxW) / 2;
 		const int boxY = 0;
 

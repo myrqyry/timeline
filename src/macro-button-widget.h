@@ -39,7 +39,10 @@ public:
 
 	// Match the timeline's compact event bubble (22 px).
 	static constexpr double kBubbleSize = 22.0;
-	static constexpr int kWidgetHeight = 44; // Includes label and hover glow.
+	static constexpr int kLabelHeight = 18;
+	static constexpr int kControlHeight = 34;
+	static constexpr int kWidgetHeight = kLabelHeight + kControlHeight;
+	static constexpr int kControlCenterY = kLabelHeight + kControlHeight / 2;
 
 signals:
 	void fireRequested(const MacroButton &button);

@@ -15,6 +15,14 @@ struct MacroParameterBinding {
 };
 
 namespace MacroParameter {
+struct DefinedValue {
+	MacroParameterBinding binding;
+	double value;
+};
+QString encodeValue(const DefinedValue &value);
+std::optional<DefinedValue> decodeValue(const QString &payload);
+QString displayValue(const DefinedValue &value);
+
 struct Target {
 	QString sourceUuid;
 	QString filterUuid;

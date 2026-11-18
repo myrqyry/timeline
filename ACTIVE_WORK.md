@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Shared strip alignment and scheduled defined parameter values — 2026-11-18
+- User requests aligned labels/vertically centered controls and scheduled parameter value assignment. Shared Macro Strip label row (18 px), control row (34 px), center and caption font across the action bubble and native controls. Geometry regression tests all three native control kinds.
+- Added SetParameterValue (append-only ID 14) with versioned string payload, existing live property catalog and assignment dialog, numeric or On/Off value fields. No writes while configuring; cue sets one property at start, with live bounds/step validation and no duration-end action. Shared executor supports timeline and immediate Macro Strip action buttons. Missing/invalid bindings fail closed; ordinary saved event IDs unchanged. Existing live controls read back the value.
+- RED: new tests failed compilation before API/layout existed. GREEN: native OBS32 build and strict Xvfb Qt/libobs suite 81 passed, zero failures/skips. Tests cover editor, saved round-trip, actual scheduled execution, rename, invalid payload, integer/boolean private-filter writes, Macro Strip readback, and aligned widget geometry; updated action-category count for the new type. Logs /tmp/timeline-defined-red.log, /tmp/timeline-defined-full2.log.
+- Instant steps only (not ramps/keyframes); scalar properties only. GUI geometry verified in Qt harness, not on the user's live OBS dock; actual target plugin rendering not verified in this pass. Normal OBS is running; do not interrupt it or overwrite the loaded installation. Build is local, no push.
+
+
 ### Live Macro Strip target and property discovery — 2026-11-18
 - User explicitly requested dynamic discovery. Existing libobs enumeration and live property introspection already worked at dialog opening, but the assignment dialog held a static catalog until reopened.
 - Added one-second refresh of target catalog and selected target's schema while the assignment dialog is open. Compares records before rebuilding UI, preserves selection by source/filter UUID and property key/type, retains chosen control kind, defers dropdown refresh while popup is open, and clears removed choices without substitution. Final write and binding acceptance retain live schema validation.

@@ -203,6 +203,7 @@ The executor interprets duration and instant events differently:
 | `MediaPause` | Pause media | Resume media |
 | `MediaResume` | Resume media | Pause media |
 | `MediaSeekTo` | Seek to absolute media position | No end action |
+| `SetParameterValue` | Set a typed source/filter property to a defined value | No end action |
 | `FilterEnable` | Enable filter | Disable filter |
 | `FilterDisable` | Disable filter | Enable filter |
 | `SceneSwitch` | Switch scene | No end action |
@@ -261,6 +262,16 @@ string data and color. Clicking an action creates a temporary
 `TimelineEvent` and calls the shared executor immediately. Parameter records
 instead bind an OBS source UUID, optional attached filter UUID, property key
 and scalar type. They never dispatch a timeline action.
+
+The same binding catalog and typed write path are used by the
+`SetParameterValue` timeline event (appended enum ID 14). Its string data
+contains a versioned JSON object with source/filter UUID, key, scalar type,
+and numeric value (boolean as 0/1). The event editor reuses the dynamic
+binding dialog, replacing control kind with a numeric or On/Off value editor.
+The executor validates the payload and live property and applies it at event
+start only; no duration reversal or interpolation. No writes occur on editor
+acceptance. A Macro Strip action button can use the same event payload.
+Existing live parameter widgets read the resulting OBS value normally.
 
 The target catalog traverses scene/group sources and enumerates standalone
 sources and their filters. Bindings resolve by UUID only; private filters are

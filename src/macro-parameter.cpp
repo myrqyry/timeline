@@ -2,6 +2,8 @@
 #include "scene-item-target.h"
 #include <obs.h>
 #include <QSet>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -106,6 +108,41 @@ std::optional<MacroParameter::Spec> describeFor(obs_source_t *source, const Macr
 }
 
 namespace MacroParameter {
+QString encodeValue(const DefinedValue &cue)
+{
+	const auto &b = cue.binding;
+	return QString::fromUtf8(QJsonDocument(QJsonObject{
+		{"version", 1}, {"sourceUuid", b.sourceUuid}, {"filterUuid", b.filterUuid},
+		{"key", b.key}, {"type", b.type == MacroParameterType::Integer ? "int" :
+			b.type == MacroParameterType::Float ? "float" : "bool"}, {"value", cue.value}
+	}).toJson(QJsonDocument::Compact));
+}
+std::optional<DefinedValue> decodeValue(const QString &payload)
+{
+	const auto doc = QJsonDocument::fromJson(payload.toUtf8());
+	if (!doc.isObject())
+		return std::nullopt;
+	const auto obj = doc.object();
+	const QString type = obj["type"].toString();
+	if (obj["version"].toInt(-1) != 1 || !obj["sourceUuid"].isString() ||
+	    obj["sourceUuid"].toString().isEmpty() || !obj["filterUuid"].isString() ||
+	    obj["key"].toString().isEmpty() || !obj["value"].isDouble() ||
+	    (type != "int" && type != "float" && type != "bool"))
+		return std::nullopt;
+	const double value = obj["value"].toDouble();
+	if (!std::isfinite(value) || (type == "bool" && value != 0 && value != 1) ||
+	    (type == "int" && value != std::round(value)))
+		return std::nullopt;
+	return DefinedValue{{obj["sourceUuid"].toString(), obj["filterUuid"].toString(),
+		obj["key"].toString(), type == "int" ? MacroParameterType::Integer :
+		type == "float" ? MacroParameterType::Float : MacroParameterType::Boolean}, value};
+}
+QString displayValue(const DefinedValue &cue)
+{
+	return cue.binding.key + " = " + (cue.binding.type == MacroParameterType::Boolean ?
+		(cue.value != 0 ? QStringLiteral("On") : QStringLiteral("Off")) :
+		QString::number(cue.value, 'g', 12));
+}
 int Spec::steps() const
 {
 	return static_cast<int>(std::floor((max - min) / step + 1e-8));

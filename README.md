@@ -107,6 +107,19 @@ types remain unchanged, so previously saved Show/Hide, Start/Stop, and
 Enable/Disable events load and edit with the correct operation selected. Timed
 actions retain their existing inverse operation on duration end.
 
+### Setting a parameter at a scheduled time
+
+Select **Set Parameter Value** when adding an event, then **Choose parameter
+and value**. The shared live source/filter catalog exposes numeric and boolean
+properties, with their current ranges, increments and units. Define a number
+or On/Off value and place the cue at the desired timestamp. The value is
+applied only on execution, remains set until another action changes it, and
+has no automatic duration-end reversal. Values are clamped and quantized to
+the property's live range and step. Missing or invalid targets are skipped.
+
+Macro Strip controls bound to that property reflect the changed live value.
+The same event type can also be used as an immediate action button.
+
 ### Finding hotkeys
 
 In **Timeline** or **Macro Strip**, add or edit an action, select **Hotkey

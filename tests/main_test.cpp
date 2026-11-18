@@ -38,6 +38,7 @@
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QDial>
+#include <QLabel>
 #include <QSlider>
 #include <QCheckBox>
 #include "macro-button-model.h"
@@ -748,7 +749,7 @@ private slots:
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::SourceHide)), -1);
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::MediaStop)), -1);
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::FilterDisable)), -1);
-		QCOMPARE(types->count(), 6 + (PluginIntegrations::instance().actionAvailable(
+		QCOMPARE(types->count(), 7 + (PluginIntegrations::instance().actionAvailable(
 			TimelineEventType::DownstreamKeyerScene) ? 1 : 0));
 		struct Case {
 			TimelineEventType category;
@@ -2062,6 +2063,189 @@ private slots:
 		QCOMPARE(item.getTimeMs(), 2500.0);
 		item.setCompactMode(false);
 		QCOMPARE(item.getTimeMs(), 2500.0);
+	}
+
+	void testDefinedParameterCueEditorAndPlayback()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Defined cue target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		EventEditor editor(100.0);
+		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+		QVERIFY(types);
+		const int typeIndex = types->findData(static_cast<int>(TimelineEventType::SetParameterValue));
+		QVERIFY(typeIndex >= 0);
+		types->setCurrentIndex(typeIndex);
+		auto *choose = editor.findChild<QPushButton *>("eventDefineParameter");
+		QVERIFY(choose && !choose->isHidden());
+		bool configured = false;
+		QTimer::singleShot(0, &editor, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto close = qScopeGuard([&] { if (!configured) dialog->reject(); });
+			auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *value = dialog->findChild<QDoubleSpinBox *>("parameter-defined-value");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			QVERIFY(target && property && value && buttons);
+			target->setCurrentIndex(target->findText("Defined cue target"));
+			property->setCurrentIndex(property->findText("Controls / Gain"));
+			QCOMPARE(value->minimum(), -1.0);
+			QCOMPARE(value->maximum(), 1.0);
+			QCOMPARE(value->singleStep(), 0.05);
+			value->setValue(0.65);
+			QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			configured = true;
+			buttons->button(QDialogButtonBox::Ok)->click();
+		});
+		choose->click();
+		QVERIFY(configured);
+		TimelineEvent cue;
+		cue.timeMs = 100;
+		editor.getUpdatedEvent(cue);
+		QCOMPARE(cue.type, TimelineEventType::SetParameterValue);
+		QVERIFY(!cue.hasDuration);
+		const auto payload = MacroParameter::decodeValue(cue.data.toString());
+		QVERIFY(payload);
+		QCOMPARE(payload->binding.sourceUuid, binding.sourceUuid);
+		QCOMPARE(payload->binding.key, binding.key);
+		QCOMPARE(payload->value, 0.65);
+		QCOMPARE(MacroParameter::read(binding).value(), 0.25); // configuring is not execution
+		TimelineModel model;
+		model.addEvent(cue);
+		TimelineModel restored;
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().size(), size_t(1));
+		QCOMPARE(restored.getEvents()[0].data, cue.data);
+		EventEditor reopened(restored.getEvents()[0]);
+		TimelineEvent edited = cue;
+		reopened.getUpdatedEvent(edited);
+		QCOMPARE(edited.data, cue.data);
+		obs_source_set_name(source, "Renamed defined cue target");
+		ObsExecutor executor;
+		TimelineScheduler scheduler(&restored);
+		connect(&scheduler, &TimelineScheduler::eventStarted, &executor, &ObsExecutor::executeEventStart);
+		scheduler.start();
+		QTRY_COMPARE(MacroParameter::read(binding).value(), 0.65);
+		scheduler.stop();
+		QVERIFY(MacroParameter::write(binding, 0.1));
+		executor.executeEventEnd(cue);
+		QVERIFY(qAbs(MacroParameter::read(binding).value() - 0.1) < 1e-9);
+		cue.data = QString("not a parameter payload");
+		executor.executeEventStart(cue);
+		QVERIFY(qAbs(MacroParameter::read(binding).value() - 0.1) < 1e-9);
+	}
+
+	void testDefinedFilterCueTypesAndMacroReadback()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Cue filter owner", nullptr, nullptr);
+		QVERIFY(source);
+		auto releaseSource = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		auto *filter = obs_source_create_private("timeline_parameter_filter", "Cue private filter", nullptr);
+		QVERIFY(filter);
+		obs_source_filter_add(source, filter);
+		auto releaseFilter = qScopeGuard([&] {
+			if (obs_filter_get_parent(filter))
+				obs_source_filter_remove(source, filter);
+			obs_source_release(filter);
+		});
+		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)),
+			QString::fromUtf8(obs_source_get_uuid(filter)), "count", MacroParameterType::Integer};
+		MacroButton knob;
+		knob.kind = MacroControlKind::Knob;
+		knob.binding = binding;
+		MacroStripDock dock;
+		dock.buttonModel()->addButton(knob);
+		dock.show();
+		QCoreApplication::processEvents();
+		auto *dial = dock.findChild<QDial *>("macro-parameter-knob");
+		QVERIFY(dial);
+		TimelineEvent cue;
+		cue.type = TimelineEventType::SetParameterValue;
+		cue.data = MacroParameter::encodeValue({binding, 8});
+		ObsExecutor executor;
+		executor.executeEventStart(cue);
+		QTRY_COMPARE(MacroParameter::read(binding).value_or(-1), 8.0);
+		QTRY_COMPARE(dial->value(), 3);
+		MacroButton preset;
+		preset.type = cue.type;
+		preset.data = cue.data.toString();
+		MacroButtonModel model;
+		model.addButton(preset);
+		MacroButtonModel restored;
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(model)), restored));
+		QCOMPARE(restored.buttons().first().data, preset.data);
+		QCOMPARE(restored.buttons().first().type, preset.type);
+
+		// Boolean editor is a typed On/Off choice, not a floating-point field.
+		MacroParameterBinding enabled = binding;
+		enabled.key = "enabled";
+		enabled.type = MacroParameterType::Boolean;
+		MacroButton initial;
+		initial.binding = enabled;
+		std::optional<double> value = 1;
+		bool configured = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto close = qScopeGuard([&] { if (!configured) dialog->reject(); });
+			auto *choice = dialog->findChild<QComboBox *>("parameter-defined-bool");
+			auto *number = dialog->findChild<QDoubleSpinBox *>("parameter-defined-value");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			QVERIFY(choice && number && buttons);
+			QVERIFY(choice->isVisible() && number->isHidden());
+			choice->setCurrentIndex(0);
+			configured = true;
+			buttons->button(QDialogButtonBox::Ok)->click();
+		});
+		auto selected = editDefinedParameter(&dock, initial, value);
+		QVERIFY(configured && selected && value);
+		QCOMPARE(*value, 0.0);
+		QCOMPARE(MacroParameter::read(enabled).value_or(-1), 1.0);
+		cue.data = MacroParameter::encodeValue({enabled, *value});
+		executor.executeEventStart(cue);
+		QTRY_COMPARE(MacroParameter::read(enabled).value_or(-1), 0.0);
+		QVERIFY(!MacroParameter::decodeValue(MacroParameter::encodeValue({enabled, 0.5})));
+		QVERIFY(!MacroParameter::decodeValue(MacroParameter::encodeValue({binding, 3.5})));
+		obs_source_filter_remove(source, filter);
+		executor.executeEventStart(cue);
+		QVERIFY(!MacroParameter::read(enabled));
+	}
+
+	void testMacroControlRowsAligned()
+	{
+		MacroStripDock dock;
+		MacroButton action;
+		action.label = "Action";
+		dock.buttonModel()->addButton(action);
+		for (auto kind : {MacroControlKind::Slider, MacroControlKind::Knob, MacroControlKind::Toggle}) {
+			MacroButton control;
+			control.kind = kind;
+			control.label = "Parameter";
+			dock.buttonModel()->addButton(control);
+		}
+		dock.resize(700, dock.minimumHeight());
+		dock.show();
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QCoreApplication::processEvents();
+		auto *button = dock.findChild<MacroButtonWidget *>();
+		QVERIFY(button);
+		const auto center = button->mapTo(&dock, QPoint(0, MacroButtonWidget::kControlCenterY)).y();
+		const auto labelTop = button->mapTo(&dock, QPoint(0, 0)).y();
+		for (auto *control : dock.findChildren<QWidget *>("macro-parameter-control")) {
+			auto *label = control->findChild<QLabel *>("macro-parameter-caption");
+			QVERIFY(label);
+			QCOMPARE(label->mapTo(&dock, QPoint(0, 0)).y(), labelTop);
+			QCOMPARE(label->height(), MacroButtonWidget::kLabelHeight);
+			QWidget *input = control->findChild<QAbstractSlider *>();
+			if (!input)
+				input = control->findChild<QCheckBox *>();
+			QVERIFY(input);
+			QVERIFY(qAbs(input->mapTo(&dock, QPoint(0, input->height()/2)).y() - center) <= 1);
+		}
 	}
 
 	void testMacroParameterBindingsAndDock()

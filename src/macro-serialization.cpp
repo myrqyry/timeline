@@ -56,7 +56,7 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 	const QJsonArray array = root["buttons"].toArray();
 	QSet<QString> seen;
 	QList<MacroButton> buttons;
-	constexpr int maxTypeValue = static_cast<int>(TimelineEventType::MediaSeekTo);
+	constexpr int maxTypeValue = static_cast<int>(TimelineEventType::SetParameterValue);
 	for (const auto val : array) {
 		const QJsonObject obj = val.toObject();
 		MacroButton b;

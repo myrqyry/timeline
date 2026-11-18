@@ -3,6 +3,7 @@
 #include "plugin-integrations.h"
 #include "scene-item-target.h"
 #include "media-target.h"
+#include "macro-parameter-widget.h"
 #include <QtMath>
 
 #include <QCheckBox>
@@ -80,6 +81,8 @@ void EventEditor::buildUi()
     if (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene))
         typeCombo->addItem(obs_module_text("EventType.DownstreamKeyerScene"),
                            static_cast<int>(TimelineEventType::DownstreamKeyerScene));
+    typeCombo->addItem(obs_module_text("EventType.SetParameterValue"),
+                       static_cast<int>(TimelineEventType::SetParameterValue));
     layout->addRow(obs_module_text("EventEditor.EventType"), typeCombo);
 
     actionLabel = new QLabel(obs_module_text("EventEditor.Action"), this);
@@ -166,6 +169,21 @@ void EventEditor::buildUi()
     mediaSeekLayout->addWidget(mediaSeekSpin);
     layout->addRow(mediaSeekWidget);
     mediaSeekWidget->hide();
+
+    parameterWidget = new QWidget(this);
+    auto *parameterLayout = new QVBoxLayout(parameterWidget);
+    parameterLayout->setContentsMargins(0, 0, 0, 0);
+    parameterButton = new QPushButton(obs_module_text("EventEditor.DefineParameter"), parameterWidget);
+    parameterButton->setObjectName("eventDefineParameter");
+    parameterSummary = new QLabel(parameterWidget);
+    parameterSummary->setWordWrap(true);
+    parameterSummary->setTextFormat(Qt::PlainText);
+    parameterLayout->addWidget(parameterButton);
+    parameterLayout->addWidget(parameterSummary);
+    layout->addRow(parameterWidget);
+    parameterWidget->hide();
+    connect(parameterButton, &QPushButton::clicked, this, &EventEditor::chooseDefinedParameter);
+    updateDefinedParameterLabel();
 
     // Color picker + custom icon
     colorButton = new QPushButton(this);
@@ -329,6 +347,15 @@ void EventEditor::populateTargets(TimelineEventType evtType)
     targetCombo->clear();
     targetCombo->setEnabled(true);
     dskWidget->setVisible(evtType == TimelineEventType::DownstreamKeyerScene);
+    parameterWidget->setVisible(evtType == TimelineEventType::SetParameterValue);
+    if (evtType == TimelineEventType::SetParameterValue) {
+        targetLabel->hide();
+        targetCombo->hide();
+        fileWidget->hide();
+        transitionWidget->hide();
+        return;
+    }
+
     if (evtType == TimelineEventType::DownstreamKeyerScene) {
         targetLabel->hide();
         targetCombo->hide();
@@ -556,7 +583,11 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
     populateActionChoices(category, evt.type);
     populateTargets(category);
 
-    if (evt.type == TimelineEventType::DownstreamKeyerScene) {
+    if (evt.type == TimelineEventType::SetParameterValue) {
+        parameterPayload = evt.data.toString();
+        parameterTarget = evt.sourceName;
+        updateDefinedParameterLabel();
+    } else if (evt.type == TimelineEventType::DownstreamKeyerScene) {
         dskNameEdit->setText(evt.sourceName);
         dskSceneEdit->setText(evt.filterName);
         dskViewEdit->setText(evt.data.toString());
@@ -677,7 +708,14 @@ void EventEditor::validateAndAccept()
         QMessageBox::warning(this, obs_module_text("EventEditor.InvalidEvent"), message);
     };
 
-    if (type == TimelineEventType::DownstreamKeyerScene) {
+    if (type == TimelineEventType::SetParameterValue) {
+        // Allow an existing missing binding to be preserved, but require a
+        // well-formed explicit payload. The executor revalidates at playback.
+        if (!MacroParameter::decodeValue(parameterPayload)) {
+            warn(obs_module_text("EventEditor.WarnDefineParameter"));
+            return;
+        }
+    } else if (type == TimelineEventType::DownstreamKeyerScene) {
         if (dskNameEdit->text().trimmed().isEmpty()) {
             warn(obs_module_text("EventEditor.WarnDskName"));
             return;
@@ -742,16 +780,44 @@ void EventEditor::onActionChanged(int index)
 {
     Q_UNUSED(index);
     const bool seek = selectedActionType() == TimelineEventType::MediaSeekTo;
+    const bool instantaneous = seek || selectedActionType() == TimelineEventType::SetParameterValue;
     mediaSeekWidget->setVisible(seek);
     durationCheck->setText(obs_module_text(
         selectedActionType() == TimelineEventType::MediaPause ? "EventEditor.ResumeAfterDuration" :
         selectedActionType() == TimelineEventType::MediaResume ? "EventEditor.PauseAfterDuration" :
         "EventEditor.HasDuration"));
-    durationCheck->setEnabled(!seek);
-    durationSpin->setEnabled(!seek && durationCheck->isChecked());
+    durationCheck->setEnabled(!instantaneous);
+    durationSpin->setEnabled(!instantaneous && durationCheck->isChecked());
     selectedColor = ThemeIcons::getDefaultColor(selectedActionType());
     colorButton->setStyleSheet(
         QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+}
+
+void EventEditor::chooseDefinedParameter()
+{
+    MacroButton initial;
+    std::optional<double> value;
+    if (const auto saved = MacroParameter::decodeValue(parameterPayload)) {
+        initial.binding = saved->binding;
+        value = saved->value;
+    }
+    if (const auto chosen = editDefinedParameter(this, initial, value); chosen && value) {
+        parameterPayload = MacroParameter::encodeValue({chosen->binding, *value});
+        parameterTarget = chosen->sourceName;
+        updateDefinedParameterLabel();
+    }
+}
+
+void EventEditor::updateDefinedParameterLabel()
+{
+    if (const auto saved = MacroParameter::decodeValue(parameterPayload)) {
+        parameterSummary->setText(parameterTarget + "\n" + MacroParameter::displayValue(*saved));
+        if (!MacroParameter::describe(saved->binding))
+            parameterSummary->setText(parameterSummary->text() + "\n" +
+                obs_module_text("EventEditor.ParameterUnavailable"));
+    } else {
+        parameterSummary->setText(obs_module_text("EventEditor.WarnDefineParameter"));
+    }
 }
 
 void EventEditor::pickColor()
@@ -776,11 +842,15 @@ void EventEditor::pickColor()
      if ((evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) &&
          SceneItemTarget::isExplicit(evt.data.toString()))
          evt.data = QVariant();
-     if (isMediaAction(evt.type))
+     if (isMediaAction(evt.type) || evt.type == TimelineEventType::SetParameterValue)
          evt.data = QVariant();
      evt.type = selectedActionType();
 
-    if (evt.type == TimelineEventType::DownstreamKeyerScene) {
+    if (evt.type == TimelineEventType::SetParameterValue) {
+        evt.sourceName = parameterTarget;
+        evt.filterName.clear();
+        evt.data = parameterPayload;
+    } else if (evt.type == TimelineEventType::DownstreamKeyerScene) {
         evt.sourceName = dskNameEdit->text().trimmed();
         evt.filterName = dskSceneEdit->text().trimmed(); // Blank hides overlay
         evt.data = dskViewEdit->text().trimmed(); // Blank targets main canvas
@@ -836,6 +906,7 @@ void EventEditor::pickColor()
      evt.customIconPath = iconPathEdit->text();
      evt.showLabel = showLabelCheck->isChecked();
      evt.label = labelEdit->text().trimmed();
-     evt.hasDuration = evt.type != TimelineEventType::MediaSeekTo && durationCheck->isChecked();
+     evt.hasDuration = evt.type != TimelineEventType::MediaSeekTo &&
+         evt.type != TimelineEventType::SetParameterValue && durationCheck->isChecked();
      evt.durationMs = durationSpin->value() * 1000.0;
  }

@@ -19,7 +19,8 @@ enum class TimelineEventType {
     DownstreamKeyerScene,
     MediaPause,
     MediaResume,
-    MediaSeekTo // Append only: persisted enum IDs must not shift
+    MediaSeekTo,
+    SetParameterValue // Append only: persisted enum IDs must not shift
 };
 
 struct TimelineEvent {
