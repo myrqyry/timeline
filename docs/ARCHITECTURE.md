@@ -728,7 +728,7 @@ excluding `AGENTS.md`. macOS uses a `.plugin` bundle with runtime assets in
 The default Linux workflow uses Ninja, RelWithDebInfo, and CTest
 (`.github/workflows/linux-build.yml`). The repository also defines CMake
 presets for Ubuntu, macOS, and Windows
-(`CMakePresets.json:1-117`, `README.md:102-136`). The `ubuntu-ci-x86_64` preset
+(`CMakePresets.json:1-117`, `PACKAGING.md`). The `ubuntu-ci-x86_64` preset
 adds ccache and warnings-as-errors for CI builds.
 
 ### Build switches

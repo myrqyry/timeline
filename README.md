@@ -1,536 +1,195 @@
 # Timeline for OBS
 
-Timeline for OBS is an OBS Studio dock plugin for scheduling scene switches,
-source visibility, media control, filter changes, parameter values, hotkeys, and
-nested timeline files on a visual timeline. The companion Macro Strip provides
-immediate actions and live source/filter controls.
+**Compose your stream on a timeline. Control it live with Macro Strip.**
 
-![Timeline dock with event bubbles, ruler, playhead, and controls](Screenshot.png)
+Timeline is a native OBS Studio plugin for arranging scene changes, effects,
+media and other actions into timed sequences. Its companion Macro Strip dock
+lets you build a compact control surface with buttons, sliders, knobs and
+toggles.
 
-<!-- prettier-ignore -->
-> [!IMPORTANT]
-> Timeline for OBS is an early preview. Linux source builds and CI-generated
-> packages for Windows/macOS are available for testing, but a tagged release
-> and real-OBS runtime validation across platforms are still outstanding.
-> Back up important scene collections before using it in a production stream.
+![Timeline dock with event markers, ruler and playback controls](Screenshot.png)
 
-## Current status
+*Timeline dock — earlier preview screenshot.*
 
-The current development milestone is `v0.1.0-preview.1`. The plugin builds
-from source and installs locally; no packaged GitHub Release is published yet.
+[Installation](#installation) · [Timeline](#timeline) · [Macro Strip](#macro-strip) ·
+[Shortcuts](#keyboard-shortcuts) · [Documentation](#documentation)
 
-The implementation targets C++17, Qt6, and the OBS frontend/libobs APIs.
-The project has OBS 31 and OBS 32 build targets for Linux, Windows, and macOS,
-plus an explicit OBS 33.0.1 **Linux** CI target on Ubuntu 26.04. OBS 33 Linux
-CI previously passed 46/46 strict tests at its compatibility checkpoint; that
-does **not** validate newer changes or OBS 33 desktop use.
+> [!NOTE]
+> Early preview (`v0.1.0-preview.1`). Linux source builds and CI packages are
+> available for testing. There is no tagged release yet. Back up your OBS
+> scene collections and test before using it live.
 
-The local OBS 32 build at `59c3c25` passed **84/84 strict Qt/libobs tests**
-with no failures or skips on November 18, 2026. Tests include actual Qt dock
-interaction and registered libobs fixture sources with frontend test doubles.
-An earlier build (`3681512`, 78 tests) was installed into native OBS Studio
-32.2.0 and loaded both docks and the WebSocket vendor in an isolated session.
-The installed module, locale and unchanged configuration were verified.
-The newer layout, knob and scheduled-value changes have not yet been installed
-or visually accepted in native OBS. Current-commit CI and cross-platform
-runtime verification remain outstanding. See
-[Release checklist](docs/RELEASE_CHECKLIST.md).
+## Timeline
 
-## Features
+Build reusable sequences without leaving OBS.
 
-The event editor offers seven built-in action categories: Scene Switch, Source
-Visibility, Media Playback, Filter Visibility, Hotkey Trigger, Trigger
-Timeline, and Set Parameter Value. An additional category, Downstream Keyer
-Scene, appears when its supported
-integration is loaded and enabled. Three paired categories have a separate
-**Action** dropdown instead of duplicate entries. `MediaSeek` remains a reserved
-model value and is not exposed in the UI. Existing serialized numeric event
-types are unchanged.
+- Place, drag and edit events directly on the timeline.
+- Snap to time intervals or musical beats using BPM and note subdivisions.
+- Scrub, play, pause, stop, restart or loop at a defined end marker.
+- Customize event colors, labels, SVG icons and durations.
+- Copy, paste, delete and nudge selections; undo or redo the last 100 edits.
+- Zoom, use compact mode, or scroll through stacked event lanes.
+- Save automatically, import/export JSON and trigger nested timelines.
 
-### Timeline editing
+### Available actions
 
-- Add an event at the playhead, a context-menu position, or an empty-area
-  double-click position.
-- Drag event bubbles with optional time or BPM snapping.
-- Edit event type, target, color, custom SVG icon, duration, and label.
-- Stack events whose bubbles would overlap visually.
-- Zoom through stepped levels from 5 to 1,000 pixels per second.
-- Scrub the playhead and drag the optional end marker.
-- Import and export timeline JSON documents.
-- Undo/redo event edits, with grouped paste, delete and keyboard nudges.
-- Preserve exact event times when changing zoom, stacking or compact mode.
+| Action | What it does |
+| --- | --- |
+| Scene Switch | Switch scenes, optionally with a named transition. |
+| Source Visibility | Show or hide a scene item, including nested sources and groups. |
+| Media Playback | Restart, stop, pause, resume or seek a media source. |
+| Filter Visibility | Enable or disable a source filter. |
+| Set Parameter Value | Set a numeric or boolean source/filter property to a defined value. |
+| Hotkey Trigger | Run an OBS or third-party plugin hotkey. |
+| Trigger Timeline | Play another saved timeline. |
+| Downstream Keyer Scene | Select or hide an overlay scene in a named keyer (optional integration). |
 
-### Scheduled actions
+Visibility, filter and compatible media actions can have a duration, with
+an inverse action at the end. Seek and parameter-value cues are instantaneous.
+See [action behavior](docs/USAGE.md#action-behavior) for the details.
 
-- **Scene switch:** Switch to an OBS scene, optionally using a named transition.
-- **Source Visibility:** Choose Show or Hide for a specific scene item in the
-  current scene, including items inside groups and nested scenes. The picker
-  shows its path and item ID; saved targets continue to identify the same item
-  after scene/source renames or program scene changes. Shared nested scenes
-  share their underlying items. Missing targets are skipped, not redirected.
-  Existing name-based actions keep their old lookup behavior until explicitly
-  retargeted. Older plugin builds do not understand the new exact targets.
-- **Media Playback:** Restart, Stop, Pause, Resume, or Seek to a playback
-  position in seconds (millisecond precision). Controllable media sources can
-  be selected across scenes, including nested scenes and groups. New targets
-  are source UUIDs, so they survive renames and scene switches; shared media
-  instances are listed once. Timed Pause resumes on expiry; timed Resume
-  pauses on expiry. Seek is instantaneous and clamped to known media duration.
-  Playback behavior depends on the source implementation. Older saved
-  media actions without UUIDs continue to resolve by name.
-- **Filter Visibility:** Choose Enable or Disable for a named source filter.
-- **Set Parameter Value:** Set an exposed numeric or boolean source/filter
-  property to a defined value at a scheduled time.
-- **Hotkey Trigger:** Trigger a registered OBS hotkey, including hotkeys
-  registered by third-party plugins such as Move. The hotkey selector supports
-  search and group headings; see [Finding hotkeys](#finding-hotkeys).
-- **Nested timeline:** Start another JSON timeline without opening another dock.
-- **Downstream Keyer scene:** Select or hide a scene in a named downstream keyer,
-  independently of the program scene. Requires Exeldro's Downstream Keyer and
-  the OBS WebSocket API. The editor accepts a keyer name and an overlay scene;
-  leave the scene blank to hide the overlay, or the view/canvas name blank to
-  address the primary output. The target overlay scene must already belong to
-  the named keyer's scene list.
+### Create your first sequence
 
-Events with a positive duration emit an end action where the action has a
-meaningful inverse. Source visibility and filter events reverse their state;
-timed media actions reverse restart/stop or pause/resume. Media Seek and Set
-Parameter Value have no end action. A timed Downstream Keyer overlay is hidden
-when the duration ends; it does not restore a prior overlay. Ordinary scene
-switches, hotkeys, and nested timeline triggers do not perform an end action.
+1. Open **View → Docks → Timeline**.
+2. Click **Add Event**, or double-click an empty part of the timeline.
+3. Choose an action and its target. Set a duration if needed.
+4. Drag the event to its desired time, or edit its exact timestamp.
+5. Press **Play**.
 
-Named scene transitions are restored after the OBS frontend transition duration,
-with a fallback delay when OBS reports no duration. A single timer prevents
-overlapping restorations from rapid consecutive scene switches
-(`src/obs-executor.cpp:189-227`).
+### Set a parameter at a specific time
 
-### Unified action picker
+Choose **Set Parameter Value → Choose parameter and value**, then select
+a source or filter, its property, and the desired value.
 
-The Timeline event editor and Macro Strip share a compact action picker.
-**Source Visibility** has Show/Hide, **Filter Visibility** has Enable/Disable,
-and **Media Playback** has Restart/Stop/Pause/Resume/Seek to. The selected operation appears in a
-separate **Action** field, rather than creating duplicate event types in the
-category list. "Restart" matches OBS's media-restart operation (not pause/resume).
+For example, three cues could control a HyperShaderFX filter's effect opacity:
 
-This is an editor-only grouping: existing timeline and macro JSON numeric event
-types remain unchanged, so previously saved Show/Hide, Start/Stop, and
-Enable/Disable events load and edit with the correct operation selected. Timed
-actions retain their existing inverse operation on duration end.
+| Time | Property | Value |
+| --- | --- | ---: |
+| 0 s | Effect Opacity | 0.00 |
+| 2 s | Effect Opacity | 1.00 |
+| 6 s | Effect Opacity | 0.25 |
 
-### Compact layout and dock height
+Each cue applies its value when playback reaches it. The value stays set until
+another cue or manual adjustment changes it. This is a step change, not a
+keyframe ramp.
 
-**Settings → Compact mode** shrinks Timeline markers, toolbar buttons and
-timecode together, recalculates event stacking, and persists when loading
-a timeline. The dock retains enough height for the ruler, one complete
-event row, and the horizontal scrollbar. If overlapping events need more
-lanes than fit, use the vertical scrollbar or Shift + mouse wheel (the ruler
-scrolls with the scene). Normal
-wheel scrolling remains horizontal; Ctrl + wheel zooms.
+## Macro Strip
 
-Macro Strip measures its themed controls and uses a shared caption and
-control row. Its content height includes scrollbar space without forcing
-the outer OBS dock to expand vertically.
+Build a small control surface for your OBS setup. Open
+**View → Docks → Macro Strip** and use **+** to add an action button or a
+parameter control.
 
-### Setting a parameter at a scheduled time
+| Control | Example use |
+| --- | --- |
+| Action button | Switch scenes, run a hotkey or apply a parameter preset. |
+| Slider | Adjust effect opacity or another numeric property. |
+| Knob | Adjust shader speed or intensity. |
+| Toggle | Turn a boolean filter setting on or off. |
 
-Select **Set Parameter Value** when adding an event, then **Choose parameter
-and value**. The shared live source/filter catalog exposes numeric and boolean
-properties, with their current ranges, increments and units. Define a number
-or On/Off value and place the cue at the desired timestamp. The value is
-applied only on execution, remains set until another action changes it, and
-has no automatic duration-end reversal. Values are clamped and quantized to
-the property's live range and step. Missing or invalid targets are skipped.
+### Assign a live control
 
-Macro Strip controls bound to that property reflect the changed live value.
-The same event type can also be used as an immediate action button.
+1. Click **+ → Parameter control**.
+2. Select a source or filter, then one of its available parameters.
+3. Choose a slider, knob or toggle and give it a label.
+4. Adjust it directly in the dock. Right-click to edit, reorder or remove it.
 
-### Finding hotkeys
+The parameter picker discovers compatible OBS properties dynamically, including
+those exposed by third-party plugins. Controls inherit the declared range,
+step and units and reflect changes made elsewhere in OBS, including scheduled
+Timeline cues. Saved bindings follow source/filter identities through renames.
 
-In **Timeline** or **Macro Strip**, add or edit an action, select **Hotkey
-Trigger**, then use the search field above the target picker. Filter by action
-description, registered hotkey ID, or source/group. The selector groups:
+Knobs use vertical dragging, with no value jump on click. Hold **Shift** for
+10× finer movement, or focus a knob and use the wheel or arrow keys.
 
-- Recognized **Move** filter hotkeys by the source that owns the matching filter.
-- Other source-registered hotkeys by source name.
-- Frontend / Plugins, Outputs, Encoders, and Services separately.
-
-Group headings are not selectable. An existing event referencing an unregistered
-hotkey keeps its original ID for later editing, even when the responsible plugin
-is missing. This picker **does not change OBS Settings → Hotkeys** or assign
-keyboard shortcuts. OBS exposes the registerer type, but not a reliable
-originating-plugin identity for every frontend hotkey, so unverified plugins
-are not guessed. Move animations remain controlled by Move itself; Timeline
-only fires its registered hotkey.
-
-### Playback controls
-
-- Set an end time and either stop or loop at that position. Cues exactly on
-  the end marker execute before stopping or looping. Delayed ticks dispatch
-  due cues in chronological order, with ends before starts at equal timestamps.
-  This preserves order, not missed presentation time.
-- Pause, resume, stop, restart, seek, and nudge selected events.
-- Use Time mode for a manual snap interval or BPM mode for beat subdivisions.
-- Persist zoom, snap, end time, loop, BPM, and display settings.
-
-### Macro Strip
-
-Macro Strip is a second OBS dock containing reusable, immediate actions and
-live parameter controls. Clicking an action button creates a temporary event
-and sends it through the same `ObsExecutor` as the timeline. Continuous controls
-use the shared parameter binding layer instead.
-
-Macro Strip also supports live parameter controls alongside action buttons.
-Click **+ → Parameter control**, choose a source or a filter (including
-nested scene/group sources), and select an exposed property. Choose a
-**Slider** or **Knob** for integer/float properties, or a **Toggle** for
-boolean properties. Knobs use relative vertical dragging: up increases, down
-decreases, and holding Shift gives ten-times finer movement. Clicking does
-not change the value. Focus the knob to adjust by individual steps with the
-mouse wheel or arrow keys; an unfocused knob does not consume wheel scrolling.
-Each control uses the property's declared range and step
-and displays its current value. Right-click to edit, move or remove a control.
-The assignment dialog refreshes its source/filter catalog and the selected
-target's property definitions once per second, without rebuilding unchanged
-choices or interrupting an open dropdown. Added/removed targets, renames and
-property changes are reflected without reopening the editor. Selection follows
-UUIDs and property keys/types; a removed choice requires explicit reassignment.
-
-Bindings store the source UUID, optional filter UUID, property key and
-property type. Renames do not redirect them. Missing targets or properties
-disable the control rather than rebinding by name. Controls read existing
-settings on creation and refresh while visible; they do not reset values
-when a macro file is loaded. Changing a control writes only its bound
-property through `obs_source_update`. The source/filter remains responsible
-for applying the setting. For example, HyperShaderFX exposes effect opacity,
-speed and shader-specific scalar uniforms through this mechanism.
-
-Only visible, enabled integer, float and boolean settings are supported in
-this pass; sliders use the OBS property range (up to one million increments).
-List/color/text/button properties, scene-item transforms, custom ranges,
-and direct mixer-volume controls are not included. These are live Macro Strip controls and instantaneous timeline cues, not
-interpolated keyframes. Older plugin builds skip the new
-control records; do not edit/save a mixed macro file with an older build
-because it may discard the new records.
-
-
-### Optional WebSocket vendor
-
-When the OBS WebSocket vendor header is available at build time, the plugin can
-emit `TimelineEvent` and playback status events. The event payload includes the
-phase, numeric type, source name, and event time; OBS WebSocket remains
-responsible for transport and authentication.
-
-The optional Downstream Keyer action uses `obs_websocket_call_request` to invoke
-`CallVendorRequest` for vendor `downstream-keyer`, request `dsk_select_scene`.
-This is an **in-process OBS API call**, not a network connection: Timeline needs
-no WebSocket credentials or enabled remote server. Missing plugin/vendor,
-invalid keyer/scene, and API unavailability are reported in the OBS log.
-Both scheduled events and Macro Strip buttons use this same action.
-
-### Plugins & Integrations
-
-Open Timeline's settings menu and choose **Plugins & Integrations** to see modules
-currently loaded by OBS. Plugins with a Timeline action adapter have a checkbox;
-checking it exposes their actions in the event editor **and** Macro Strip.
-Downstream Keyer is the first supported adapter (requires OBS WebSocket support
-at build time). Other loaded plugins are shown as detected but unavailable for dedicated
-action adapters. Compatible scalar properties remain discoverable without
-a dedicated adapter.
-
-These checkboxes control **which actions can be added**, not whether OBS
-loads a plugin or whether previously saved events execute. A timeline or
-macro containing an unavailable plugin action remains intact; editing it
-retains its saved fields and marks the type unavailable instead of replacing
-it. Timeline stores these preferences in `integrations.ini` in its writable
-OBS module configuration directory; the timeline and macro JSON are unaffected.
-The menu checks loaded modules, not every plugin file installed on disk;
-a plugin that failed to load will not appear.
+Numeric and boolean properties are supported. Color, list and text controls,
+custom ranges, scene-item transforms and direct mixer volume are not yet
+supported. See [live control details](docs/USAGE.md#live-parameter-controls).
 
 ## Installation
 
-The current supported installation path is a Linux source build. The build
-requires the OBS development packages, Qt6 development packages, CMake 3.28 or
-newer, and a C++17 toolchain.
+Choose the build matching your OBS major version. Do not mix plugin variants.
 
-### Prerequisites
+| OBS version | Availability |
+| --- | --- |
+| 31 | Linux, Windows and macOS builds (macOS 12+). |
+| 32 | Linux, Windows and macOS builds (macOS 13+). |
+| 33 | Experimental Linux compatibility target. |
 
-On Debian or Ubuntu, install the required development packages with your
-distribution’s package manager. The minimum project components are:
+Preview CI artifacts are available from [GitHub Actions](https://github.com/myrqyry/timeline/actions).
+Windows and macOS runtime installation and interactive testing remain outstanding.
 
-- `libobs-dev`
-- `cmake` 3.28 or newer
-- Qt6 Core, Gui, Widgets, Svg, and Test development packages (tests default to enabled)
-- Ninja for the Ubuntu CMake presets
-- A C++17 compiler and standard build tools
-- Optional: `obs-websocket-api.h` for WebSocket vendor support
+### Build from source (Linux)
 
-The exact CI dependency list is in the **Install dependencies** step of
-`.github/workflows/linux-build.yml`. Plugin-only builds can disable the Qt Test
-dependency with `-DTIMELINE_BUILD_TESTS=OFF`.
-
-### Build and install
-
-Select the OBS major version before configuring. Each compatibility target uses
-its own OBS headers and libraries, so don't reuse a build directory when
-switching targets.
-
-Run these commands from the repository root:
+Requirements: CMake 3.28+, C++17, Qt6 development packages, Ninja and matching
+libobs development headers/libraries. Close OBS before installing.
 
 ```bash
-# Using CMake presets (recommended):
 cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32
 cmake --build --preset ubuntu-x86_64
 cmake --install build_x86_64
-
-# Or without presets:
-cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DTIMELINE_OBS_COMPATIBILITY=obs32
-cmake --build build
-cmake --install build
 ```
 
-Use `obs31` instead of `obs32` for OBS 31. The `obs33`
-compatibility target has been verified in Linux Ubuntu 26.04 CI but not in a
-production OBS 33 GUI or a cross-platform release. CI can build the selected
-OBS SDK from its pinned source archive; local builds use the installed OBS SDK
-by default and fail if its major version differs from the selected target.
+Use `obs31` for OBS 31 and a separate build directory when switching SDKs.
+See [PACKAGING.md](PACKAGING.md) for dependencies, other targets, custom install
+paths and optional WebSocket support.
 
-OBS 31 artifacts support macOS 12 and newer. OBS 32 artifacts require macOS 13
-or newer because OBS 32.2.1 uses a Qt version that no longer supports macOS 12.
+Restart OBS and enable the Timeline and Macro Strip docks.
 
-The default Linux install locations are:
-
-- Plugin: `~/.config/obs-studio/plugins/timeline/bin/64bit/timeline.so`
-- Plugin data: `~/.config/obs-studio/plugins/timeline/data/`
-
-The install root and destinations are configurable through
-`TIMELINE_PLUGIN_ROOT`, `OBS_PLUGIN_DESTINATION`, and
-`OBS_DATA_DESTINATION` (the install rules in `CMakeLists.txt`).
-
-Restart OBS after installation, then open **View > Docks > Timeline**. Macro
-Strip appears under **View > Docks > Macro Strip**.
-
-### WebSocket build option
-
-`ENABLE_OBS_WEBSOCKET_VENDOR` defaults to `ON`. When enabled, CMake searches for
-`obs-websocket-api.h`; when disabled, the vendor integration is compiled out
-(`CMakeLists.txt`, **Optional obs-websocket vendor integration**). For an explicit
-build without the integration, run:
-
-```bash
-cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32 \
-  -DENABLE_OBS_WEBSOCKET_VENDOR=OFF
-cmake --build --preset ubuntu-x86_64
-```
-
-## Usage
-
-Use the following workflow to create and test a timeline in OBS.
-
-1. Open **View > Docks > Timeline**.
-2. Click **Add Event** to place an event at the playhead, double-click empty
-   timeline space, or right-click empty timeline space and choose **Add Event
-   Here**.
-3. Select the event type and target in the editor.
-4. Configure an optional duration, color, custom icon, or display label.
-5. Drag the event to refine its position, or enable snapping in the toolbar.
-6. Press **Play** or `Space` to start playback.
-
-The Space shortcut is ignored while a line edit or combo box has focus, so text
-and selection controls remain usable (`src/timeline-dock.cpp:684-690`).
-
-### Keyboard shortcuts
+## Keyboard shortcuts
 
 | Shortcut | Action |
 | --- | --- |
-| `Space` | Play or pause |
-| `Delete` | Remove selected events |
-| `Home` | Seek to the start |
-| `Left` / `Right` | Nudge selected events by 1 second |
-| `Shift+Left` / `Shift+Right` | Nudge selected events by 100 ms |
-| `Ctrl+C` / `Ctrl+V` | Copy and paste events |
-| `Ctrl+Z` | Undo last timeline event edit |
-| `Ctrl+Shift+Z` / platform Redo shortcut | Redo timeline event edit |
+| Space | Play / pause |
+| Home | Seek to start |
+| Delete | Delete selected events |
+| Left / Right | Nudge selected events by 1 second |
+| Shift + Left / Right | Nudge by 100 ms |
+| Ctrl + C / V | Copy / paste events |
+| Ctrl + Z | Undo |
+| Ctrl + Shift + Z (platform redo) | Redo |
+| Ctrl + mouse wheel | Zoom timeline |
+| Shift + mouse wheel | Scroll vertically when event lanes overflow |
 
-The Undo and Redo buttons beside Add Event use the same history as the
-dock-local keyboard shortcuts (native Undo/Redo bindings on each platform).
-History covers event creation, deletion, movement, color, duration and other
-event properties. Pasting, deleting or nudging a selection is one undo step.
+Use **Settings → Compact mode** to shrink the Timeline toolbar and events
+together. Undo/redo is session-only, edits event data rather than live OBS
+state, and is disabled during playback.
 
-The last 100 edits are kept in memory for the current loaded timeline. A new
-edit after undo discards its redo branch; loading a timeline resets history.
-Undo/redo are unavailable during playback or an active event drag and edit
-the saved timeline only, not OBS's current state. They use the normal
-autosave path. Playback, zoom, grid settings, end-marker changes and Macro
-Strip edits are not part of event history.
+## Compatibility and saved state
 
-OBS frontend hotkeys are also registered for play/pause, stop, and restart.
+Timeline and Macro Strip save automatically to OBS's plugin configuration
+directory. On Linux this is `~/.config/obs-studio/plugin_config/timeline/`.
+Timeline documents can also be imported/exported as JSON.
 
-## Persistence
+New explicit target bindings survive renames and do not silently redirect
+missing targets. Older name-based actions keep their existing behavior.
+Back up saved timelines and macros before downgrading: older versions may
+skip new actions or controls and discard them when saving.
 
-Timeline settings are saved automatically with a 250 ms debounce. OBS supplies
-the timeline configuration path through `obs_module_get_config_path()`; on a
-standard Linux OBS installation this is under the OBS plugin configuration
-directory, not the installed plugin data directory
-(`src/timeline-dock.cpp:221-304`).
+Only play timeline files you trust; they can change your OBS state.
 
-Timeline and Macro Strip settings are stored in OBS's writable per-plugin
-configuration directory. Timeline edits debounce for 250 ms and Macro Strip
-edits for 300 ms. If a Macro Strip save fails, edits remain authoritative in
-memory until a successful retry or shutdown; check OBS logs and free storage
-before exiting if you see a save warning.
+## Development status
 
-Linux default paths:
+- **84/84 tests passing** in the local native OBS32 build after formatting
+  commit `e558d52` (November 18, 2026). Qt widgets and libobs are real; frontend
+  interactions in the harness use test doubles.
+- Earlier build `3681512` loaded both docks and the WebSocket vendor in an
+  isolated OBS 32.2.0 session. The latest layout and knob improvements still
+  require native visual testing.
+- HyperShaderFX effect opacity and a shader uniform have been verified through
+  the real plugin's property interface; rendered output has not been verified.
+- Additional multi-selection editing, HTTP actions and release-grade
+  cross-platform installers remain planned work.
 
-```text
-~/.config/obs-studio/plugin_config/timeline/timeline.json
-~/.config/obs-studio/plugin_config/timeline/macro_buttons.json
-```
+## Documentation
 
-Existing Linux Macro Strip files under
-`~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` are imported
-when the new config file does not exist. The original file is preserved.
-Windows and macOS use their respective OBS plugin-configuration directories.
-The current Macro Strip file is authoritative: copies stored in OBS scene
-collections are recovery backups, not replacements for newer saved buttons or
-edits awaiting autosave.
-
-Timeline JSON accepts both the current root-object format and legacy bare event
-arrays. Saves are atomic through `QSaveFile`
-(`src/timeline-serialization.cpp:71-98`). See
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#persistence-and-file-formats) for
-the current schema and migration behavior.
-
-## Safety and limitations
-
-Timeline files are local configuration, but playing one can switch scenes,
-change source visibility, control media, toggle filters, write source/filter
-parameters, trigger hotkeys, and start nested files. Import only files you trust.
-
-The current preview has these limitations:
-
-- Automated tests primarily use Linux, real Qt widgets and libobs with
-  frontend test doubles and registered fixture sources. HyperShaderFX
-  property-setting integration was separately checked in an isolated runtime;
-  this does not establish rendered output or live performance.
-- Automated tests cannot prove every behavior of real OBS scenes, sources,
-  transitions, filters, or media objects.
-- Windows and macOS CI packages exist for testing, but have not yet passed
-  real OBS runtime smoke tests; there is no tagged public release.
-- Historical `MediaSeek` remains reserved; the new `MediaSeekTo` is a distinct action. Older plugin builds do not understand the new media action IDs or UUID targeting.
-- Older builds may skip new event IDs and parameter controls and discard them
-  on save. Back up timeline and macro documents before downgrading.
-- The plugin does not provide its own authentication or network listener.
-
-For the complete failure-mode, threading, ownership, and deployment reference,
-see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-## Development
-
-The project uses CMake, Qt Test, and OBS frontend test doubles for headless
-tests. The test target compiles production modules directly with those test
-implementations (`tests/CMakeLists.txt`).
-
-### Build and test
-
-```bash
-# Using CMake presets (recommended):
-cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32
-cmake --build --preset ubuntu-x86_64
-TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
-  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
-  ctest --test-dir build_x86_64 --output-on-failure
-
-# Or without presets:
-cmake -S . -B build -DTIMELINE_OBS_COMPATIBILITY=obs32
-cmake --build build
-TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
-  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
-  ctest --test-dir build --output-on-failure
-```
-
-Run a focused test function with:
-
-```bash
-TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
-  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
-  build_x86_64/tests/run_tests testSceneSwitch
-TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
-  LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
-  build_x86_64/tests/run_tests testSchedulerStartCursorResets
-```
-
-The test harness defaults to `QT_QPA_PLATFORM=offscreen`, but OBS startup
-requires a working OpenGL context. For strict validation use the Xvfb and
-software-GL commands above (as in Linux CI). A local headless run can skip
-if graphics or OBS startup is unavailable; `TIMELINE_REQUIRE_OBS_RUNTIME=1`
-turns that into a test failure. Check **QTest passed/skipped counts** and CTest
-status rather than treating a skip or graphics warning as a validated runtime.
-
-### Source layout
-
-The core runtime is split into these layers:
-
-| Layer | Files | Role |
-| --- | --- | --- |
-| Module | `src/plugin-main.cpp` | OBS lifecycle and dock registration |
-| Data | `src/event-types.h`, `src/timeline-model.cpp` | Event values and ordering |
-| Timing | `src/timeline-scheduler.cpp` | Playhead and event timing |
-| Execution | `src/obs-executor.cpp` | OBS operations |
-| Presentation | `src/timeline-dock.cpp`, `src/timeline-event-item.cpp` | Timeline UI |
-| Persistence | `src/timeline-serialization.cpp` | Timeline JSON |
-| Nested runtime | `src/headless-timeline.cpp` | UI-free child timelines |
-| Macro UI | `src/macro-strip-dock.cpp` | Immediate actions and live controls |
-| Parameter bindings | `src/macro-parameter.cpp`, `src/macro-parameter-widget.cpp` | Dynamic OBS properties and typed adjustment |
-
-Read `AGENTS.md` before editing. The folder-specific instructions in `src/`,
-`tests/`, and `data/` define ownership, threading, test, and asset rules.
-
-### Formatting and conventions
-
-- Use C++17 and follow the checked-in `.clang-format` (8-column tab indentation,
-  120-column limit) instead of imposing an incompatible manual style.
-- Use `blog(LOG_LEVEL, ...)`; do not use `printf`, `std::cout`, or similar
-  output streams.
-- Use OBS allocators (`bmalloc`, `bzalloc`, `bfree`) for OBS-owned memory.
-- Use `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` before touching Qt
-  objects from OBS hotkey or frontend callback threads.
-- Add new source files to `PLUGIN_SOURCES` in `CMakeLists.txt`.
-
-## Release checklist
-
-Before tagging a release, run the automated suite and complete the real OBS
-smoke checks in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
-At minimum, verify dock registration, event editing, save/load, all exposed
-event types, looping, duration behavior, nested timelines, and optional
-WebSocket builds.
-
-## Roadmap
-
-The following items are planned work rather than current capabilities:
-
-- Additional multi-selection editing tools beyond grouped paste, delete and nudge.
-- Live-GUI acceptance testing for the newest editor actions on OBS 32 and
-  OBS 33, followed by OBS 33 cross-platform validation.
-- Tested, release-grade Windows and macOS installers.
-- HTTP action events.
-
-Do not describe roadmap items as supported features until their implementation,
-tests, and release documentation exist.
-
-## Contributing
-
-Keep changes focused and update the relevant documentation when runtime
-behavior changes.
-
-1. Read `AGENTS.md` and the folder-specific instructions for the files you will
-   change.
-2. Add or update tests for observable runtime behavior.
-3. Run the build and test commands before requesting review.
-4. Keep commits scoped to one feature or fix.
-5. Update `docs/ARCHITECTURE.md` when a change affects system boundaries or
-   lifecycle behavior.
+| Guide | Contents |
+| --- | --- |
+| [Usage guide](docs/USAGE.md) | Detailed action behavior, live controls, hotkeys, integrations and saved state. |
+| [Build and packaging](PACKAGING.md) | SDKs, dependencies, artifacts and install paths. |
+| [Architecture](docs/ARCHITECTURE.md) | Runtime boundaries, event formats, scheduling and persistence. |
+| [Release checklist](docs/RELEASE_CHECKLIST.md) | Verification evidence, test commands and remaining release gates. |
+| [Contributor instructions](AGENTS.md) | Repository conventions and development workflow. |
 
 ## License
 
-Timeline for OBS is licensed under GPL-2.0-or-later.
+GPL-2.0-or-later.
