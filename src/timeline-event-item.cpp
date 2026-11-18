@@ -10,6 +10,7 @@
 #include <QFontMetrics>
 #include <QFile>
 #include <QApplication>
+#include <QScopedValueRollback>
 
 #include "theme-helpers.h"
 
@@ -82,6 +83,7 @@ void TimelineEventItem::setMaxTime(double maxTimeMs)
 
 void TimelineEventItem::setPixelsPerSecond(double pxPerSec)
 {
+	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	double currentTime = getTimeMs();
 	pixelsPerSecond = pxPerSec;
 	// Recalculate position (center aligned)
@@ -116,6 +118,7 @@ void TimelineEventItem::setCustomIconPath(const QString &path)
 
 void TimelineEventItem::setTimeMs(double timeMs)
 {
+	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	setPos(((timeMs / 1000.0) * pixelsPerSecond) - (mItemSize / 2.0), y());
 }
 
@@ -142,12 +145,14 @@ void TimelineEventItem::setEventLabel(const QString &label)
 
 void TimelineEventItem::setStackOffset(int offset)
 {
+	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	stackOffset = offset;
 	setPos(x(), baseY + (stackOffset * (mItemSize + 4)));
 }
 
 void TimelineEventItem::setCompactMode(bool enabled)
 {
+	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	if (compactMode == enabled)
 		return;
 	double currentTime = getTimeMs();
@@ -416,14 +421,18 @@ QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant
 			newPos.setX(snapped / 1000.0 * pixelsPerSecond - mItemSize / 2.0);
 		}
 
-		const double minX = -mItemSize / 2.0;
-		if (newPos.x() < minX)
-			newPos.setX(minX);
+		// Model/layout restores must show exact saved positions, including cues
+		// intentionally placed beyond an end marker. Only constrain movement.
+		if (!suppressDragSignals) {
+			const double minX = -mItemSize / 2.0;
+			if (newPos.x() < minX)
+				newPos.setX(minX);
 
-		if (maxTimeMs >= 0) {
-			const double maxX = maxTimeMs / 1000.0 * pixelsPerSecond - mItemSize / 2.0;
-			if (newPos.x() > maxX)
-				newPos.setX(maxX);
+			if (maxTimeMs >= 0) {
+				const double maxX = maxTimeMs / 1000.0 * pixelsPerSecond - mItemSize / 2.0;
+				if (newPos.x() > maxX)
+					newPos.setX(maxX);
+			}
 		}
 
 		// The guide and committed position must agree, even at the end marker.

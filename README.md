@@ -274,6 +274,20 @@ and selection controls remain usable (`src/timeline-dock.cpp:684-690`).
 | `Left` / `Right` | Nudge selected events by 1 second |
 | `Shift+Left` / `Shift+Right` | Nudge selected events by 100 ms |
 | `Ctrl+C` / `Ctrl+V` | Copy and paste events |
+| `Ctrl+Z` | Undo last timeline event edit |
+| `Ctrl+Shift+Z` / platform Redo shortcut | Redo timeline event edit |
+
+The Undo and Redo buttons beside Add Event use the same history as the
+dock-local keyboard shortcuts (native Undo/Redo bindings on each platform).
+History covers event creation, deletion, movement, color, duration and other
+event properties. Pasting, deleting or nudging a selection is one undo step.
+
+The last 100 edits are kept in memory for the current loaded timeline. A new
+edit after undo discards its redo branch; loading a timeline resets history.
+Undo/redo are unavailable during playback or an active event drag and edit
+the saved timeline only, not OBS's current state. They use the normal
+autosave path. Playback, zoom, grid settings, end-marker changes and Macro
+Strip edits are not part of event history.
 
 OBS frontend hotkeys are also registered for play/pause, stop, and restart.
 
@@ -414,8 +428,7 @@ WebSocket builds.
 
 The following items are planned work rather than current capabilities:
 
-- Undo and redo for timeline edits.
-- Multi-selection for batch editing.
+- Additional multi-selection editing tools beyond grouped paste, delete and nudge.
 - Live-GUI acceptance testing for the newest editor actions on OBS 32 and
   OBS 33, followed by OBS 33 cross-platform validation.
 - Tested, release-grade Windows and macOS installers.

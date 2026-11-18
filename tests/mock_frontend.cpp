@@ -133,6 +133,11 @@ void obs_frontend_remove_event_callback(obs_frontend_event_cb callback, void *pr
 	// No-op for test
 }
 
+void obs_frontend_save(void) {}
+void *obs_frontend_get_main_window(void) { return nullptr; }
+
+obs_module_t *obs_current_module(void) { return nullptr; }
+
 // Mock obs_module_text for test builds (returns the key as-is)
 const char *obs_module_text(const char *text)
 {

@@ -14,6 +14,8 @@ set(TEST_SOURCES
     ../src/headless-timeline.cpp
     ../src/timeline-scheduler.cpp
     ../src/timeline-model.cpp
+    ../src/timeline-dock.cpp
+    ../src/timecode-display.cpp
     ../src/timeline-event-item.cpp
     ../src/timeline-serialization.cpp
     ../src/macro-button-model.cpp

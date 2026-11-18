@@ -47,16 +47,19 @@
 static const std::vector<double> ZOOM_LEVELS = {5.0,   10.0,  15.0,  20.0,  30.0,  50.0,  75.0,
 						100.0, 150.0, 200.0, 300.0, 500.0, 750.0, 1000.0};
 
-TimelineDock::TimelineDock(QWidget *parent) : QWidget(parent)
+TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
+	: QWidget(parent), storageFilePath(storageFilePath)
 {
 	blog(LOG_INFO, "[Timeline] Dock constructor started");
 	model = new TimelineModel(this);
+	model->setHistoryEnabled(true);
 	scheduler = new TimelineScheduler(model, this);
 	executor = new ObsExecutor(this);
 
 	qRegisterMetaType<obs_frontend_event>("obs_frontend_event");
 
 	setupUi();
+	connect(model, &TimelineModel::historyChanged, this, &TimelineDock::updateHistoryControls);
 
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
 	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
@@ -226,13 +229,25 @@ void TimelineDock::onRestartHotkey()
 	updatePlayButtonIcon();
 }
 
+QString TimelineDock::configFilePath() const
+{
+	if (!storageFilePath.isEmpty())
+		return storageFilePath;
+	auto *module = obs_current_module();
+	if (!module)
+		return {};
+	char *path = obs_module_get_config_path(module, "timeline.json");
+	const QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
 void TimelineDock::save()
 {
-	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline.json");
-	if (!configPath)
+	const QString configPath = configFilePath();
+	if (configPath.isEmpty())
 		return;
 	if (loadingTimeline) {
-		bfree(configPath);
 		return;
 	}
 
@@ -242,13 +257,12 @@ void TimelineDock::save()
 		showEndTimeOnDock, scheduler->getCurrentTime(), pixelsPerSecond);
 	QString errorMessage;
 	if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
-		blog(LOG_DEBUG, "[Timeline] Saved → %s", configPath);
+		blog(LOG_DEBUG, "[Timeline] Saved → %s", configPath.toUtf8().constData());
 	} else {
 		blog(LOG_WARNING, "[Timeline] ┌─ Save failed");
-		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath.toUtf8().constData());
 		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 	}
-	bfree(configPath);
 }
 
 void TimelineDock::load()
@@ -258,15 +272,15 @@ void TimelineDock::load()
 	if (debounceSaveTimer)
 		debounceSaveTimer->stop();
 
-	char *configPath = obs_module_get_config_path(obs_current_module(), "timeline.json");
-	if (!configPath)
+	const QString configPath = configFilePath();
+	if (configPath.isEmpty())
 		return;
 
 	QJsonDocument doc;
 	QString errorMessage;
 	const QFileInfo configInfo(configPath);
 	if (TimelineSerialization::loadFromFile(configPath, doc, &errorMessage)) {
-		blog(LOG_INFO, "[Timeline] Loading config: %s", configPath);
+		blog(LOG_INFO, "[Timeline] Loading config: %s", configPath.toUtf8().constData());
 		TimelineDocument timelineDoc;
 		loadingTimeline = true;
 		model->blockSignals(true);
@@ -274,22 +288,22 @@ void TimelineDock::load()
 			model->blockSignals(false);
 			loadingTimeline = false;
 			blog(LOG_WARNING, "[Timeline] ┌─ Config parse failed");
-			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath.toUtf8().constData());
 			blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
-			bfree(configPath);
 			return;
 		}
 
 		applyTimelineDocument(timelineDoc);
 		model->blockSignals(false);
 		loadingTimeline = false;
+		updateHistoryControls();
 
 		// rebuildEventItems is normally triggered by modelChanged, but that
 		// signal was suppressed while blockSignals was true. Rebuild now
 		// so eventItemMap is populated for snap, zoom, and layout.
 		rebuildEventItems();
 		updateLayout();
-		blog(LOG_INFO, "[Timeline] Loaded → %s", configPath);
+		blog(LOG_INFO, "[Timeline] Loaded → %s", configPath.toUtf8().constData());
 	} else if (!configInfo.exists()) {
 		QDir().mkpath(configInfo.absolutePath());
 		const QJsonObject root = TimelineSerialization::toJsonObject(
@@ -297,18 +311,17 @@ void TimelineDock::load()
 			getSnapIntervalMs(), bpm, gridToBpm, noteLengthBeats, centerControls, alternatingBg,
 			compactMode, showEndTimeOnDock, scheduler->getCurrentTime(), pixelsPerSecond);
 		if (TimelineSerialization::saveToFile(configPath, root, &errorMessage)) {
-			blog(LOG_INFO, "[Timeline] Default config created: %s", configPath);
+			blog(LOG_INFO, "[Timeline] Default config created: %s", configPath.toUtf8().constData());
 		} else {
 			blog(LOG_WARNING, "[Timeline] ┌─ Default config creation failed");
-			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath.toUtf8().constData());
 			blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 		}
 	} else {
 		blog(LOG_WARNING, "[Timeline] ┌─ Config load failed");
-		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath);
+		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", configPath.toUtf8().constData());
 		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
 	}
-	bfree(configPath);
 }
 
 void TimelineDock::applyTimelineDocument(const TimelineDocument &doc)
@@ -407,6 +420,20 @@ void TimelineDock::setupUi()
 	addEventButton = new QPushButton(obs_module_text("TimelineDock.AddEvent"), this);
 	addEventButton->setObjectName("timeline-add-event-btn");
 	addEventButton->setToolTip(obs_module_text("TimelineDock.AddEventTooltip"));
+	undoButton = new QPushButton(this);
+	undoButton->setObjectName("timeline-undo-btn");
+	undoButton->setToolTip(QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.UndoEdit"),
+		QKeySequence(QKeySequence::Undo).toString(QKeySequence::NativeText)));
+	undoButton->setAccessibleName(obs_module_text("TimelineDock.UndoEdit"));
+	redoButton = new QPushButton(this);
+	redoButton->setObjectName("timeline-redo-btn");
+	redoButton->setToolTip(QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.RedoEdit"),
+		QKeySequence(QKeySequence::Redo).toString(QKeySequence::NativeText)));
+	redoButton->setAccessibleName(obs_module_text("TimelineDock.RedoEdit"));
+	connect(undoButton, &QPushButton::clicked, this, &TimelineDock::undoEdit);
+	connect(redoButton, &QPushButton::clicked, this, &TimelineDock::redoEdit);
+	updateHistoryControls();
+
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
 	connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
@@ -661,6 +688,7 @@ void TimelineDock::setupUi()
 	scene->setSceneRect(0, 0, 5000, view->height());
 
 	// Install event filter for scrubbing handling on viewport
+	view->installEventFilter(this);
 	view->viewport()->installEventFilter(this);
 	view->viewport()->setMouseTracking(true);
 	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() { updateZoomLabelPosition(); });
@@ -708,6 +736,21 @@ void TimelineDock::setupUi()
 	new QShortcut(QKeySequence(Qt::Key_Home), this, [this]() { scheduler->seek(0); });
 	new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_C), this, [this]() { copySelectedEvents(); });
 	new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_V), this, [this]() { pasteEvents(); });
+	// Limit editor history shortcuts to this dock, not the whole OBS window.
+	auto historyShortcut = [this](QKeySequence::StandardKey key, void (TimelineDock::*action)()) {
+		auto *shortcut = new QShortcut(key, this);
+		shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+		connect(shortcut, &QShortcut::activated, this, [this, action] {
+			auto *focus = QApplication::focusWidget();
+			if (qobject_cast<QLineEdit *>(focus) || qobject_cast<QComboBox *>(focus) ||
+			    qobject_cast<QAbstractSpinBox *>(focus))
+				return;
+			(this->*action)();
+		});
+	};
+	historyShortcut(QKeySequence::Undo, &TimelineDock::undoEdit);
+	historyShortcut(QKeySequence::Redo, &TimelineDock::redoEdit);
+
 
 	// Initial layout
 	blog(LOG_INFO, "[Timeline] ├─ UI layout initialized");
@@ -749,6 +792,8 @@ void TimelineDock::updateControlsLayout()
 	controlsLayout->addWidget(show(settingsButton));
 	controlsLayout->addWidget(show(settingsSeparator));
 	controlsLayout->addWidget(show(addEventButton));
+	controlsLayout->addWidget(show(undoButton));
+	controlsLayout->addWidget(show(redoButton));
 	controlsLayout->addWidget(show(addSeparator));
 	if (centerControls) {
 		controlsLayout->addStretch();
@@ -1081,6 +1126,16 @@ void TimelineDock::drawRuler()
 
 bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 {
+	// QGraphicsView normally consumes arrow keys for scrolling. When markers
+	// are selected, route plain/Shift arrows to the timeline's nudge command.
+	if (obj == view && event->type() == QEvent::KeyPress && !scene->selectedItems().isEmpty()) {
+		auto *key = static_cast<QKeyEvent *>(event);
+		if ((key->key() == Qt::Key_Left || key->key() == Qt::Key_Right) &&
+		    (key->modifiers() == Qt::NoModifier || key->modifiers() == Qt::ShiftModifier)) {
+			keyPressEvent(key);
+			return true;
+		}
+	}
 	if (obj == view->viewport()) {
 		// Right-click on empty area to add event
 		if (event->type() == QEvent::ContextMenu) {
@@ -1263,9 +1318,10 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		if (event->type() == QEvent::MouseButtonRelease) {
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			if (mouseEvent->button() == Qt::LeftButton) {
-				bool consumed = draggingPlayhead || draggingEndMarker || isDragging;
+				bool consumed = draggingPlayhead || draggingEndMarker; // Let event items receive their release.
 				if (isDragging) {
 					isDragging = false;
+					updateHistoryControls();
 					if (dragGuideItem)
 						dragGuideItem->setVisible(false);
 					if (rebuildScheduled)
@@ -1348,6 +1404,10 @@ void TimelineDock::onLoopToggled(bool checked)
 void TimelineDock::onEndTimeChanged(double value)
 {
 	scheduler->setEndTime(value * 1000.0); // Convert seconds to ms
+	for (auto *item : eventItemMap) {
+		if (item)
+			item->setMaxTime(value > 0 ? value * 1000.0 : -1.0);
+	}
 	updateDependentControlStates();
 	updateEndMarker();
 	debounceSaveTimer->start();
@@ -1450,6 +1510,7 @@ void TimelineDock::onLoadClicked()
 		applyTimelineDocument(timelineDoc);
 		model->blockSignals(false);
 		loadingTimeline = false;
+		updateHistoryControls();
 
 		blog(LOG_INFO, "[Timeline] Imported → %s", fileName.toStdString().c_str());
 		rebuildEventItems();
@@ -1616,6 +1677,8 @@ void TimelineDock::pasteEvents()
 			item->setSelected(false);
 	}
 
+	std::vector<TimelineEvent> batch;
+	batch.reserve(clipboard.size());
 	for (const auto &originalEvt : clipboard) {
 		TimelineEvent newEvt = originalEvt;
 		newEvt.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -1624,8 +1687,9 @@ void TimelineDock::pasteEvents()
 		if (newEvt.timeMs < 0)
 			newEvt.timeMs = 0;
 
-		model->addEvent(newEvt);
+		batch.push_back(newEvt);
 	}
+	model->addEvents(batch);
 
 	blog(LOG_INFO, "[Timeline] Pasted %d events at %.0f ms", static_cast<int>(clipboard.size()), currentPlayhead);
 	debounceSaveTimer->start();
@@ -1633,32 +1697,25 @@ void TimelineDock::pasteEvents()
 
 void TimelineDock::deleteSelectedEvents()
 {
-	QList<TimelineEventItem *> toDelete;
-
+	QStringList ids;
 	for (TimelineEventItem *item : eventItemMap) {
-		if (item && item->isSelected()) {
-			toDelete.append(item);
-		}
+		if (item && item->isSelected())
+			ids.append(item->getEventId());
 	}
-
-	if (toDelete.isEmpty())
-		return;
-
-	for (TimelineEventItem *item : toDelete) {
-		model->removeEventById(item->getEventId());
-	}
+	model->removeEventsById(ids);
 }
 
 void TimelineDock::nudgeSelectedEvents(double deltaMs)
 {
+	QHash<QString, double> times;
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item && item->isSelected()) {
-			double currentTime = item->getTimeMs();
-			double newTime = std::max(0.0, currentTime + deltaMs);
-
-			model->updateEventTimeById(item->getEventId(), newTime);
+			const auto evt = model->findEventById(item->getEventId());
+			if (evt)
+				times.insert(evt->id, std::max(0.0, evt->timeMs + deltaMs));
 		}
 	}
+	model->setEventTimes(times);
 }
 
 void TimelineDock::drawGrid()
@@ -1864,6 +1921,7 @@ void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &ev
 {
 	connect(item, &TimelineEventItem::dragStarted, [this, item]() {
 		isDragging = true;
+		updateHistoryControls();
 		if (dragGuideItem) {
 			dragGuideItem->setVisible(true);
 			double x = (item->getTimeMs() / 1000.0) * pixelsPerSecond;
@@ -1884,6 +1942,7 @@ void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &ev
 			dragGuideItem->setVisible(false);
 		}
 		model->updateEventTimeById(eventId, newTime);
+		updateHistoryControls();
 	});
 
 	connect(item, &TimelineEventItem::doubleClicked,
@@ -1970,7 +2029,7 @@ void TimelineDock::rebuildEventItems()
 			item->setBackgroundColor(bgColor);
 			item->setLabelColors(labelText, labelBg);
 			item->setCompactMode(compactMode);
-			item->setMaxTime(scheduler ? scheduler->getEndTime() : -1.0);
+			item->setMaxTime(scheduler && scheduler->getEndTime() > 0 ? scheduler->getEndTime() : -1.0);
 			scene->addItem(item);
 			connectItemSignals(item, evt.id);
 			item->setSuppressDragSignals(false);
@@ -1980,7 +2039,7 @@ void TimelineDock::rebuildEventItems()
 			item->setSuppressDragSignals(true);
 			item->setPixelsPerSecond(pixelsPerSecond);
 			item->setTimeMs(evt.timeMs);
-			item->setMaxTime(scheduler ? scheduler->getEndTime() : -1.0);
+			item->setMaxTime(scheduler && scheduler->getEndTime() > 0 ? scheduler->getEndTime() : -1.0);
 			item->setSuppressDragSignals(false);
 			item->setEventType(evt.type);
 			item->setEventColor(evt.color);
@@ -2125,7 +2184,6 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &
 	if (editor.exec() == QDialog::Accepted) {
 		editor.getUpdatedEvent(evt);
 		evt.id = eventId;              // Preserve ID
-		evt.timeMs = original->timeMs; // Preserve time
 		model->replaceEventById(eventId, evt);
 		debounceSaveTimer->start();
 	}
@@ -2142,8 +2200,30 @@ void TimelineDock::updateZoomLabel()
 	}
 }
 
+void TimelineDock::updateHistoryControls()
+{
+	const bool allowed = !scheduler->isPlaying() && !isDragging && !loadingTimeline;
+	if (undoButton)
+		undoButton->setEnabled(allowed && model->canUndo());
+	if (redoButton)
+		redoButton->setEnabled(allowed && model->canRedo());
+}
+
+void TimelineDock::undoEdit()
+{
+	if (!scheduler->isPlaying() && !isDragging && !loadingTimeline)
+		model->undo();
+}
+
+void TimelineDock::redoEdit()
+{
+	if (!scheduler->isPlaying() && !isDragging && !loadingTimeline)
+		model->redo();
+}
+
 void TimelineDock::updatePlayButtonIcon()
 {
+	updateHistoryControls();
 	int size = compactMode ? 28 : 32;
 	updateMoonButtonIcon(playButton, scheduler->isPlaying() ? ThemeIcons::MOON_PAUSE : ThemeIcons::MOON_PLAY, size,
 			     QString(), 6);
@@ -2171,6 +2251,8 @@ void TimelineDock::updateToolbarIcons()
 	updateMoonButtonIcon(timeModeBtn, ThemeIcons::MOON_CLOCK, secondarySize, QString(), 8);
 	updateMoonButtonIcon(bpmModeBtn, ThemeIcons::MOON_MUSIC, secondarySize, QString(), 8);
 
+	updateMoonButtonIcon(undoButton, ThemeIcons::MOON_UNDO, secondarySize, QString(), 8);
+	updateMoonButtonIcon(redoButton, ThemeIcons::MOON_REDO, secondarySize, QString(), 8);
 	updateMoonButtonIcon(addEventButton, ThemeIcons::MOON_PLUS, secondarySize,
 			     obs_module_text("TimelineDock.AddEvent"), 6);
 }

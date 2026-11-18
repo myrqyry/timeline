@@ -27,7 +27,7 @@ class TimelineDock : public QWidget {
 	Q_OBJECT
 
 public:
-	TimelineDock(QWidget *parent = nullptr);
+	TimelineDock(QWidget *parent = nullptr, const QString &storageFilePath = {});
 	~TimelineDock();
 
 	// Persistence
@@ -79,6 +79,7 @@ private slots:
 	void onRestartHotkey();
 
 private:
+	QString configFilePath() const;
 	void setupUi();
 	void setupModeToggle();
 	void applyTimelineDocument(const TimelineDocument &doc);
@@ -93,6 +94,9 @@ private:
 	void updateEndMarker();
 	void updatePlayButtonIcon();
 	void updateToolbarIcons();
+	void updateHistoryControls();
+	void undoEdit();
+	void redoEdit();
 	void deleteSelectedEvents();
 	void copySelectedEvents();
 	void pasteEvents();
@@ -114,6 +118,7 @@ private:
 	void placeNewEvent(double timeMs);
 
 	QList<TimelineEvent> clipboard;
+	QString storageFilePath;
 
 	TimelineModel *model = nullptr;
 	TimelineScheduler *scheduler = nullptr;
@@ -135,6 +140,8 @@ private:
 	QPushButton *zoomInButton = nullptr;
 	QPushButton *zoomOutButton = nullptr;
 	QPushButton *addEventButton = nullptr;
+	QPushButton *undoButton = nullptr;
+	QPushButton *redoButton = nullptr;
 	QPushButton *saveButton = nullptr;
 	QPushButton *loadButton = nullptr;
 	QPushButton *settingsButton = nullptr;

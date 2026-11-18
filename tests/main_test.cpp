@@ -29,6 +29,7 @@
 #include "timeline-hit-testing.h"
 #include "timeline-event-item.h"
 #include "timeline-model.h"
+#include "timeline-dock.h"
 #include "timeline-scheduler.h"
 #include "timeline-serialization.h"
 #include "macro-button.h"
@@ -1327,6 +1328,294 @@ private slots:
 	{
 		QCOMPARE(TimelineHitTesting::kMarkerHandleSizePx,
 			 static_cast<int>(TimelineHitTesting::kMarkerGrabRadiusPx * 2.0));
+	}
+
+	void testTimelineDockUndoRedoAndPersistence()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("timeline.json");
+		TimelineDock dock(nullptr, path);
+		dock.resize(1100, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *undo = dock.findChild<QPushButton *>("timeline-undo-btn");
+		auto *redo = dock.findChild<QPushButton *>("timeline-redo-btn");
+		QVERIFY(model && scheduler && view && undo && redo);
+		QVERIFY(!undo->isEnabled() && !redo->isEnabled());
+		TimelineEvent a, b;
+		a.timeMs = 1500;
+		a.type = TimelineEventType::MediaStart;
+		a.sourceName = "Saved clip";
+		b.timeMs = 2500;
+		model->addEvents({a, b});
+		QTRY_VERIFY(undo->isEnabled());
+		QTest::mouseClick(undo, Qt::LeftButton);
+		QVERIFY(model->getEvents().empty());
+		QVERIFY(redo->isEnabled());
+		QTest::mouseClick(redo, Qt::LeftButton);
+		QCOMPARE(model->getEvents().size(), size_t(2));
+		// Real widget shortcut, not a direct call to the model.
+		QApplication::setActiveWindow(&dock);
+		view->setFocus();
+		QTRY_VERIFY_WITH_TIMEOUT(view->hasFocus(), 1000);
+		const auto undoKey = QKeySequence::keyBindings(QKeySequence::Undo).first()[0];
+		QTest::keyClick(view, undoKey.key(), undoKey.keyboardModifiers());
+		QTRY_VERIFY_WITH_TIMEOUT(model->getEvents().empty(), 1500);
+		const auto redoKey = QKeySequence::keyBindings(QKeySequence::Redo).first()[0];
+		QTest::keyClick(view, redoKey.key(), redoKey.keyboardModifiers());
+		QTRY_COMPARE(model->getEvents().size(), size_t(2));
+		QCoreApplication::processEvents();
+
+		// Select both markers, delete with one model change, then restore both.
+		int selected = 0;
+		for (auto *graphics : view->scene()->items()) {
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics)) {
+				item->setSelected(true);
+				++selected;
+			}
+		}
+		QCOMPARE(selected, 2);
+		QTest::keyClick(view, Qt::Key_Right, Qt::ShiftModifier);
+		QTRY_COMPARE_WITH_TIMEOUT(model->findEventById(a.id)->timeMs, a.timeMs + 100, 1500);
+		QCOMPARE(model->findEventById(b.id)->timeMs, b.timeMs + 100);
+		QTest::mouseClick(undo, Qt::LeftButton);
+		QCOMPARE(model->findEventById(a.id)->timeMs, a.timeMs);
+		QCOMPARE(model->findEventById(b.id)->timeMs, b.timeMs);
+		QCoreApplication::processEvents();
+		view->setFocus();
+		QTest::keyClick(view, Qt::Key_C, Qt::ControlModifier);
+		scheduler->seek(4000);
+		QTest::keyClick(view, Qt::Key_V, Qt::ControlModifier);
+		QTRY_COMPARE(model->getEvents().size(), size_t(4));
+		QCOMPARE(model->getEvents()[2].timeMs, 4000.0);
+		QCOMPARE(model->getEvents()[3].timeMs, 5000.0);
+		QVERIFY(model->getEvents()[2].id != a.id);
+		QTest::mouseClick(undo, Qt::LeftButton);
+		QCOMPARE(model->getEvents().size(), size_t(2));
+		QCoreApplication::processEvents();
+		scheduler->seek(0);
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				item->setSelected(true);
+		view->setFocus();
+		QTest::keyClick(view, Qt::Key_Delete);
+		QTRY_VERIFY_WITH_TIMEOUT(model->getEvents().empty(), 1500);
+		QTest::mouseClick(undo, Qt::LeftButton);
+		QCOMPARE(model->getEvents().size(), size_t(2));
+		QCoreApplication::processEvents();
+
+		// Drag an actual marker through the viewport, including its release.
+		TimelineEventItem *marker = nullptr;
+		for (auto *graphics : view->scene()->items()) {
+			auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+			if (item && item->getEventId() == a.id)
+				marker = item;
+		}
+		QVERIFY(marker);
+		QCOMPARE(marker->getTimeMs(), a.timeMs);
+		const QPoint begin = view->mapFromScene(marker->mapToScene(marker->rect().center()));
+		const QPoint end = begin + QPoint(40, 0);
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, begin);
+		// Explicit pressed buttons for a real drag gesture across Qt backends.
+		QMouseEvent move(QEvent::MouseMove, QPointF(end), QPointF(view->viewport()->mapToGlobal(end)),
+				 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+		QCoreApplication::sendEvent(view->viewport(), &move);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, end);
+		QTRY_VERIFY_WITH_TIMEOUT(model->findEventById(a.id)->timeMs > a.timeMs, 1500);
+		QTest::mouseClick(undo, Qt::LeftButton);
+		QCOMPARE(model->findEventById(a.id)->timeMs, a.timeMs);
+		QCoreApplication::processEvents();
+
+		// The actual event editor must preserve a user's exact-time edit.
+		bool editedTime = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *editor = dock.findChild<EventEditor *>();
+			if (!editor)
+				return;
+			auto *spin = editor->findChild<QDoubleSpinBox *>("eventTimeSpin");
+			if (spin) {
+				spin->setValue(1.678);
+				editedTime = true;
+				editor->accept();
+			} else {
+				editor->reject();
+			}
+		});
+		QVERIFY(QMetaObject::invokeMethod(marker, "doubleClicked", Qt::DirectConnection));
+		QVERIFY(editedTime);
+		QCOMPARE(model->findEventById(a.id)->timeMs, 1678.0);
+		QTest::mouseClick(undo, Qt::LeftButton);
+		QCOMPARE(model->findEventById(a.id)->timeMs, a.timeMs);
+
+		auto *play = dock.findChild<QPushButton *>("timeline-play-btn");
+		QVERIFY(play);
+		QTest::mouseClick(play, Qt::LeftButton);
+		QVERIFY(scheduler->isPlaying());
+		QVERIFY(!undo->isEnabled() && !redo->isEnabled());
+		QTest::mouseClick(play, Qt::LeftButton);
+		QVERIFY(!scheduler->isPlaying());
+		QVERIFY(undo->isEnabled() && redo->isEnabled());
+		QJsonDocument saved;
+		QTRY_VERIFY_WITH_TIMEOUT(TimelineSerialization::loadFromFile(path, saved) &&
+			saved.object()["events"].toArray() == model->toJson(), 1500);
+		QCOMPARE(saved.object()["events"].toArray(), model->toJson());
+		dock.load();
+		QVERIFY(!undo->isEnabled() && !redo->isEnabled());
+		QCOMPARE(model->getEvents().size(), size_t(2));
+	}
+
+	void testEventEditorPreservesUnchangedFractionalTime()
+	{
+		TimelineEvent input;
+		input.type = TimelineEventType::MediaStart;
+		input.sourceName = "Saved clip";
+		input.timeMs = 1234.56789;
+		EventEditor editor(input);
+		TimelineEvent result = input;
+		editor.getUpdatedEvent(result);
+		QCOMPARE(result.timeMs, input.timeMs);
+		auto *time = editor.findChild<QDoubleSpinBox *>("eventTimeSpin");
+		QVERIFY(time);
+		time->setValue(2.345);
+		editor.getUpdatedEvent(result);
+		QCOMPARE(result.timeMs, 2345.0);
+	}
+
+	void testTimelineHistoryIsBounded()
+	{
+		TimelineModel model;
+		model.setHistoryEnabled(true);
+		TimelineEvent evt;
+		model.addEvent(evt);
+		for (int i = 1; i <= 110; ++i)
+			model.updateEventTimeById(evt.id, i);
+		int count = 0;
+		while (model.undo())
+			++count;
+		QCOMPARE(count, 100);
+		QCOMPARE(model.findEventById(evt.id)->timeMs, 10.0);
+		for (int i = 0; i < 100; ++i)
+			QVERIFY(model.redo());
+		QCOMPARE(model.findEventById(evt.id)->timeMs, 110.0);
+		QVERIFY(!model.canRedo());
+	}
+
+	void testRestoringMarkerBeyondEndDoesNotChangeItsTime()
+	{
+		QGraphicsScene scene;
+		auto *item = new TimelineEventItem(1500.0, 100.0, TimelineEventType::SceneSwitch);
+		scene.addItem(item);
+		item->setMaxTime(2000.0);
+		item->setTimeMs(2500.0);
+		QCOMPARE(item->getTimeMs(), 2500.0);
+		item->setPixelsPerSecond(200.0);
+		item->setCompactMode(true);
+		item->setStackOffset(1);
+		QCOMPARE(item->getTimeMs(), 2500.0);
+	}
+
+	void testTimelineHistoryRestoresCompleteEvents()
+	{
+		TimelineModel model;
+		model.setHistoryEnabled(true);
+		TimelineEvent event;
+		event.timeMs = 2345.678;
+		event.type = TimelineEventType::MediaSeekTo;
+		event.sourceName = "Clip";
+		event.data = QStringLiteral("media:v1:uuid:12345");
+		event.color = QColor(1, 2, 3, 100);
+		event.label = "Cue";
+		event.showLabel = true;
+		event.customIconPath = "/tmp/custom.svg";
+		event.hasDuration = true;
+		event.durationMs = 12.345;
+		model.addEvent(event);
+		QVERIFY(model.canUndo());
+		QVERIFY(!model.canRedo());
+		model.updateEventTimeById(event.id, 3456.789);
+		TimelineEvent changed = model.findEventById(event.id).value();
+		changed.label = "Changed";
+		changed.data = QStringLiteral("new payload");
+		model.replaceEventById(event.id, changed);
+		QVERIFY(model.undo());
+		QCOMPARE(model.findEventById(event.id)->label, event.label);
+		QCOMPARE(model.findEventById(event.id)->data, event.data);
+		QVERIFY(model.undo());
+		const auto original = model.findEventById(event.id).value();
+		QCOMPARE(original.timeMs, event.timeMs);
+		QCOMPARE(original.color, event.color);
+		QCOMPARE(original.durationMs, event.durationMs);
+		QCOMPARE(original.customIconPath, event.customIconPath);
+		QVERIFY(original.showLabel && original.hasDuration);
+		QVERIFY(model.undo());
+		QVERIFY(model.getEvents().empty());
+		QVERIFY(!model.canUndo());
+		QVERIFY(model.redo());
+		QVERIFY(model.redo());
+		QVERIFY(model.redo());
+		QCOMPARE(model.findEventById(event.id)->label, changed.label);
+		QVERIFY(!model.canRedo());
+	}
+
+	void testTimelineHistoryBatchesAndBranches()
+	{
+		TimelineModel model;
+		model.setHistoryEnabled(true);
+		TimelineEvent a, b;
+		a.timeMs = 1000;
+		b.timeMs = 2000;
+		QSignalSpy changes(&model, &TimelineModel::modelChanged);
+		model.addEvents({a, b});
+		QCOMPARE(changes.count(), 1);
+		model.setEventTimes({{a.id, 1100}, {b.id, 2100}});
+		QCOMPARE(changes.count(), 2);
+		model.removeEventsById({a.id, b.id});
+		QCOMPARE(changes.count(), 3);
+		QVERIFY(model.undo());
+		QCOMPARE(model.getEvents().size(), size_t(2));
+		QCOMPARE(model.findEventById(a.id)->timeMs, 1100.0);
+		QVERIFY(model.undo());
+		QCOMPARE(model.findEventById(b.id)->timeMs, 2000.0);
+		QVERIFY(model.canRedo());
+		model.updateEventTimeById(a.id, 1000);
+		QVERIFY(model.canRedo()); // no-op must not invalidate redo
+		model.updateEventTimeById(a.id, 1200);
+		QVERIFY(!model.canRedo());
+		QVERIFY(model.undo());
+		QVERIFY(model.undo());
+		QVERIFY(model.getEvents().empty());
+		QVERIFY(!model.canUndo());
+	}
+
+	void testTimelineHistoryLoadAndPlaybackIsolation()
+	{
+		TimelineModel model;
+		TimelineEvent cue;
+		model.addEvent(cue);
+		QVERIFY(!model.canUndo()); // headless does not allocate history
+		model.setHistoryEnabled(true);
+		model.updateEventTimeById(cue.id, 1000);
+		TimelineScheduler scheduler(&model);
+		QSignalSpy starts(&scheduler, &TimelineScheduler::eventStarted);
+		QSignalSpy ends(&scheduler, &TimelineScheduler::eventEnded);
+		scheduler.seek(500);
+		QVERIFY(model.undo());
+		QVERIFY(model.redo());
+		QCOMPARE(scheduler.getCurrentTime(), 500.0);
+		QCOMPARE(starts.count(), 0);
+		QCOMPARE(ends.count(), 0);
+		QVERIFY(model.canUndo());
+		TimelineDocument doc;
+		QVERIFY(!TimelineSerialization::fromJsonDocument(QJsonDocument(QJsonObject{}), model, doc));
+		QVERIFY(model.canUndo()); // failed import doesn't erase history
+		QVERIFY(TimelineSerialization::fromJsonDocument(QJsonDocument(model.toJson()), model, doc));
+		QVERIFY(!model.canUndo());
+		QVERIFY(!model.canRedo());
+		QCOMPARE(model.getEvents().size(), size_t(1));
 	}
 
 	void testModelIdOpsWithDuplicateTime()

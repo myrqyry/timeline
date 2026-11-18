@@ -232,15 +232,24 @@ new exact-target actions in older plugin builds that ignore this data.
 
 ### TimelineModel
 
-`TimelineModel` owns a `std::vector<TimelineEvent>`. Every add, remove, time
-update, replacement, or JSON load emits `modelChanged()`; mutations that change
-time or insert events maintain ascending `timeMs` order
-(`src/timeline-model.cpp:9-13`, `src/timeline-model.cpp:33-65`,
-`src/timeline-model.cpp:110-180`).
+`TimelineModel` owns a `std::vector<TimelineEvent>`. Successful edit
+transactions and JSON loads emit `modelChanged()`; mutations that change time
+or insert events maintain ascending `timeMs` order with stable ordering for
+equal times. Batch add/remove/time updates publish a single change.
 
 The model does not know about graphics items or OBS objects. Consumers retrieve
 a const event vector, mutate through model methods, and react to
 `modelChanged()`. This keeps event identity and ordering in one place.
+
+The dock opts into session-only edit history; headless models do not retain
+history. Each changed transaction retains a complete previous value-vector
+(up to 100 steps), not a JSON reconstruction, so event IDs, precise times,
+payloads, alpha colors and other fields survive undo/redo. No-op transactions
+do not invalidate redo; successful document loads clear both history stacks.
+Undo/redo restore model data and emit normal change notifications; no OBS
+actions are dispatched by the history mechanism. The dock disables history
+actions while playing, loading, or dragging. Settings and playhead state
+remain outside event history. History is not serialized.
 
 ### MacroButton
 
@@ -409,7 +418,7 @@ dialog and the same JSON document format (`src/timeline-dock.cpp:1373-1431`).
 ### Model-to-view synchronization
 
 `modelChanged()` schedules one queued `rebuildEventItems()` call while no rebuild
-is pending. This coalesces rapid changes such as paste or drag updates
+is pending. This coalesces rapid changes; paste, delete and nudge are single model transactions
 (`src/timeline-dock.cpp:69-77`). During an event drag, rebuilds are deferred and
 re-scheduled on mouse release (`src/timeline-dock.cpp:1231-1253`).
 

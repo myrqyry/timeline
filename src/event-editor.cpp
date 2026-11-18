@@ -212,11 +212,13 @@ void EventEditor::buildUi()
 
      // Fine-tune exact time (seconds with millisecond precision)
      timeSpin = new QDoubleSpinBox(this);
+     timeSpin->setObjectName("eventTimeSpin");
      timeSpin->setRange(0.0, 36000.0); // Up to 10 hours
      timeSpin->setDecimals(3);
      timeSpin->setSuffix(" sec");
      timeSpin->setSingleStep(0.1);
     timeSpin->setValue(eventTimeMs / 1000.0);
+    initialDisplayedTimeSeconds = timeSpin->value();
     layout->addRow(obs_module_text("EventEditor.ExactTime"), timeSpin);
 
      // Time info label (updates as user changes timeSpin)
@@ -765,7 +767,10 @@ void EventEditor::pickColor()
  void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
  {
      if (!isNewMode) {
-         evt.timeMs = timeSpin->value() * 1000.0;
+         // Preserve sub-millisecond BPM positions if the user did not edit
+         // the millisecond-resolution time field.
+         evt.timeMs = timeSpin->value() == initialDisplayedTimeSeconds
+             ? eventTimeMs : timeSpin->value() * 1000.0;
      }
 
      if ((evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) &&

@@ -65,5 +65,6 @@ private:
 
     QColor selectedColor;
     double eventTimeMs = 0.0;
+    double initialDisplayedTimeSeconds = 0.0;
     bool isNewMode = false;
 };

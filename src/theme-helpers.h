@@ -137,6 +137,11 @@ inline const char *MOON_PAUSE =
 inline const char *MOON_STOP =
 	"<rect x=\"5\" y=\"5\" width=\"14\" height=\"14\" rx=\"2\"/>";
 
+inline const char *MOON_UNDO =
+	"<path d=\"M9 4L3 10L9 16M3 10H15C19 10 21 13 21 17V20\"/>";
+inline const char *MOON_REDO =
+	"<path d=\"M15 4L21 10L15 16M21 10H9C5 10 3 13 3 17V20\"/>";
+
 inline const char *MOON_PLUS =
 	"<path d=\"M12 6V18\"/>"
 	"<path d=\"M6 12H18\"/>";

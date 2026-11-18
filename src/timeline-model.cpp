@@ -1,6 +1,7 @@
 #include "timeline-model.h"
 #include "theme-helpers.h"
 #include <QJsonObject>
+#include <QSet>
 #include <obs-module.h>
 
 TimelineModel::TimelineModel(QObject *parent) : QObject(parent)
@@ -8,11 +9,110 @@ TimelineModel::TimelineModel(QObject *parent) : QObject(parent)
 	blog(LOG_INFO, "[Timeline] ├─ Model     : created");
 }
 
+namespace {
+bool sameEvent(const TimelineEvent &a, const TimelineEvent &b)
+{
+	return a.id == b.id && a.timeMs == b.timeMs && a.type == b.type &&
+	       a.sourceName == b.sourceName && a.filterName == b.filterName &&
+	       a.data == b.data && a.color == b.color && a.customIconPath == b.customIconPath &&
+	       a.label == b.label && a.showLabel == b.showLabel &&
+	       a.hasDuration == b.hasDuration && a.durationMs == b.durationMs;
+}
+}
+
+void TimelineModel::setHistoryEnabled(bool enabled)
+{
+	if (historyEnabled == enabled)
+		return;
+	historyEnabled = enabled;
+	resetHistory();
+}
+
+void TimelineModel::resetHistory()
+{
+	undoHistory.clear();
+	redoHistory.clear();
+	emit historyChanged();
+}
+
+bool TimelineModel::commitEdit(EventList next)
+{
+	std::stable_sort(next.begin(), next.end(),
+			 [](const TimelineEvent &a, const TimelineEvent &b) { return a.timeMs < b.timeMs; });
+	if (next.size() == events.size() && std::equal(next.begin(), next.end(), events.begin(), sameEvent))
+		return false;
+	if (historyEnabled) {
+		undoHistory.push_back(std::move(events));
+		if (undoHistory.size() > HistoryLimit)
+			undoHistory.pop_front();
+		redoHistory.clear();
+	}
+	events = std::move(next);
+	emit modelChanged();
+	emit historyChanged();
+	return true;
+}
+
+bool TimelineModel::undo()
+{
+	if (!canUndo())
+		return false;
+	redoHistory.push_back(std::move(events));
+	events = std::move(undoHistory.back());
+	undoHistory.pop_back();
+	emit modelChanged();
+	emit historyChanged();
+	return true;
+}
+
+bool TimelineModel::redo()
+{
+	if (!canRedo())
+		return false;
+	undoHistory.push_back(std::move(events));
+	events = std::move(redoHistory.back());
+	redoHistory.pop_back();
+	emit modelChanged();
+	emit historyChanged();
+	return true;
+}
+
 void TimelineModel::addEvent(const TimelineEvent &event)
 {
-	events.push_back(event);
-	sortEvents();
-	emit modelChanged();
+	addEvents({event});
+}
+
+void TimelineModel::addEvents(const EventList &batch)
+{
+	if (batch.empty())
+		return;
+	auto next = events;
+	next.insert(next.end(), batch.begin(), batch.end());
+	commitEdit(std::move(next));
+}
+
+void TimelineModel::removeEventsById(const QStringList &ids)
+{
+	if (ids.isEmpty())
+		return;
+	const QSet<QString> selected(ids.begin(), ids.end());
+	auto next = events;
+	next.erase(std::remove_if(next.begin(), next.end(),
+				[&](const TimelineEvent &evt) { return selected.contains(evt.id); }), next.end());
+	commitEdit(std::move(next));
+}
+
+void TimelineModel::setEventTimes(const QHash<QString, double> &times)
+{
+	if (times.isEmpty())
+		return;
+	auto next = events;
+	for (auto &evt : next) {
+		const auto it = times.constFind(evt.id);
+		if (it != times.cend())
+			evt.timeMs = it.value();
+	}
+	commitEdit(std::move(next));
 }
 
 const std::vector<TimelineEvent> &TimelineModel::getEvents() const
@@ -22,8 +122,7 @@ const std::vector<TimelineEvent> &TimelineModel::getEvents() const
 
 void TimelineModel::clearEvents()
 {
-	events.clear();
-	emit modelChanged();
+	commitEdit({});
 }
 
 int TimelineModel::findEventIndexById(const QString &id) const
@@ -42,8 +141,7 @@ bool TimelineModel::removeEventById(const QString &id)
 	if (index < 0) {
 		return false;
 	}
-	events.erase(events.begin() + index);
-	emit modelChanged();
+	removeEventsById({id});
 	return true;
 }
 
@@ -53,9 +151,7 @@ bool TimelineModel::updateEventTimeById(const QString &id, double newTimeMs)
 	if (index < 0) {
 		return false;
 	}
-	events[index].timeMs = newTimeMs;
-	sortEvents();
-	emit modelChanged();
+	setEventTimes({{id, newTimeMs}});
 	return true;
 }
 
@@ -67,9 +163,9 @@ bool TimelineModel::replaceEventById(const QString &id, const TimelineEvent &eve
 	}
 	TimelineEvent updated = event;
 	updated.id = id;
-	events[index] = updated;
-	sortEvents();
-	emit modelChanged();
+	auto next = events;
+	next[index] = updated;
+	commitEdit(std::move(next));
 	return true;
 }
 
@@ -183,11 +279,12 @@ void TimelineModel::fromJson(const QJsonArray &json)
 		events.push_back(evt);
 	}
 	sortEvents();
+	resetHistory();
 	emit modelChanged();
 }
 
 void TimelineModel::sortEvents()
 {
-	std::sort(events.begin(), events.end(),
+	std::stable_sort(events.begin(), events.end(),
 		  [](const TimelineEvent &a, const TimelineEvent &b) { return a.timeMs < b.timeMs; });
 }
