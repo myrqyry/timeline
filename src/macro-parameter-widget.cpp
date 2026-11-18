@@ -1,6 +1,7 @@
 #include "macro-parameter-widget.h"
 
 #include <QAbstractSlider>
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDial>
@@ -190,19 +191,13 @@ std::optional<MacroButton> editMacroParameter(QWidget *parent, const MacroButton
 	form->addRow(buttons);
 	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
 	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-	const auto targets = MacroParameter::targets();
+	QList<MacroParameter::Target> targets;
 	QList<MacroParameter::Spec> specs;
 	targetCombo->addItem(QObject::tr("Choose a source or filter"), -1);
-	int savedTarget = 0;
-	for (int i = 0; i < targets.size(); ++i) {
-		const auto &t = targets[i];
-		targetCombo->addItem(t.label, i);
-		if (t.sourceUuid == initial.binding.sourceUuid && t.filterUuid == initial.binding.filterUuid)
-			savedTarget = i + 1;
-	}
 	MacroControlKind preferred = initial.kind;
 	auto updateKind = [&] {
 		const int index = propertyCombo->currentIndex();
+		const QSignalBlocker block(kindCombo);
 		kindCombo->clear();
 		const bool valid = index >= 0 && index < specs.size();
 		buttons->button(QDialogButtonBox::Ok)->setEnabled(valid);
@@ -224,34 +219,81 @@ std::optional<MacroButton> editMacroParameter(QWidget *parent, const MacroButton
 			QObject::tr("%1 · %2 to %3 · step %4").arg(spec.key)
 				.arg(spec.min).arg(spec.max).arg(spec.step));
 	};
-	auto updateProperties = [&] {
+	auto selectedBinding = [&] {
+		MacroParameterBinding result;
+		const int targetIndex = targetCombo->currentData().toInt();
+		if (targetIndex < 0 || targetIndex >= targets.size())
+			return result;
+		result.sourceUuid = targets[targetIndex].sourceUuid;
+		result.filterUuid = targets[targetIndex].filterUuid;
+		const int propertyIndex = propertyCombo->currentIndex();
+		if (propertyIndex >= 0 && propertyIndex < specs.size()) {
+			result.key = specs[propertyIndex].key;
+			result.type = specs[propertyIndex].type;
+		}
+		return result;
+	};
+	auto updateProperties = [&](const MacroParameterBinding &selection, bool force) {
+		const auto fresh = selection.sourceUuid.isEmpty() ?
+			QList<MacroParameter::Spec>{} : MacroParameter::properties(selection);
+		if (!force && fresh == specs)
+			return;
 		const QSignalBlocker block(propertyCombo);
 		propertyCombo->clear();
-		specs.clear();
-		const int targetIndex = targetCombo->currentData().toInt();
-		if (targetIndex >= 0 && targetIndex < targets.size()) {
-			const auto &target = targets[targetIndex];
-			specs = MacroParameter::properties({target.sourceUuid, target.filterUuid, {}, MacroParameterType::Float});
-			for (const auto &spec : specs)
-				propertyCombo->addItem(spec.label);
-			// If a saved key disappeared, never silently substitute the first
-			// available parameter. Require an explicit new selection.
-			propertyCombo->setCurrentIndex(-1);
-			if (target.sourceUuid == initial.binding.sourceUuid && target.filterUuid == initial.binding.filterUuid) {
-				for (int i = 0; i < specs.size(); ++i)
-					if (specs[i].key == initial.binding.key && specs[i].type == initial.binding.type)
-						propertyCombo->setCurrentIndex(i);
-			}
+		specs = fresh;
+		int selected = -1;
+		for (int i = 0; i < specs.size(); ++i) {
+			propertyCombo->addItem(specs[i].label);
+			if (specs[i].key == selection.key && specs[i].type == selection.type)
+				selected = i;
 		}
+		// Missing properties never silently bind to an adjacent list entry.
+		propertyCombo->setCurrentIndex(selected);
 		updateKind();
 	};
-	QObject::connect(targetCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int) { updateProperties(); });
-	QObject::connect(propertyCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int) { updateKind(); });
-	QObject::connect(kindCombo, qOverload<int>(&QComboBox::activated), &dialog, [&](int) {
-		preferred = static_cast<MacroControlKind>(kindCombo->currentData().toInt());
+	auto refreshCatalog = [&](const MacroParameterBinding &selection, bool force) {
+		const auto fresh = MacroParameter::targets();
+		if (force || !(targets == fresh)) {
+			const QSignalBlocker block(targetCombo);
+			targetCombo->clear();
+			targetCombo->addItem(QObject::tr("Choose a source or filter"), -1);
+			targets = fresh;
+			int selected = 0;
+			for (int i = 0; i < targets.size(); ++i) {
+				const auto &t = targets[i];
+				targetCombo->addItem(t.label, i);
+				if (t.sourceUuid == selection.sourceUuid && t.filterUuid == selection.filterUuid)
+					selected = i + 1;
+			}
+			targetCombo->setCurrentIndex(selected);
+		}
+		// Do not use a removed target's identity to enumerate properties.
+		auto current = selectedBinding();
+		current.key = selection.key;
+		current.type = selection.type;
+		updateProperties(current, force);
+	};
+	QObject::connect(targetCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int) {
+		auto selection = selectedBinding();
+		selection.key.clear();
+		updateProperties(selection, true);
 	});
-	targetCombo->setCurrentIndex(savedTarget);
-	updateProperties();
+	QObject::connect(propertyCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int) { updateKind(); });
+	QObject::connect(kindCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int index) {
+		if (index >= 0)
+			preferred = static_cast<MacroControlKind>(kindCombo->currentData().toInt());
+	});
+	refreshCatalog(initial.binding, true);
+	QTimer catalogTimer(&dialog);
+	catalogTimer.setInterval(1000);
+	QObject::connect(&catalogTimer, &QTimer::timeout, &dialog, [&] {
+		// Do not disrupt an open dropdown; refresh after it closes.
+		if (targetCombo->view()->isVisible() || propertyCombo->view()->isVisible() ||
+		    kindCombo->view()->isVisible())
+			return;
+		refreshCatalog(selectedBinding(), false);
+	});
+	catalogTimer.start();
 	if (dialog.exec() != QDialog::Accepted)
 		return std::nullopt;
 	const int targetIndex = targetCombo->currentData().toInt();

@@ -145,6 +145,11 @@ nested scene/group sources), and select an exposed property. Choose a
 **Slider** or **Knob** for integer/float properties, or a **Toggle** for
 boolean properties. The control uses the property's declared range and step
 and displays its current value. Right-click to edit, move or remove a control.
+The assignment dialog refreshes its source/filter catalog and the selected
+target's property definitions once per second, without rebuilding unchanged
+choices or interrupting an open dropdown. Added/removed targets, renames and
+property changes are reflected without reopening the editor. Selection follows
+UUIDs and property keys/types; a removed choice requires explicit reassignment.
 
 Bindings store the source UUID, optional filter UUID, property key and
 property type. Renames do not redirect them. Missing targets or properties

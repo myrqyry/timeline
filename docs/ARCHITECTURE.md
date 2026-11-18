@@ -267,7 +267,12 @@ sources and their filters. Bindings resolve by UUID only; private filters are
 resolved through their owner. Property discovery walks visible, enabled
 numeric/boolean properties recursively, honoring checkable groups.
 The parameter editor reads the current property description, range, step and
-suffix; missing saved keys require explicit reassignment.
+suffix; missing saved keys require explicit reassignment. The editor refreshes the live
+target catalog and selected target schema at one-second intervals, comparing
+records before changing combo box contents. It retains valid UUID/key/type
+selections and the chosen control kind, clears invalid choices, and defers
+refresh while a dropdown popup is open. Final acceptance revalidates the
+binding against the current property schema.
 
 Native Qt slider/dial/check box controls read current OBS settings without
 writing at startup. Visible widgets poll values every 250 ms, refresh the

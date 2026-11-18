@@ -260,11 +260,14 @@ private slots:
 			obs_data_set_default_bool(settings, "enabled", true);
 			obs_data_set_default_string(settings, "untouched", "keep");
 		};
-		parameter.get_properties = [](void *) {
+		parameter.get_properties = [](void *data) {
 			auto *props = obs_properties_create();
 			obs_properties_add_bool(props, "enabled", "Enabled");
 			auto *group = obs_properties_create();
-			obs_properties_add_float_slider(group, "gain", "Gain", -1, 1, 0.05);
+			if (!data || static_cast<ParameterProbe *>(data)->enabled.load())
+				obs_properties_add_float_slider(group, "gain", "Gain", -1, 1, 0.05);
+			else
+				obs_properties_add_float_slider(group, "alternate", "Alternate", 0, 2, 0.1);
 			obs_properties_add_int_slider(group, "count", "Count", 2, 10, 2);
 			obs_properties_add_group(props, "controls", "Controls", OBS_GROUP_NORMAL, group);
 			obs_properties_add_text(props, "untouched", "Text", OBS_TEXT_DEFAULT);
@@ -2170,6 +2173,79 @@ private slots:
 		QTRY_VERIFY(!s->isEnabled());
 		QVERIFY(!MacroParameter::write(slider.binding, 1.0));
 		QVERIFY(!MacroParameter::read(slider.binding));
+	}
+
+	void testMacroParameterEditorDiscoversLiveCatalogChanges()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Live catalog original", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] { obs_source_remove(source); obs_source_release(source); });
+		MacroStripDock dock;
+		MacroButton initial;
+		initial.kind = MacroControlKind::Knob;
+		initial.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		bool done = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			QVERIFY(dialog);
+			auto close = qScopeGuard([&] { dialog->reject(); });
+			auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *kind = dialog->findChild<QComboBox *>("macro-parameter-kind");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			QVERIFY(target && property && kind && buttons);
+			QCOMPARE(property->currentText(), QString("Controls / Gain"));
+			auto *added = obs_source_create("timeline_parameter_probe", "New live catalog source", nullptr, nullptr);
+			QVERIFY(added);
+			auto removeAdded = qScopeGuard([&] { obs_source_remove(added); obs_source_release(added); });
+			obs_source_set_name(source, "Renamed live catalog original");
+			QTRY_VERIFY_WITH_TIMEOUT(target->findText("New live catalog source") >= 0, 3500);
+			QCOMPARE(target->currentText(), QString("Renamed live catalog original"));
+			QCOMPARE(property->currentText(), QString("Controls / Gain"));
+			QCOMPARE(kind->currentData().toInt(), static_cast<int>(MacroControlKind::Knob));
+			// Attach a new private filter to a source inside a group.
+			auto *scene = obs_scene_create("Catalog root");
+			QVERIFY(scene);
+			auto removeScene = qScopeGuard([&] {
+				obs_source_remove(obs_scene_get_source(scene));
+				obs_scene_release(scene);
+			});
+			auto *group = obs_scene_add_group(scene, "Catalog group");
+			QVERIFY(group);
+			QVERIFY(obs_scene_add(obs_sceneitem_group_get_scene(group), added));
+			auto *filter = obs_source_create_private("timeline_parameter_filter", "New catalog filter", nullptr);
+			QVERIFY(filter);
+			obs_source_filter_add(added, filter);
+			auto removeFilter = qScopeGuard([&] {
+				obs_source_filter_remove(added, filter);
+				obs_source_release(filter);
+			});
+			const QString filterLabel = "Catalog root / Catalog group / New live catalog source / Filter: New catalog filter";
+			QTRY_VERIFY_WITH_TIMEOUT(target->findText(filterLabel) >= 0, 3500);
+			const auto catalog = MacroParameter::targets();
+			const QString addedId = QString::fromUtf8(obs_source_get_uuid(added));
+			const QString filterId = QString::fromUtf8(obs_source_get_uuid(filter));
+			QCOMPARE(std::count_if(catalog.cbegin(), catalog.cend(), [&](const auto &entry) {
+				return entry.sourceUuid == addedId && entry.filterUuid == filterId;
+			}), 1);
+			QCOMPARE(target->currentText(), QString("Renamed live catalog original"));
+			auto *patch = obs_data_create();
+			obs_data_set_bool(patch, "enabled", false);
+			obs_source_update(source, patch);
+			obs_data_release(patch);
+			QTRY_VERIFY_WITH_TIMEOUT(property->findText("Controls / Alternate") >= 0, 3500);
+			QCOMPARE(property->findText("Controls / Gain"), -1);
+			QCOMPARE(property->currentIndex(), -1);
+			QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			property->setCurrentIndex(property->findText("Controls / Alternate"));
+			QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			obs_source_remove(source);
+			QTRY_COMPARE_WITH_TIMEOUT(target->currentData().toInt(), -1, 3500);
+			QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			done = true;
+		});
+		QVERIFY(!editMacroParameter(&dock, initial));
+		QVERIFY(done);
 	}
 
 	void testMacroParameterEditorSelectsAndPreservesBinding()

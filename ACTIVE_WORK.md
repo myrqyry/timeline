@@ -1,5 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
+
+### Live Macro Strip target and property discovery — 2026-11-18
+- User explicitly requested dynamic discovery. Existing libobs enumeration and live property introspection already worked at dialog opening, but the assignment dialog held a static catalog until reopened.
+- Added one-second refresh of target catalog and selected target's schema while the assignment dialog is open. Compares records before rebuilding UI, preserves selection by source/filter UUID and property key/type, retains chosen control kind, defers dropdown refresh while popup is open, and clears removed choices without substitution. Final write and binding acceptance retain live schema validation.
+- RED: new real Qt/libobs regression failed because a source added after dialog opening never appeared. GREEN: test verifies new source, rename, newly attached private filter in a grouped source, deduplicated filter identity, dynamic replacement of a property, explicit reassignment and source removal. Native OBS32 build and strict Xvfb suite 78 passed, 0 failed, 0 skipped. Logs /tmp/timeline-discovery-red.log and /tmp/timeline-discovery-full.log.
+- Dynamic discovery remains limited to exposed visible/enabled numeric and boolean properties. Does not enumerate every target's property tree on each refresh. No profile modification, install or push; native OBS GUI and other OS/version verification outstanding.
+
 ### Macro Strip live source/filter parameter controls — 2026-11-18
 - User wants assignable sliders, knobs and other controls targeting specific source/filter parameters. Implemented mixed legacy action buttons and slider/knob/toggle controls through the existing Macro Strip model, add menu, editor, context menu, reorder and autosave. Timeline scheduling unchanged.
 - Targets include nested/grouped sources, standalone sources and their attached filters. Bind using source/filter UUID plus stable property key and scalar type. Read live settings, inherit min/max/step/suffix, recurse visible enabled property groups; refuse missing/hidden/changed-type parameters. No name fallback or initial writes. Poll visible controls, block feedback signals, coalesce continuous writes at 80 ms and flush on release; boolean immediate. Write only a typed settings patch and let OBS/plugin update callbacks apply it. New control records use type -1 to prevent older builds executing them; old builds may discard them on save.
