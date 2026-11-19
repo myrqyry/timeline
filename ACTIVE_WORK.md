@@ -1,6 +1,15 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+## Current checkpoint — 2026-11-19
+
+- Installed source commit `9773946` in the native OBS32.2.0 user-plugin location. Matching staged/runtime assets and ELF build ID, relocation checks clean, configuration checksums unchanged before/after installation and isolated startup. Both docks and WebSocket vendor registered. Preserved prior install/config in a local rollback archive; machine-specific paths/logs remain in ignored local history.
+- Full strict Qt/libobs suite: 96 passed, 0 failed/skipped; exact CI clang-format check of the accumulated C++ change set passed. No new CMake changes. Reconciled README, usage, architecture, release gates and Meristem project/feature state with the actual source checkpoint.
+- Latest source features: owner-aware hotkeys, native mixer controls, text/boolean bindings, theme fixes, menu-based undo/redo, Freeze Time, explicit ending states, eased numeric parameter ramps, arc knobs and stable captions.
+- Next acceptance gate: open regular OBS and test the newly installed runtime in the intended theme and real target plugins. Confirm exact-head remote CI after synchronization. OBS31/33 and Windows/macOS runtime acceptance and release gates remain separate. No tag/release.
+- The dated entries below are historical checkpoints; their installation/push status reflects the time each was recorded.
+
+
 ### Arc knobs and stable captions — 2026-11-19
 - User selected the middle arc-knob design and requested that changing labels not move elements. RelativeDial keeps QDial value/accessibility, vertical relative drag, fine Shift adjustment, focus wheel/keys and release semantics. Custom antialiased 32 px face, pointer and 270-degree progress arc use active/inactive/disabled theme palette colors. Hover/focus/gesture repaint in place.
 - Fixed parameter column widths based on assigned caption, kind, reserved value space and native widget minimums; recalculate on construction and theme/layout refresh, not live readback. StableCaption paints middle-elided text, retains the underlying full label; numeric full caption available in tooltip. Same aligned rows/height cap.
@@ -206,7 +215,7 @@ Timeline is the maintainer's first public OBS plugin. Its runtime functionality 
 
 ## Current objective
 
-With Linux OBS31/32/33 exact-head CI green, complete isolated OBS33 live module/dock/action testing and remaining preview gates in `docs/RELEASE_CHECKLIST.md` before any release. Do not claim Windows/macOS OBS33 compatibility or a working user install from Linux CI alone.
+Complete native OBS32 interactive acceptance of the installed checkpoint, inspect new exact-head CI, then complete isolated OBS33 live module/dock/action testing and remaining preview gates in `docs/RELEASE_CHECKLIST.md` before any release. Do not claim Windows/macOS OBS33 compatibility or a working user install from Linux CI alone.
 
 ## Verification
 

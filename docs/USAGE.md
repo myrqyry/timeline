@@ -40,7 +40,7 @@ has a separate ID. Older builds may not understand current media targets.
 
 ### Durations
 
-| Action | End action |
+| Action | Default end action |
 | --- | --- |
 | Show / Hide | Hide / Show |
 | Filter Enable / Disable | Disable / Enable |
@@ -170,8 +170,7 @@ Missing vendors, invalid names and unavailable APIs are logged.
 ### Undo and redo
 
 The Undo/Redo actions at the top of the Timeline menu and dock-local
-shortcuts share the last 100 event edits
-in memory. Add/remove, dragging, timestamps, labels, colors, icons, durations
+shortcuts share the last 100 event edits in memory. Add/remove, dragging, timestamps, labels, colors, icons, durations
 and action parameters are restored. Batch paste, deletion and nudging take
 one undo step. No-op edits retain redo; a new edit after undo discards redo.
 A successful document load clears history.
@@ -303,7 +302,7 @@ target identities or discard unsupported action IDs and parameter-control
 records after saving. Never rely on an old build to execute a new UUID-based
 action safely.
 
-Imported files are trusted local configuration: playback can switch scenes,
+Only import and play files you trust: playback can switch scenes,
 change visibility, control media and properties, trigger OBS hotkeys and
 run nested files.
 

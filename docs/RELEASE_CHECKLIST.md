@@ -28,21 +28,27 @@ This is an evidence record, **not approval to tag**. Repeat the relevant checks
 after additional commits. Windows/macOS **runtime installation and interactive
 use have not been demonstrated**.
 
-## Recent local checkpoint (2026-11-18)
+## Recent local checkpoint (2026-11-19)
 
-- Source commit `59c3c25`: native OBS32 module build; strict Xvfb Qt/libobs
-  suite **84 passed, 0 failed, 0 skipped**. Covers exact-time editing,
-  late-tick cue ordering, undo/redo, live scalar property controls,
-  scheduled parameter values, relative knob gestures, and compact dock sizing.
-- Earlier commit `3681512`: installed in native OBS 32.2.0, with both docks
-  and the WebSocket vendor registering in isolated OBS startup. Existing
-  configuration checksums were unchanged.
-- The actual HyperShaderFX property smoke verified effect opacity and a
-  shader-specific numeric uniform through the binding layer, not rendered
-  pixels.
-- Latest UI changes still require installation and manual visual testing.
-  Current remote CI, OBS31/33 and Windows/macOS runtime are not verified
-  by this local checkpoint.
+- Source checkpoint `9773946`: native OBS32 module build; strict Xvfb
+  Qt/libobs suite **96 passed, 0 failed, 0 skipped**. Covers exact
+  targeting, owner-aware hotkeys, ordered cue boundaries, Freeze Time,
+  configurable ending states, numeric easing ramps, undo/redo, mixer
+  bindings, text settings, stable caption layout and themed arc knobs.
+- The matching CMake-staged binary and locale were installed in native
+  OBS 32.2.0 on Linux. Staged and installed assets matched; relocation
+  checks found no unresolved dependencies or symbols. Both docks and
+  WebSocket vendor registered in an isolated OBS startup. Existing
+  plugin configuration checksums were unchanged, and a rollback
+  archive was retained locally.
+- Historical real HyperShaderFX property smoke verified effect opacity
+  and a shader-specific uniform through the binding layer, not rendered
+  pixels. Ramp smoothness and the new controls' native interactive
+  appearance are still unverified.
+- Formatting: exact CI clang-format 19.1.1 checked the changed C++
+  sources. No CMake source changes in this series.
+- This verifies a local OBS32 source checkpoint, not the new remote
+  CI matrix or OBS31/33, Windows or macOS runtime. No release was tagged.
 
 ## Before tagging (release blockers)
 
@@ -107,13 +113,22 @@ runtime check**. Run the OBS 31 suite with `obs31` in its own build tree.
   show/hide (including nested items), filter enable/disable, media
   restart/stop/pause/resume/seek, OBS hotkey and nested
   timeline events against actual OBS sources.
-- [ ] Bind sliders, knobs and toggles to actual source/filter properties. Check
+- [ ] Bind sliders, arc knobs, toggles and text entries to actual source/filter properties. Check
   live discovery after rename/add/remove or shader change, relative/Shift
   drag, key/wheel routing, external readback and binding persistence. Verify
-  missing targets cannot redirect writes.
-- [ ] Schedule numeric and boolean Set Parameter Value cues and trigger
+  missing targets cannot redirect writes. Verify stable caption geometry and
+  light/dark theme changes without losing a text draft.
+- [ ] Schedule numeric, boolean and text Set Parameter Value cues and trigger
   immediate preset buttons; verify no configuration-time writes, actual
   plugin behavior, and Macro Strip readback.
+- [ ] Schedule native mixer volume/mute and numeric ramps with each easing
+  curve; check actual rendered/audio output, endpoint, pause, seek, overlapping
+  ramps, and updates to the same parameter. Profile costly source updates.
+- [ ] Verify Freeze Time with short/long waits, manual pause, same-time cues,
+  nested files and freeze at the loop/end boundary. Confirm subsequent timed
+  cues retain visual positions.
+- [ ] Verify explicit duration ending states (including leave unchanged and
+  media/DSK alternatives), and owner-disambiguated hotkeys after renaming.
 - [ ] Stop a parent timeline while a nested temporary transition is active:
   OBS must return to the original transition.
 - [ ] Verify looping, pause/resume, seeking across duration boundaries and

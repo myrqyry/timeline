@@ -7,8 +7,8 @@ Timeline is an OBS Studio dock plugin for composing and running scheduled OBS ac
 
 ## Invariants
 
-- Keep the visual timeline and precise scheduled cue sequencing central. Supported actions include scene switching, source show/hide, media restart/stop/pause/resume/seek, filter enable/disable, hotkeys, nested playback, defined scalar parameter values and the optional Downstream Keyer integration. Serialized `MediaSeek` (ID 3) remains reserved.
-- New explicit targets use stable source/filter or scene-item identity; do not silently substitute a different target. Parameter controls and scheduled values share the live OBS property catalog and typed settings-update path.
+- Keep the visual timeline and precise scheduled cue sequencing central. Supported actions include scene switching, source show/hide, media restart/stop/pause/resume/seek, filter enable/disable, hotkeys, nested playback, defined scalar parameter values, numeric eased ramps, Freeze Time clock holds, explicit ending states and the optional Downstream Keyer integration. Serialized `MediaSeek` (ID 3) remains reserved.
+- New explicit targets use stable source/filter, scene-item or hotkey registerer identity; do not silently substitute a different target. Parameter controls and scheduled values share the live OBS property catalog and typed settings-update path.
 - Preserve duration boundaries, playback/loop behavior and nested timeline cancellation. Nested temporary transitions unwind child-first; nested timeline cycles must not run indefinitely.
 - Invalid imports cannot silently destroy working state. Macro Strip saves atomically to writable OBS module configuration, retains unsaved in-memory edits on failed writes, and treats scene-collection copies as recovery backups rather than authority over newer edits.
 - OBS31/OBS32 artifacts are SDK/ABI-specific. Passing mocks/builds/packaging is not the same as testing real OBS user interactions or Windows/macOS runtime loading.
@@ -30,7 +30,7 @@ Timeline is an OBS Studio dock plugin for composing and running scheduled OBS ac
 
 ## Verification baseline
 
-- November 18, 2026: `59c3c25` passed the native OBS32 build and all 84 strict Qt/libobs tests. Earlier `3681512` was installed in OBS32.2.0 and passed isolated startup registration of both docks. The newer UI build and other platforms still need runtime qualification.
+- November 19, 2026: `9773946` passed the native OBS32 build and all 96 strict Qt/libobs tests. The same module and locale were installed in OBS32.2.0 and both docks/WebSocket vendor registered in isolated startup. Existing config checksums unchanged. Native interactive appearance, ramp rendering/performance and other platform runtimes remain unverified.
 
 - Before Meristem adoption, draft PR #3 head `54040a4` passed Linux OBS31/OBS32 test jobs and the six Linux/Windows/macOS OBS31/OBS32 build matrix, including formatting. That **does not validate later Meristem changes**.
 - The Linux strict Qt suite previously ran 44 tests with no failures/skips. Isolated real OBS32 Linux smoke demonstrated source hide/restore, scene switching, Macro Strip migration and canonical-backup precedence.

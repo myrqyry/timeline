@@ -5,7 +5,7 @@ Track only requested capabilities that are not implemented. No new feature was r
 
 ## Deferred ideas already documented
 
-The `README.md` roadmap now lists additional multi-selection tools, HTTP action events and tested cross-platform installers. Unified action categories, event undo/redo and batch paste/delete/nudge are implemented. Live scalar controls and instantaneous scheduled parameter assignment are implemented; animated parameter ramps, non-scalar property controls and custom ranges are not current capabilities. Use the README and issue tracker as the authoritative list; do not silently promote roadmap entries into active work.
+The `README.md` roadmap now lists additional multi-selection tools, HTTP action events and tested cross-platform installers. Unified action categories, event undo/redo and batch paste/delete/nudge are implemented. Live scalar controls, native mixer and text bindings, scheduled parameter assignment, numeric easing ramps, Freeze Time and explicit timed ending states are implemented. Non-scalar property controls and custom ranges are not current capabilities. Live action-button state feedback remains a candidate, not implemented or required for this checkpoint. Use the README and issue tracker as the authoritative list; do not silently promote roadmap entries into active work.
 
 ## Current focus
 

@@ -45,7 +45,7 @@ Build reusable sequences without leaving OBS.
 | Freeze Time | Hold the timeline clock without adding empty ruler space. |
 | Downstream Keyer Scene | Select or hide an overlay scene in a named keyer (optional integration). |
 
-Visibility, filter and compatible media actions can have a duration, with
+Visibility, filter, compatible media and Downstream Keyer actions can have a duration, with
 an explicit ending state or the original inverse at the end. Numeric
 parameter cues can also interpolate over a duration; seek, boolean and text
 parameter cues remain instantaneous.
@@ -78,6 +78,10 @@ enable **Duration**, enter an end value and select Linear, Ease in, Ease out
 or Ease in/out. The ramp follows the timeline clock, including Freeze Time.
 See [parameter animation](docs/USAGE.md#animating-a-parameter).
 
+Use **Freeze Time** to insert a wait of up to 24 hours without expanding
+the ruler. All later cues follow the held timeline clock; OBS itself
+continues running. See [clock holds](docs/USAGE.md#freeze-time).
+
 ## Macro Strip
 
 Build a small control surface for your OBS setup. Open
@@ -106,8 +110,7 @@ Timeline cues. Saved bindings follow source/filter identities through renames.
 
 Knobs use a compact, themed progress arc and vertical dragging, with no
 value jump on click. Captions reserve fixed space, so live values never
-shift neighboring controls. Hold **Shift** for
-10× finer movement, or focus a knob and use the wheel or arrow keys.
+shift neighboring controls. Hold **Shift** for 10× finer movement, or focus a knob and use the wheel or arrow keys.
 
 Audio sources also expose **Mixer / Volume** and **Mixer / Mute**. Volume
 uses OBS’s logarithmic fader curve with a dB readout; both can be scheduled
@@ -116,7 +119,8 @@ with Set Parameter Value.
 Numeric, boolean and editable text properties are supported. Text fields
 apply changes explicitly; multiline fields open a larger editor without
 growing the dock. Password and informational fields are excluded. Color,
-list controls, custom ranges and scene-item transforms are not yet supported. See [live control details](docs/USAGE.md#live-parameter-controls).
+list controls, custom ranges and scene-item transforms are not yet supported.
+See [live control details](docs/USAGE.md#live-parameter-controls).
 
 ## Installation
 
@@ -183,17 +187,19 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **96/96 tests passing** in the local native OBS32 build, including
-  owner-aware hotkeys, native mixer bindings, text controls, theme refresh,
-  clock holds, ending states and parameter ramps (November 19, 2026). Qt widgets and libobs are real; frontend
-  interactions in the harness use test doubles.
-- Build `68ab09a` loaded both docks and the WebSocket vendor in an
-  isolated OBS 32.2.0 session. The newer hotkey, mixer, text and theme changes still require native
-  interactive testing.
-- HyperShaderFX effect opacity and a shader uniform have been verified through
-  the real plugin's property interface; rendered output has not been verified.
+- Source checkpoint `9773946` (November 19, 2026): **96/96 tests
+  passed** with native Qt/libobs and strict runtime initialization.
+  Frontend interactions in the harness use test doubles.
+- The same build was installed in native OBS 32.2.0 on Linux; both docks
+  and the WebSocket vendor registered in an isolated OBS startup.
+  Existing saved timelines and macros were preserved.
+- HyperShaderFX effect opacity and a shader uniform have been verified
+  through the real plugin's property interface. Render smoothness,
+  interactive theme acceptance, and Windows/macOS runtime use remain
+  unverified.
 - Additional multi-selection editing, HTTP actions and release-grade
-  cross-platform installers remain planned work.
+  cross-platform installers remain planned work. See the
+  [release checklist](docs/RELEASE_CHECKLIST.md) for remaining gates.
 
 ## Documentation
 
