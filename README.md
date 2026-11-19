@@ -39,15 +39,16 @@ Build reusable sequences without leaving OBS.
 | Source Visibility | Show or hide a scene item, including nested sources and groups. |
 | Media Playback | Restart, stop, pause, resume or seek a media source. |
 | Filter Visibility | Enable or disable a source filter. |
-| Set Parameter Value | Set a numeric, boolean or text source/filter property to a defined value. |
+| Set Parameter Value | Set a source/filter property or ease between numeric values over time. |
 | Hotkey Trigger | Run an OBS or third-party plugin hotkey. |
 | Trigger Timeline | Play another saved timeline. |
 | Freeze Time | Hold the timeline clock without adding empty ruler space. |
 | Downstream Keyer Scene | Select or hide an overlay scene in a named keyer (optional integration). |
 
 Visibility, filter and compatible media actions can have a duration, with
-an explicit ending state or the original inverse at the end. Seek and
-parameter-value cues are instantaneous.
+an explicit ending state or the original inverse at the end. Numeric
+parameter cues can also interpolate over a duration; seek, boolean and text
+parameter cues remain instantaneous.
 See [action behavior](docs/USAGE.md#action-behavior) for the details.
 
 ### Create your first sequence
@@ -72,8 +73,10 @@ For example, three cues could control a HyperShaderFX filter's effect opacity:
 | 6 s | Effect Opacity | 0.25 |
 
 Each cue applies its value when playback reaches it. The value stays set until
-another cue or manual adjustment changes it. This is a step change, not a
-keyframe ramp.
+another cue or manual adjustment changes it. To animate a numeric property,
+enable **Duration**, enter an end value and select Linear, Ease in, Ease out
+or Ease in/out. The ramp follows the timeline clock, including Freeze Time.
+See [parameter animation](docs/USAGE.md#animating-a-parameter).
 
 ## Macro Strip
 
@@ -178,9 +181,9 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **94/94 tests passing** in the local native OBS32 build, including
-  owner-aware hotkeys, native mixer bindings, text controls and theme refresh
-  (November 18, 2026). Qt widgets and libobs are real; frontend
+- **95/95 tests passing** in the local native OBS32 build, including
+  owner-aware hotkeys, native mixer bindings, text controls, theme refresh,
+  clock holds, ending states and parameter ramps (November 19, 2026). Qt widgets and libobs are real; frontend
   interactions in the harness use test doubles.
 - Build `68ab09a` loaded both docks and the WebSocket vendor in an
   isolated OBS 32.2.0 session. The newer hotkey, mixer, text and theme changes still require native

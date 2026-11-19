@@ -5,6 +5,8 @@
 #include <QSet>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QEasingCurve>
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -198,6 +200,53 @@ std::optional<DefinedValue> decodeValue(const QString &payload)
 					: MacroParameterType::Float;
 	return DefinedValue{binding, value};
 }
+QString bindingIdentity(const MacroParameterBinding &b)
+{
+	return QString::fromUtf8(
+		QJsonDocument(QJsonArray{b.sourceUuid, b.filterUuid, b.domain, b.key}).toJson(QJsonDocument::Compact));
+}
+QString encodeRamp(const Ramp &ramp)
+{
+	auto obj = QJsonDocument::fromJson(encodeValue(ramp.start).toUtf8()).object();
+	obj["version"] = 2;
+	obj["endValue"] = ramp.end;
+	obj["easing"] = ramp.easing;
+	return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+std::optional<Ramp> decodeRamp(const QString &payload)
+{
+	auto obj = QJsonDocument::fromJson(payload.toUtf8()).object();
+	if (obj["version"].toInt(-1) != 2 || !obj["endValue"].isDouble())
+		return std::nullopt;
+	const double end = obj["endValue"].toDouble();
+	const QString easing = obj["easing"].toString();
+	if (!std::isfinite(end) ||
+	    (easing != "linear" && easing != "ease-in" && easing != "ease-out" && easing != "ease-in-out"))
+		return std::nullopt;
+	obj["version"] = 1;
+	const auto start = decodeValue(QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
+	if (!start ||
+	    (start->binding.type != MacroParameterType::Float && start->binding.type != MacroParameterType::Integer) ||
+	    (start->binding.type == MacroParameterType::Integer && end != std::round(end)))
+		return std::nullopt;
+	return Ramp{*start, end, easing};
+}
+double rampValue(const Ramp &ramp, double progress)
+{
+	const double p = std::clamp(progress, 0.0, 1.0);
+	const double start = ramp.start.value.toDouble();
+	if (p <= 0)
+		return start;
+	if (p >= 1)
+		return ramp.end;
+	const auto type = ramp.easing == "ease-in"       ? QEasingCurve::InQuad
+			  : ramp.easing == "ease-out"    ? QEasingCurve::OutQuad
+			  : ramp.easing == "ease-in-out" ? QEasingCurve::InOutQuad
+							 : QEasingCurve::Linear;
+	const double eased = QEasingCurve(type).valueForProgress(p);
+	return (1.0 - eased) * start + eased * ramp.end;
+}
+
 QString mixerVolumeLabel(double position)
 {
 	Fader fader(obs_fader_create(OBS_FADER_LOG), obs_fader_destroy);
@@ -349,7 +398,7 @@ std::optional<double> read(const MacroParameterBinding &binding)
 	}
 	return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
 }
-bool write(const MacroParameterBinding &binding, double value)
+bool write(const MacroParameterBinding &binding, double value, bool skipUnchanged)
 {
 	if (!std::isfinite(value) || binding.type == MacroParameterType::Text)
 		return false;
@@ -362,6 +411,13 @@ bool write(const MacroParameterBinding &binding, double value)
 	if (!spec)
 		return false;
 	value = spec->valueAt(spec->indexOf(value));
+	// Animation ticks often quantize to an already-applied value. Avoid
+	// reconfiguring the source unnecessarily, but still validate its schema.
+	if (skipUnchanged && !isMixerVolume(binding)) {
+		const auto current = read(binding);
+		if (current && *current == value)
+			return true;
+	}
 	if (isMixerMute(binding)) {
 		obs_source_set_muted(source.get(), value != 0);
 		return true;
@@ -371,7 +427,9 @@ bool write(const MacroParameterBinding &binding, double value)
 		if (!fader)
 			return false;
 		obs_fader_set_deflection(fader.get(), static_cast<float>(value / 100.0));
-		obs_source_set_volume(source.get(), obs_fader_get_mul(fader.get()));
+		const auto gain = obs_fader_get_mul(fader.get());
+		if (!skipUnchanged || obs_source_get_volume(source.get()) != gain)
+			obs_source_set_volume(source.get(), gain);
 		return true;
 	}
 	Data patch(obs_data_create(), obs_data_release);

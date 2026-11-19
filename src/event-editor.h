@@ -35,6 +35,8 @@ private:
 	void pickColor();
 	void chooseDefinedParameter();
 	void updateDefinedParameterLabel();
+	void updateRampControls(bool resetEnd = false);
+	bool canRamp() const;
 	void updateEndingStateChoices();
 	void updateEndingStateVisibility();
 
@@ -45,6 +47,9 @@ private:
 	QPushButton *parameterButton = nullptr;
 	QLabel *parameterSummary = nullptr;
 	QString parameterPayload;
+	QWidget *rampWidget = nullptr;
+	QDoubleSpinBox *rampEnd = nullptr;
+	QComboBox *rampEasing = nullptr;
 	QString parameterTarget;
 	QWidget *freezeWidget = nullptr;
 	QDoubleSpinBox *freezeDurationSpin = nullptr;

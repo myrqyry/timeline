@@ -287,8 +287,9 @@ contains a versioned JSON object with source/filter UUID, key, scalar type,
 and typed value (numeric, boolean as 0/1, or string for text). The event editor reuses the dynamic
 binding dialog, replacing control kind with a numeric, On/Off or text value editor.
 The executor validates the payload and live property and applies it at event
-start only; no duration reversal or interpolation. No writes occur on editor
-acceptance. A Macro Strip action button can use the same event payload.
+start for version-1 instant cues. Version-2 numeric payloads add endValue
+and easing; duration is stored on the event. No writes occur on editor
+acceptance. A Macro Strip action button can use the version-1 event payload.
 Existing live parameter widgets read the resulting OBS value normally.
 
 The target catalog traverses scene/group sources and enumerates standalone
@@ -383,6 +384,26 @@ pause retains the remaining wait; seeking resets it. A late tick begins
 the full wait when the marker is actually processed. Loop/end completion
 waits for the hold at the boundary. The executor does not alter OBS state
 for this cue. Macro Strip excludes the scheduler-only type.
+
+### Parameter animation
+
+A version-2 SetParameterValue payload contains the version-1 binding/start
+value plus numeric endValue and a stable easing name. The scheduler tracks
+active ramps by source/filter UUID, domain and property key. A new valid
+parameter cue on that binding replaces the previous ramp. At each due
+cue boundary and at the current logical tick, the scheduler samples active
+ramps and emits parameterProgress. Completion samples use progress 1;
+old superseded endpoints do not write. Start actions apply progress 0.
+The executor evaluates the selected linear or quadratic easing curve and
+uses the existing validated, range-quantized parameter writer, skipping
+unchanged intermediate values. No independent animation timer or persistent
+OBS source reference is needed. Freeze Time and pause naturally suspend
+samples. Seek/model changes rebuild active ramps from fired cues without
+performing writes on scrubbing; loop clears active ramps.
+
+Per-scheduler ownership is intentional: independent timelines and live
+controls may still target the same property. Real source update cost and
+render smoothness depend on each plugin and have not been benchmarked.
 
 ### Start and end detection
 

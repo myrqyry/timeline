@@ -21,6 +21,15 @@ struct DefinedValue {
 	MacroParameterBinding binding;
 	QVariant value;
 };
+struct Ramp {
+	DefinedValue start;
+	double end;
+	QString easing;
+};
+QString encodeRamp(const Ramp &ramp);
+std::optional<Ramp> decodeRamp(const QString &payload);
+double rampValue(const Ramp &ramp, double progress);
+QString bindingIdentity(const MacroParameterBinding &binding);
 QString encodeValue(const DefinedValue &value);
 std::optional<DefinedValue> decodeValue(const QString &payload);
 QString displayValue(const DefinedValue &value);
@@ -61,7 +70,7 @@ QList<Target> targets();
 QList<Spec> properties(const MacroParameterBinding &binding);
 std::optional<Spec> describe(const MacroParameterBinding &binding);
 std::optional<double> read(const MacroParameterBinding &binding);
-bool write(const MacroParameterBinding &binding, double value);
+bool write(const MacroParameterBinding &binding, double value, bool skipUnchanged = false);
 std::optional<QString> readText(const MacroParameterBinding &binding);
 bool writeText(const MacroParameterBinding &binding, const QString &value);
 } // namespace MacroParameter

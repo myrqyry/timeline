@@ -2593,6 +2593,118 @@ private slots:
 		QCOMPARE(item.getTimeMs(), 2500.0);
 	}
 
+	void testParameterRampClockAndSupersession()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Ramp target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)),
+					      {},
+					      "gain",
+					      MacroParameterType::Float};
+		TimelineEvent ramp;
+		ramp.type = TimelineEventType::SetParameterValue;
+		ramp.hasDuration = true;
+		ramp.durationMs = 200;
+		ramp.data = MacroParameter::encodeRamp({{binding, -1.0}, 1.0, "linear"});
+		QVERIFY(MacroParameter::decodeRamp(ramp.data.toString()));
+		QVERIFY(!MacroParameter::decodeValue(
+			ramp.data.toString())); // older decoders must not apply a ramp as a step
+		TimelineEvent freeze;
+		freeze.type = TimelineEventType::FreezeTime;
+		freeze.timeMs = 100;
+		freeze.data = 150.0;
+		TimelineEvent step;
+		step.type = TimelineEventType::SetParameterValue;
+		step.timeMs = 150;
+		step.data = MacroParameter::encodeValue({binding, -0.5});
+		TimelineModel model, restored;
+		model.addEvents({ramp, freeze, step});
+		restored.fromJson(model.toJson());
+		QVERIFY(restored.getEvents().front().hasDuration);
+		QCOMPARE(restored.getEvents().front().durationMs, 200.0);
+		ObsExecutor executor;
+		TimelineScheduler scheduler(&restored);
+		connect(&scheduler, &TimelineScheduler::eventStarted, &executor, &ObsExecutor::executeEventStart);
+		connect(&scheduler, &TimelineScheduler::eventEnded, &executor, &ObsExecutor::executeEventEnd);
+		connect(&scheduler, &TimelineScheduler::parameterProgress, &executor,
+			&ObsExecutor::executeParameterProgress);
+		scheduler.setEndTime(240);
+		scheduler.start();
+		QTest::qSleep(120);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QVERIFY(scheduler.isFrozen());
+		QCOMPARE(MacroParameter::read(binding).value(), 0.0);
+		QTest::qWait(40);
+		QCOMPARE(MacroParameter::read(binding).value(), 0.0);
+		scheduler.pause();
+		QTest::qWait(170);
+		QCOMPARE(MacroParameter::read(binding).value(), 0.0);
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 1500);
+		QCOMPARE(MacroParameter::read(binding).value(), -0.5);
+		scheduler.seek(50);
+		QCOMPARE(MacroParameter::read(binding).value(), -0.5);
+		scheduler.start();
+		QTest::qSleep(70);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(MacroParameter::read(binding).value(), 0.0);
+		scheduler.restart();
+		QVERIFY(!scheduler.isPlaying());
+
+		ramp.data = MacroParameter::encodeRamp({{binding, -1.0}, 1.0, "ease-in"});
+		executor.executeParameterProgress(ramp, 0.5);
+		QCOMPARE(MacroParameter::read(binding).value(), -0.5);
+		executor.executeParameterProgress(ramp, 1.0);
+		QCOMPARE(MacroParameter::read(binding).value(), 1.0);
+		EventEditor editor(ramp);
+		auto *end = editor.findChild<QDoubleSpinBox *>("parameterRampEnd");
+		auto *curve = editor.findChild<QComboBox *>("parameterRampEasing");
+		QVERIFY(end && curve);
+		QCOMPARE(end->value(), 1.0);
+		QCOMPARE(curve->currentData().toString(), QString("ease-in"));
+		end->setValue(0.5);
+		TimelineEvent edited = ramp;
+		editor.getUpdatedEvent(edited);
+		auto decoded = MacroParameter::decodeRamp(edited.data.toString());
+		QVERIFY(decoded && edited.hasDuration);
+		QCOMPARE(decoded->end, 0.5);
+		EventEditor macroEditor(ramp, nullptr, false);
+		QVERIFY(macroEditor.findChild<QDoubleSpinBox *>("parameterRampEnd")->isHidden() ||
+			macroEditor.findChild<QDoubleSpinBox *>("parameterRampEnd")->parentWidget()->isHidden());
+		// Completion lands exactly at the endpoint even after a delayed tick.
+		TimelineModel finalModel;
+		ramp.timeMs = 0;
+		ramp.durationMs = 40;
+		finalModel.addEvent(ramp);
+		TimelineScheduler finalScheduler(&finalModel);
+		connect(&finalScheduler, &TimelineScheduler::eventStarted, &executor, &ObsExecutor::executeEventStart);
+		connect(&finalScheduler, &TimelineScheduler::parameterProgress, &executor,
+			&ObsExecutor::executeParameterProgress);
+		finalScheduler.setEndTime(40);
+		finalScheduler.start();
+		QTest::qSleep(60);
+		QVERIFY(QMetaObject::invokeMethod(&finalScheduler, "onTimerTick", Qt::DirectConnection));
+		QVERIFY(!finalScheduler.isPlaying());
+		QCOMPARE(MacroParameter::read(binding).value(), 1.0);
+		MacroParameter::Ramp curveTest{{binding, 0.0}, 1.0, "ease-out"};
+		QCOMPARE(MacroParameter::rampValue(curveTest, 0.5), 0.75);
+		curveTest.easing = "ease-in-out";
+		QCOMPARE(MacroParameter::rampValue(curveTest, 0.25), 0.125);
+		QCOMPARE(MacroParameter::rampValue(curveTest, 0.75), 0.875);
+		curveTest.easing = "bad";
+		QVERIFY(!MacroParameter::decodeRamp(MacroParameter::encodeRamp(curveTest)));
+		curveTest.easing = "linear";
+		curveTest.start.binding.type = MacroParameterType::Boolean;
+		QVERIFY(!MacroParameter::decodeRamp(MacroParameter::encodeRamp(curveTest)));
+
+		obs_source_remove(source);
+		executor.executeParameterProgress(ramp, 0.5); // safe on missing target
+	}
+
 	void testDefinedParameterCueEditorAndPlayback()
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Defined cue target", nullptr, nullptr);

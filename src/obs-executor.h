@@ -24,6 +24,7 @@ public:
 public slots:
 	void executeEventStart(const TimelineEvent &evt);
 	void executeEventEnd(const TimelineEvent &evt);
+	void executeParameterProgress(const TimelineEvent &evt, double progress);
 	void cancelAll();
 
 private:

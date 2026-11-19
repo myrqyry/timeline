@@ -66,6 +66,7 @@ TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
 	connect(scheduler, &TimelineScheduler::tick, this, &TimelineDock::onTick);
 	connect(scheduler, &TimelineScheduler::eventStarted, executor, &ObsExecutor::executeEventStart);
 	connect(scheduler, &TimelineScheduler::eventEnded, executor, &ObsExecutor::executeEventEnd);
+	connect(scheduler, &TimelineScheduler::parameterProgress, executor, &ObsExecutor::executeParameterProgress);
 	connect(scheduler, &TimelineScheduler::finished, this, &TimelineDock::onTimelineFinished);
 	connect(scheduler, &TimelineScheduler::looped, this, &TimelineDock::onTimelineLooped);
 	debounceSaveTimer = new QTimer(this);
@@ -2151,6 +2152,9 @@ void TimelineDock::rebuildEventItems()
 		if (evt.type == TimelineEventType::SetParameterValue) {
 			if (const auto cue = MacroParameter::decodeValue(evt.data.toString()))
 				targetDisplay += " / " + MacroParameter::displayValue(*cue);
+			else if (const auto ramp = MacroParameter::decodeRamp(evt.data.toString()))
+				targetDisplay += " / " + MacroParameter::displayValue(ramp->start) + " → " +
+						 QString::number(ramp->end, 'g', 12) + " (" + ramp->easing + ")";
 		}
 		if (evt.type == TimelineEventType::MediaSeekTo) {
 			const auto media = MediaTarget::decode(evt.data.toString());

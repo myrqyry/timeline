@@ -265,6 +265,24 @@ void EventEditor::buildUi()
 	endingLayout->addWidget(endingScene);
 	layout->addRow(endingWidget);
 	endingWidget->hide();
+	rampWidget = new QWidget(this);
+	auto *rampLayout = new QFormLayout(rampWidget);
+	rampLayout->setContentsMargins(0, 0, 0, 0);
+	rampEnd = new QDoubleSpinBox(rampWidget);
+	rampEnd->setObjectName("parameterRampEnd");
+	rampEasing = new QComboBox(rampWidget);
+	rampEasing->setObjectName("parameterRampEasing");
+	rampEasing->addItem(obs_module_text("EventEditor.EaseLinear"), "linear");
+	rampEasing->addItem(obs_module_text("EventEditor.EaseIn"), "ease-in");
+	rampEasing->addItem(obs_module_text("EventEditor.EaseOut"), "ease-out");
+	rampEasing->addItem(obs_module_text("EventEditor.EaseInOut"), "ease-in-out");
+	rampEasing->setCurrentIndex(3);
+	rampLayout->addRow(obs_module_text("EventEditor.RampEnd"), rampEnd);
+	rampLayout->addRow(obs_module_text("EventEditor.RampEasing"), rampEasing);
+	layout->addRow(rampWidget);
+	rampWidget->hide();
+	connect(durationCheck, &QCheckBox::toggled, this, [this] { updateRampControls(); });
+
 	connect(durationCheck, &QCheckBox::toggled, this, &EventEditor::updateEndingStateVisibility);
 	connect(endingCombo, &QComboBox::currentIndexChanged, this, &EventEditor::updateEndingStateVisibility);
 
@@ -635,7 +653,8 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 	if (evt.type == TimelineEventType::FreezeTime) {
 		freezeDurationSpin->setValue(freezeDurationMs(evt) / 1000.0);
 	} else if (evt.type == TimelineEventType::SetParameterValue) {
-		parameterPayload = evt.data.toString();
+		const auto ramp = MacroParameter::decodeRamp(evt.data.toString());
+		parameterPayload = ramp ? MacroParameter::encodeValue(ramp->start) : evt.data.toString();
 		parameterTarget = evt.sourceName;
 		updateDefinedParameterLabel();
 	} else if (evt.type == TimelineEventType::DownstreamKeyerScene) {
@@ -757,6 +776,15 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 	}
 	endingScene->setText(evt.endScene);
 	updateEndingStateVisibility();
+	if (evt.type == TimelineEventType::SetParameterValue) {
+		updateRampControls(true);
+		if (const auto ramp = MacroParameter::decodeRamp(evt.data.toString())) {
+			// Preserve saved endpoints even when the live schema has changed.
+			rampEnd->setRange(qMin(rampEnd->minimum(), ramp->end), qMax(rampEnd->maximum(), ramp->end));
+			rampEnd->setValue(ramp->end);
+			rampEasing->setCurrentIndex(rampEasing->findData(ramp->easing));
+		}
+	}
 	selectedColor = evt.color;
 	colorButton->setStyleSheet(
 		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
@@ -779,7 +807,8 @@ void EventEditor::validateAndAccept()
 	} else if (type == TimelineEventType::SetParameterValue) {
 		// Allow an existing missing binding to be preserved, but require a
 		// well-formed explicit payload. The executor revalidates at playback.
-		if (!MacroParameter::decodeValue(parameterPayload)) {
+		if (!MacroParameter::decodeValue(parameterPayload) ||
+		    (durationCheck->isEnabled() && durationCheck->isChecked() && durationSpin->value() <= 0.0)) {
 			warn(obs_module_text("EventEditor.WarnDefineParameter"));
 			return;
 		}
@@ -854,7 +883,8 @@ void EventEditor::onActionChanged(int index)
 	Q_UNUSED(index);
 	const bool seek = selectedActionType() == TimelineEventType::MediaSeekTo;
 	const bool freeze = selectedActionType() == TimelineEventType::FreezeTime;
-	const bool instantaneous = seek || freeze || selectedActionType() == TimelineEventType::SetParameterValue;
+	const bool instantaneous = seek || freeze ||
+				   (selectedActionType() == TimelineEventType::SetParameterValue && !canRamp());
 	durationCheck->setVisible(!freeze);
 	durationSpin->setVisible(!freeze);
 	mediaSeekWidget->setVisible(seek);
@@ -862,6 +892,7 @@ void EventEditor::onActionChanged(int index)
 	durationCheck->setEnabled(!instantaneous);
 	durationSpin->setEnabled(!instantaneous && durationCheck->isChecked());
 	updateEndingStateChoices();
+	updateRampControls();
 	selectedColor = ThemeIcons::getDefaultColor(selectedActionType());
 	colorButton->setStyleSheet(
 		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
@@ -909,6 +940,38 @@ void EventEditor::updateEndingStateVisibility()
 	endingScene->setVisible(show && endingCombo->currentData().toString() == "select-overlay");
 }
 
+bool EventEditor::canRamp() const
+{
+	if (!allowFreeze)
+		return false;
+	const auto cue = MacroParameter::decodeValue(parameterPayload);
+	return cue &&
+	       (cue->binding.type == MacroParameterType::Float || cue->binding.type == MacroParameterType::Integer);
+}
+
+void EventEditor::updateRampControls(bool resetEnd)
+{
+	if (!rampWidget)
+		return;
+	const bool parameter = selectedActionType() == TimelineEventType::SetParameterValue;
+	const bool numeric = parameter && canRamp();
+	rampWidget->setVisible(numeric && durationCheck->isChecked());
+	if (parameter) {
+		durationCheck->setEnabled(numeric);
+		durationSpin->setEnabled(numeric && durationCheck->isChecked());
+	}
+	if (numeric && resetEnd) {
+		const auto cue = MacroParameter::decodeValue(parameterPayload);
+		const auto spec = MacroParameter::describe(cue->binding);
+		rampEnd->setDecimals(cue->binding.type == MacroParameterType::Integer ? 0 : 12);
+		const double start = cue->value.toDouble();
+		rampEnd->setRange(spec ? qMin(spec->min, start) : -1e100, spec ? qMax(spec->max, start) : 1e100);
+		rampEnd->setSingleStep(spec ? spec->step : 0.1);
+		rampEnd->setSuffix(spec ? spec->suffix : QString());
+		rampEnd->setValue(start);
+	}
+}
+
 void EventEditor::chooseDefinedParameter()
 {
 	MacroButton initial;
@@ -918,9 +981,20 @@ void EventEditor::chooseDefinedParameter()
 		value = saved->value;
 	}
 	if (const auto chosen = editDefinedParameter(this, initial, value); chosen && value) {
+		const bool same = MacroParameter::bindingIdentity(initial.binding) ==
+					  MacroParameter::bindingIdentity(chosen->binding) &&
+				  initial.binding.type == chosen->binding.type;
+		const double previousEnd = rampEnd->value();
 		parameterPayload = MacroParameter::encodeValue({chosen->binding, *value});
 		parameterTarget = chosen->sourceName;
 		updateDefinedParameterLabel();
+		updateRampControls(true);
+		if (same && canRamp())
+			rampEnd->setValue(previousEnd);
+		if (selectedActionType() == TimelineEventType::SetParameterValue) {
+			durationCheck->setEnabled(canRamp());
+			durationSpin->setEnabled(canRamp() && durationCheck->isChecked());
+		}
 	}
 }
 
@@ -1031,9 +1105,15 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 	evt.showLabel = showLabelCheck->isChecked();
 	evt.label = labelEdit->text().trimmed();
 	evt.hasDuration = evt.type != TimelineEventType::MediaSeekTo &&
-			  evt.type != TimelineEventType::SetParameterValue &&
+			  (evt.type != TimelineEventType::SetParameterValue || canRamp()) &&
 			  evt.type != TimelineEventType::FreezeTime && durationCheck->isChecked();
 	evt.durationMs = evt.type == TimelineEventType::FreezeTime ? 0.0 : durationSpin->value() * 1000.0;
+	if (evt.type == TimelineEventType::SetParameterValue && evt.hasDuration) {
+		if (const auto start = MacroParameter::decodeValue(parameterPayload)) {
+			const double end = rampEnd->value();
+			evt.data = MacroParameter::encodeRamp({*start, end, rampEasing->currentData().toString()});
+		}
+	}
 	evt.endAction = evt.hasDuration && supportsEndingState(evt.type) ? endingCombo->currentData().toString()
 									 : QString();
 	evt.endScene = evt.endAction == "select-overlay" ? endingScene->text().trimmed() : QString();

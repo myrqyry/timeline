@@ -1,5 +1,6 @@
 #include "timeline-model.h"
 #include "theme-helpers.h"
+#include "macro-parameter.h"
 #include <QJsonObject>
 #include <QSet>
 #include <obs-module.h>
@@ -273,7 +274,9 @@ void TimelineModel::fromJson(const QJsonArray &json)
 		}
 		evt.showLabel = obj["showLabel"].toBool(false);
 
-		if (evt.type != TimelineEventType::SetParameterValue && evt.type != TimelineEventType::FreezeTime &&
+		if (evt.type != TimelineEventType::FreezeTime &&
+		    (evt.type != TimelineEventType::SetParameterValue ||
+		     MacroParameter::decodeRamp(obj["data"].toString())) &&
 		    obj.contains("hasDuration")) {
 			evt.hasDuration = obj["hasDuration"].toBool();
 			evt.durationMs = obj["duration"].toDouble();

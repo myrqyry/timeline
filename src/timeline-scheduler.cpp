@@ -1,4 +1,5 @@
 #include "timeline-scheduler.h"
+#include "macro-parameter.h"
 #include <obs-module.h>
 #include <algorithm>
 #include <vector>
@@ -34,6 +35,7 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 
 			eventStartFired = newStartFired;
 			eventEndFired = newEndFired;
+			rebuildParameterRamps(t);
 		});
 	}
 }
@@ -122,6 +124,7 @@ void TimelineScheduler::seek(double timeMs)
 			}
 		}
 	}
+	rebuildParameterRamps(timeMs);
 	if (!playing) {
 		emit tick(currentOffsetMs);
 	}
@@ -220,6 +223,7 @@ void TimelineScheduler::onTimerTick()
 			playing = false;
 			timer->stop();
 			currentOffsetMs = endTimeMs;
+			parameterRamps.clear();
 			emit finished();
 			blog(LOG_INFO, "[Timeline] End time reached - playback finished");
 			return;
@@ -229,6 +233,7 @@ void TimelineScheduler::onTimerTick()
 		eventStartFired.clear();
 		eventEndFired.clear();
 		nextStartIndex = 0;
+		parameterRamps.clear();
 		double start = 0.0;
 		beginDueFreeze(start);
 		emit tick(start);
@@ -239,6 +244,62 @@ void TimelineScheduler::onTimerTick()
 			return;
 		dispatchDueCues(start);
 		blog(LOG_DEBUG, "[Timeline] Looped back to start");
+	}
+}
+
+void TimelineScheduler::registerParameterCue(const TimelineEvent &evt)
+{
+	if (evt.type != TimelineEventType::SetParameterValue)
+		return;
+	if (const auto step = MacroParameter::decodeValue(evt.data.toString())) {
+		parameterRamps.remove(MacroParameter::bindingIdentity(step->binding));
+	} else if (const auto ramp = MacroParameter::decodeRamp(evt.data.toString());
+		   ramp && evt.hasDuration && std::isfinite(evt.durationMs) && evt.durationMs > 0) {
+		parameterRamps.insert(MacroParameter::bindingIdentity(ramp->start.binding), {evt, evt.timeMs});
+	}
+}
+
+void TimelineScheduler::rebuildParameterRamps(double timeMs)
+{
+	parameterRamps.clear();
+	if (!model)
+		return;
+	for (const auto &evt : model->getEvents()) {
+		if (evt.timeMs > timeMs)
+			break;
+		if (eventStartFired.contains(evt.id))
+			registerParameterCue(evt);
+	}
+	// Do not replay completed animations on a seek.
+	for (auto it = parameterRamps.begin(); it != parameterRamps.end();) {
+		if (it->event.timeMs + it->event.durationMs < timeMs)
+			it = parameterRamps.erase(it);
+		else
+			++it;
+	}
+}
+
+void TimelineScheduler::sampleParameterRamps(double timeMs)
+{
+	const auto revision = clockRevision;
+	// Snapshot keys; callbacks can seek/stop or edit the model.
+	const auto keys = parameterRamps.keys();
+	for (const auto &key : keys) {
+		if (!playing || clockRevision != revision)
+			return;
+		auto it = parameterRamps.find(key);
+		if (it == parameterRamps.end() || timeMs < it->event.timeMs)
+			continue;
+		const auto evt = it->event;
+		const double sample = std::min(timeMs, evt.timeMs + evt.durationMs);
+		if (it->lastTime == sample)
+			continue;
+		it->lastTime = sample;
+		const double progress = sample >= evt.timeMs + evt.durationMs ? 1.0
+									      : (sample - evt.timeMs) / evt.durationMs;
+		if (progress >= 1.0)
+			parameterRamps.erase(it);
+		emit parameterProgress(evt, progress);
 	}
 }
 
@@ -285,10 +346,17 @@ void TimelineScheduler::dispatchDueCues(double timeMs)
 		auto &fired = cue.isEnd ? eventEndFired : eventStartFired;
 		if (fired.contains(cue.event.id))
 			continue;
+		sampleParameterRamps(cue.time);
+		if (!playing || clockRevision != revision)
+			return;
 		fired.insert(cue.event.id);
+		if (!cue.isEnd)
+			registerParameterCue(cue.event);
 		if (cue.isEnd)
 			emit eventEnded(cue.event);
 		else
 			emit eventStarted(cue.event);
 	}
+	if (playing && clockRevision == revision)
+		sampleParameterRamps(timeMs);
 }

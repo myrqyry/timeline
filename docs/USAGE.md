@@ -58,8 +58,9 @@ OBS state. Existing files without an ending state retain their default.
 An unknown explicit ending state skips execution rather than reversing.
 Older builds ignore explicit ending states, so use the current build for
 these cues. Freeze Time delays duration endings along with other cues.
-Scene switches, hotkeys, nested timeline triggers, seek and Set Parameter
-Value do not have an automatic end action.
+Scene switches, hotkeys, nested timeline triggers, seek and instantaneous
+parameter cues do not have an automatic end action. Numeric parameter
+ramps instead finish at their defined endpoint.
 
 ### Setting a parameter
 
@@ -67,13 +68,39 @@ Select **Set Parameter Value**, then **Choose parameter and value**. Use the
 live source/filter picker to choose an exposed numeric, boolean or text property,
 and define its value using the appropriate editor.
 
-Configuration does not apply a value. On execution, the event sets the
+Configuration does not apply a value. Without Duration, the event sets the
 property once, clamping and quantizing to the live range and step. A missing
 or invalid binding is skipped instead of selecting a different target.
 A value remains set until another action or manual adjustment changes it.
 
 A Macro Strip action button can use the same event type as an immediate
 preset. Live controls bound to that property reflect its changed value.
+
+### Animating a parameter
+
+In **Set Parameter Value**, select an integer or float property and set its
+starting value. Enable **Duration**, enter the ending value, and select
+an easing curve (Linear, Ease in, Ease out, or Ease in/out). The non-linear
+curves use quadratic easing. The cue's duration bar represents the logical
+animation span. The final value remains set after the span finishes.
+
+Samples follow the timeline clock: pause and Freeze Time halt interpolation,
+and playback resumes from the same logical progress. Scrubbing does not
+apply OBS changes; starting playback within a ramp resumes at the
+corresponding progress. Seeking past a completed ramp does not replay it.
+A later numeric, boolean or text cue for the same exact binding in the
+same timeline supersedes an earlier ramp, including its eventual ending.
+Simultaneous ramps on different bindings can run together. A separate
+timeline or manual control can still write the same property; there is
+no global automation lock.
+
+All samples respect the live property range and step. Coarse integer or
+float steps produce stepped motion, and mixer volume interpolates in OBS
+fader position rather than linear gain. Missing or incompatible targets
+are skipped. Boolean and text values remain instantaneous. Macro Strip
+does not offer scheduled ramps. Older builds reject the version-2
+parameter payload instead of treating it as a version-1 instant value.
+Do not resave new timelines using those builds.
 
 ### Freeze Time
 
@@ -183,7 +210,7 @@ immediately. Wheel and arrow keys adjust one step when focused.
 Only visible, enabled integer, float, boolean and ordinary editable text
 settings are discoverable (numeric controls are limited to one million
 increments). List/color/button properties, custom ranges, scene-item
-transforms and interpolation are not included.
+transforms and manual ramp controls are not included in Macro Strip.
 
 ### Boolean and text controls
 
@@ -213,7 +240,8 @@ caption shows the corresponding dB value. At zero it reads -inf dB and
 at 100% it reaches unity (0 dB). Positive gain above unity is outside
 this control's range; readback saturates at the maximum. Mute is independent
 of volume. External mixer adjustments are read back without resetting values.
-Both are available for instantaneous Set Parameter Value cues.
+Both are available for instantaneous Set Parameter Value cues; volume
+also supports numeric animation.
 
 Missing sources, filters or properties disable the control rather than
 redirecting it by name. The dock aligns its rows using the native theme's

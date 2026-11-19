@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QSet>
+#include <QMap>
 #include <chrono>
 #include "timeline-model.h"
 
@@ -35,6 +36,7 @@ signals:
 	void tick(double currentTimeMs);
 	void eventStarted(const TimelineEvent &evt);
 	void eventEnded(const TimelineEvent &evt);
+	void parameterProgress(const TimelineEvent &evt, double progress);
 	void finished();
 	void looped();
 
@@ -44,6 +46,14 @@ private slots:
 private:
 	void dispatchDueCues(double timeMs);
 	void beginDueFreeze(double &timeMs);
+	void registerParameterCue(const TimelineEvent &evt);
+	void rebuildParameterRamps(double timeMs);
+	void sampleParameterRamps(double timeMs);
+	struct ActiveRamp {
+		TimelineEvent event;
+		double lastTime = -1.0;
+	};
+	QMap<QString, ActiveRamp> parameterRamps;
 	TimelineModel *model = nullptr;
 	QTimer *timer = nullptr;
 

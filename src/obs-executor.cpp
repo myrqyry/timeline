@@ -124,6 +124,16 @@ void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 #endif
 }
 
+void ObsExecutor::executeParameterProgress(const TimelineEvent &evt, double progress)
+{
+	if (evt.type != TimelineEventType::SetParameterValue || !evt.hasDuration || !std::isfinite(progress) ||
+	    !std::isfinite(evt.durationMs) || evt.durationMs <= 0)
+		return;
+	if (const auto ramp = MacroParameter::decodeRamp(evt.data.toString()))
+		MacroParameter::write(ramp->start.binding, MacroParameter::rampValue(*ramp, progress),
+				      progress > 0.0 && progress < 1.0);
+}
+
 void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 {
 	// Explicit ending state is a normal action on the original binding.
@@ -165,6 +175,10 @@ void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 		break;
 	case TimelineEventType::SetParameterValue: {
 		if (isStartAction) {
+			if (MacroParameter::decodeRamp(evt.data.toString())) {
+				executeParameterProgress(evt, 0.0);
+				break;
+			}
 			const auto cue = MacroParameter::decodeValue(evt.data.toString());
 			if (!cue || !(cue->binding.type == MacroParameterType::Text
 					      ? MacroParameter::writeText(cue->binding, cue->value.toString())
