@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Owner-aware hotkey binding — 2026-11-18
+- Following review of Voidscape-Development/Control-Panel, independently implemented stable hotkey ownership in our existing HotkeyCatalog. No upstream code imported or license change. New selections save a versioned identity payload with registerer type, owner and internal name, keeping legacy names for display. Source UUIDs survive owner rename and re-registration; missing/duplicate complete identities skip execution. Catalog excludes ambiguous exact identities; search cannot silently change an explicitly selected owner.
+- Legacy actions retain name-only first match until explicitly retargeted. Older builds ignore the new payload; avoid executing new exact bindings on those builds. Output/encoder/service identity uses internal name (not UUID); frontend hotkeys have no exposed owner identity.
+- RED: missing identity in editor with two real registered source hotkeys of the same name. GREEN: tests exercise actual routed press/release dispatch (test harness enables OBS callback routing), rename, re-registration, ambiguous identities, deletion, malformed explicit data, legacy execution and timeline/macro serialization. Full native OBS32 build and strict Qt/libobs suite 85 passed, no failures/skips. Exact clang-format 19.1.1 check passed. Logs /tmp/timeline-hotkey-red.log and /tmp/timeline-hotkey-full.log.
+- Scope: this checkpoint addresses hotkeys only. Native faders, live state feedback and optional extension API remain candidates, not implemented. No installation/push. OBS running; installed runtime remains 68ab09a. Native frontend interaction and non-source hotkey owner cases not independently tested.
+
+
 ### Joined undo/redo buttons — 2026-11-18
 - User requests undo/redo matching the existing zoom pair and retaining the existing Moon icon family. Both groups now use one shared joined-button builder with zero spacing, fixed content size and matching edge styles. Undo/redo retains its existing icons, tooltips, shortcuts and enabled-state behavior; each button matches zoom at 24px normally and 20px in compact mode.
 - RED: compact layout test failed against the old separate buttons; initial shared layout still allowed extra space during compact resizing, corrected with a fixed-size layout constraint. GREEN: geometry, style and icon-size equality verified in normal/compact/load paths, existing undo/redo interactions pass. Native OBS32 rebuild and full strict Qt/libobs suite: 84 passed, 0 failed, 0 skipped. Exact clang-format 19.1.1 check passed. Logs /tmp/timeline-history-group-red.log and /tmp/timeline-history-group-full.log.

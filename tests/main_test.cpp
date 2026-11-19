@@ -979,6 +979,112 @@ private slots:
 		obs_hotkey_unregister(sourceId);
 	}
 
+	void testOwnerAwareHotkeysResolveExactlyAndSurviveRenames()
+	{
+		auto *first = obs_source_create("timeline_parameter_probe", "Hotkey Owner A", nullptr, nullptr);
+		auto *second = obs_source_create("timeline_parameter_probe", "Hotkey Owner B", nullptr, nullptr);
+		QVERIFY(first && second);
+		auto releaseSources = qScopeGuard([&] {
+			obs_source_remove(first);
+			obs_source_release(first);
+			obs_source_remove(second);
+			obs_source_release(second);
+		});
+		// The OBS frontend enables routing; reproduce that runtime setting
+		// in this libobs-only harness without changing production globals.
+		obs_hotkey_enable_callback_rerouting(true);
+		auto restoreRouting = qScopeGuard([] { obs_hotkey_enable_callback_rerouting(false); });
+		std::atomic<int> a{0}, b{0};
+		auto callback = [](void *data, obs_hotkey_id, obs_hotkey_t *, bool down) {
+			if (down)
+				++*static_cast<std::atomic<int> *>(data);
+		};
+		const auto idA =
+			obs_hotkey_register_source(first, "timeline.tests.same", "Shared action", callback, &a);
+		auto idB = obs_hotkey_register_source(second, "timeline.tests.same", "Shared action", callback, &b);
+		auto unregister = qScopeGuard([&] {
+			obs_hotkey_unregister(idA);
+			if (idB != OBS_INVALID_HOTKEY_ID)
+				obs_hotkey_unregister(idB);
+		});
+		QVERIFY(idA != OBS_INVALID_HOTKEY_ID && idB != OBS_INVALID_HOTKEY_ID);
+		EventEditor editor(0.0);
+		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+		auto *target = editor.findChild<QComboBox *>("hotkeyTargetCombo");
+		auto *search = editor.findChild<QLineEdit *>("hotkeySearchEdit");
+		QVERIFY(types && target && search);
+		types->setCurrentIndex(types->findData(static_cast<int>(TimelineEventType::HotkeyTrigger)));
+		search->setText("Hotkey Owner B");
+		QCOMPARE(target->currentText(), QString("Shared action"));
+		TimelineEvent cue;
+		editor.getUpdatedEvent(cue);
+		QCOMPARE(cue.sourceName, QString("timeline.tests.same"));
+		QVERIFY(!cue.data.toString().isEmpty());
+		ObsExecutor executor;
+		executor.executeEventStart(cue);
+		QCOMPARE(a.load(), 0);
+		QCOMPARE(b.load(), 1);
+		obs_source_set_name(second, "Hotkey Owner Renamed");
+		obs_hotkey_unregister(idB);
+		idB = obs_hotkey_register_source(second, "timeline.tests.same", "Shared action", callback, &b);
+		QVERIFY(idB != OBS_INVALID_HOTKEY_ID);
+		TimelineModel model;
+		model.addEvent(cue);
+		TimelineModel restored;
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().size(), size_t(1));
+		QCOMPARE(restored.getEvents()[0].data, cue.data);
+		EventEditor reopened(restored.getEvents()[0]);
+		auto *reopenedTarget = reopened.findChild<QComboBox *>("hotkeyTargetCombo");
+		auto *reopenedSearch = reopened.findChild<QLineEdit *>("hotkeySearchEdit");
+		QVERIFY(reopenedTarget && reopenedSearch);
+		reopenedSearch->setText("Hotkey Owner A");
+		// Filtering an already bound cue must not silently select a different owner.
+		QCOMPARE(reopenedTarget->currentIndex(), -1);
+		reopenedSearch->clear();
+		QCOMPARE(reopenedTarget->currentText(), QString("Shared action"));
+		TimelineEvent saved = cue;
+		reopened.getUpdatedEvent(saved);
+		QCOMPARE(saved.data, cue.data);
+		executor.executeEventStart(saved);
+		QCOMPARE(a.load(), 0);
+		QCOMPARE(b.load(), 2);
+		// If an entire identity collides, there is no safe persistent choice.
+		const auto duplicate =
+			obs_hotkey_register_source(second, "timeline.tests.same", "Duplicate action", callback, &b);
+		QVERIFY(duplicate != OBS_INVALID_HOTKEY_ID);
+		auto releaseDuplicate = qScopeGuard([&] { obs_hotkey_unregister(duplicate); });
+		QCOMPARE(HotkeyCatalog::resolve(cue.sourceName, cue.data.toString()), OBS_INVALID_HOTKEY_ID);
+		executor.executeEventStart(cue);
+		QCOMPARE(b.load(), 2);
+		obs_hotkey_unregister(duplicate);
+		releaseDuplicate.dismiss();
+		MacroButton button;
+		button.type = cue.type;
+		button.sourceName = cue.sourceName;
+		button.data = cue.data.toString();
+		MacroButtonModel buttons;
+		buttons.addButton(button);
+		MacroButtonModel loaded;
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(buttons)),
+							     loaded));
+		QCOMPARE(loaded.buttons().first().data, button.data);
+		obs_hotkey_unregister(idB);
+		idB = OBS_INVALID_HOTKEY_ID;
+		EventEditor missing(cue);
+		missing.getUpdatedEvent(saved);
+		QCOMPARE(saved.data, cue.data);
+		executor.executeEventStart(saved);
+		QCOMPARE(a.load(), 0);
+		QCOMPARE(b.load(), 2);
+		cue.data = QString("hotkey:v1:invalid");
+		executor.executeEventStart(cue);
+		QCOMPARE(a.load(), 0);
+		cue.data = QVariant(); // legacy name-only target still resolves
+		executor.executeEventStart(cue);
+		QCOMPARE(a.load(), 1);
+	}
+
 	void testMissingSavedHotkeyIsPreservedAndSearchable()
 	{
 		TimelineEvent saved;

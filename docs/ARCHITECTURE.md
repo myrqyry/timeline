@@ -410,6 +410,15 @@ the settings; the target plugin owns the result of applying them.
 
 ### Hotkeys
 
+New hotkey events use a versioned string payload in event data, with the
+registerer category, owner identity and registered internal name.
+Source owners use UUIDs; outputs, encoders and services use internal
+object names; frontend registrations have no owner. The shared catalog
+resolves a unique match at execution without relying on transient numeric
+hotkey IDs. Missing or duplicate explicit identities fail closed.
+Legacy events without this payload retain first-name-match execution.
+Both Timeline and Macro Strip use the same editor and resolver.
+
 Hotkey execution enumerates registered hotkeys, stores the matching ID, stops
 enumeration, and only then triggers the routed callback twice for press and
 release (`src/obs-executor.cpp:336-371`). Collecting the ID first avoids

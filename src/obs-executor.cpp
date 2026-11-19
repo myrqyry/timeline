@@ -3,6 +3,7 @@
 #include "headless-timeline.h"
 #include "scene-item-target.h"
 #include "media-target.h"
+#include "hotkey-catalog.h"
 #include <obs-module.h>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -443,36 +444,17 @@ void ObsExecutor::handleHotkey(const TimelineEvent &evt)
 	if (evt.sourceName.isEmpty())
 		return;
 
-	// targetId contains the hotkey name, now stored in sourceName
-	QString hotkeyName = evt.sourceName;
-
-	struct HotkeySearch {
-		QString targetName;
-		obs_hotkey_id foundId = OBS_INVALID_HOTKEY_ID;
-	};
-	HotkeySearch search;
-	search.targetName = hotkeyName;
-
-	// Collect the hotkey ID first, trigger after enumeration completes
-	// (triggering during enumeration may mutate the hotkey data structure)
-	obs_enum_hotkeys(
-		[](void *data, obs_hotkey_id id, obs_hotkey_t *hotkey) {
-			HotkeySearch *s = static_cast<HotkeySearch *>(data);
-			const char *name = obs_hotkey_get_name(hotkey);
-
-			if (name && QString::fromUtf8(name) == s->targetName) {
-				s->foundId = id;
-				return false; // Stop enumeration
-			}
-			return true; // Continue enumeration
-		},
-		&search);
-
-	if (search.foundId != OBS_INVALID_HOTKEY_ID) {
-		obs_hotkey_trigger_routed_callback(search.foundId, true);
-		obs_hotkey_trigger_routed_callback(search.foundId, false);
-		blog(LOG_INFO, "[Timeline] Hotkey → '%s' (triggered)", hotkeyName.toUtf8().constData());
+	const QString data = evt.data.toString();
+	const auto id = HotkeyCatalog::resolve(evt.sourceName, data.startsWith("hotkey:") ? data : QString());
+	if (id == OBS_INVALID_HOTKEY_ID) {
+		blog(LOG_WARNING, "[Timeline] Hotkey unavailable or ambiguous: '%s'",
+		     evt.sourceName.toUtf8().constData());
+		return;
 	}
+	// Resolve before dispatch; callbacks may modify the hotkey registry.
+	obs_hotkey_trigger_routed_callback(id, true);
+	obs_hotkey_trigger_routed_callback(id, false);
+	blog(LOG_INFO, "[Timeline] Hotkey → '%s' (triggered)", evt.sourceName.toUtf8().constData());
 }
 
 void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)

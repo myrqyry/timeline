@@ -114,7 +114,7 @@ void EventEditor::buildUi()
 	connect(targetCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int index) {
 		if (static_cast<TimelineEventType>(typeCombo->currentData().toInt()) ==
 		    TimelineEventType::HotkeyTrigger)
-			preferredHotkeyId = targetCombo->itemData(index).toString();
+			preferredHotkeyId = targetCombo->itemData(index, Qt::UserRole + 1).toString();
 	});
 
 	// Timeline file selector (for TriggerTimeline)
@@ -548,10 +548,12 @@ void EventEditor::populateHotkeyPicker()
 		}
 		targetCombo->addItem(choice.label, choice.id);
 		const int row = targetCombo->count() - 1;
-		targetCombo->setItemData(row, choice.id, Qt::ToolTipRole);
+		targetCombo->setItemData(row, choice.selectionKey(), Qt::UserRole + 1);
+		targetCombo->setItemData(row, choice.binding, Qt::UserRole + 2);
+		targetCombo->setItemData(row, choice.group + " / " + choice.id, Qt::ToolTipRole);
 		if (firstChoice < 0)
 			firstChoice = row;
-		if (choice.id == preferredHotkeyId)
+		if (choice.selectionKey() == preferredHotkeyId)
 			preferredChoice = row;
 	}
 
@@ -565,7 +567,10 @@ void EventEditor::populateHotkeyPicker()
 		return;
 	}
 	targetCombo->setEnabled(true);
-	targetCombo->setCurrentIndex(preferredChoice >= 0 ? preferredChoice : firstChoice);
+	// Once an owner has been chosen, search only filters the list. It
+	// must never implicitly rebind a saved cue to another result.
+	targetCombo->setCurrentIndex(preferredChoice >= 0 ? preferredChoice
+							  : (preferredHotkeyId.isEmpty() ? firstChoice : -1));
 }
 
 void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
@@ -608,18 +613,20 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 				transitionCombo->setCurrentIndex(tIdx);
 		}
 	} else if (evt.type == TimelineEventType::HotkeyTrigger) {
-		preferredHotkeyId = evt.sourceName;
+		// Preserve historical name-only and unavailable explicit selections.
+		const QString binding = evt.data.toString().startsWith("hotkey:") ? evt.data.toString() : QString();
+		preferredHotkeyId = binding.isEmpty() ? evt.sourceName : binding;
 		bool available = false;
 		for (const auto &choice : hotkeyChoices) {
-			if (choice.id == evt.sourceName) {
+			if (choice.id == evt.sourceName && choice.binding == binding) {
 				available = true;
 				break;
 			}
 		}
 		if (!available && !evt.sourceName.isEmpty()) {
-			// An imported hotkey may be registered only after its plugin loads again.
-			hotkeyChoices.prepend({evt.sourceName, evt.sourceName,
-					       QString::fromUtf8(obs_module_text("EventEditor.MissingHotkeys"))});
+			const QString group = QString::fromUtf8(obs_module_text(
+				binding.isEmpty() ? "EventEditor.LegacyHotkeys" : "EventEditor.MissingHotkeys"));
+			hotkeyChoices.prepend({evt.sourceName, evt.sourceName, group, binding});
 		}
 		populateHotkeyPicker();
 	} else if (evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) {
@@ -845,7 +852,8 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 	if ((evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) &&
 	    SceneItemTarget::isExplicit(evt.data.toString()))
 		evt.data = QVariant();
-	if (isMediaAction(evt.type) || evt.type == TimelineEventType::SetParameterValue)
+	if (isMediaAction(evt.type) || evt.type == TimelineEventType::SetParameterValue ||
+	    evt.type == TimelineEventType::HotkeyTrigger)
 		evt.data = QVariant();
 	evt.type = selectedActionType();
 
@@ -869,6 +877,8 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 		}
 	} else if (evt.type == TimelineEventType::HotkeyTrigger) {
 		evt.sourceName = targetCombo->currentData().toString();
+		evt.data = targetCombo->currentData(Qt::UserRole + 2);
+		evt.filterName.clear();
 	} else if (evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) {
 		const auto target = targetCombo->currentData().toList();
 		evt.sourceName = target.value(0).toString();

@@ -73,7 +73,18 @@ ID or source/group. The picker groups recognized Move filter hotkeys by
 their owning source, other source-registered hotkeys by source name, and
 frontend/plugins, outputs, encoders and services separately.
 
-Group headings aren't selectable. Saved missing hotkey IDs are retained.
+Group headings aren't selectable. New hotkey bindings store registerer type,
+owner identity (source UUID, or internal output/encoder/service name) and
+the registered hotkey name. The current session's numeric hotkey ID is
+resolved at execution. Source renames and hotkey re-registration do not
+redirect the cue. Exact identities that are missing or ambiguous do not
+execute. The picker excludes ambiguous complete identities; filtering a
+saved choice out of the list does not silently select a replacement.
+
+Legacy name-only hotkeys retain their former first-match behavior until
+explicitly retargeted. Missing selections remain editable without losing
+their stored binding. Older plugin builds ignore the new owner payload:
+use the current build to execute these cues safely.
 This picker does not change OBS Settings → Hotkeys or assign shortcuts.
 OBS exposes registerer types but not reliable plugin identity for all
 frontend hotkeys. Move animations are still performed by Move.
