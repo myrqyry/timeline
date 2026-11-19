@@ -8,6 +8,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDial>
+#include <QPainter>
+#include <QStylePainter>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QWheelEvent>
@@ -29,17 +31,68 @@
 #include <cmath>
 
 namespace {
-// Keep the native Qt appearance and keyboard/accessibility behavior, but
-// use relative movement rather than QDial's absolute mouse-angle mapping.
+// Retain QDial's value model and accessibility; paint a compact, themed
+// rotary control and use relative movement instead of absolute mouse angles.
 class RelativeDial final : public QDial {
 public:
 	explicit RelativeDial(QWidget *parent) : QDial(parent)
 	{
 		setFocusPolicy(Qt::StrongFocus);
 		setCursor(Qt::SizeVerCursor);
+		setAttribute(Qt::WA_Hover);
 	}
 
 protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter p(this);
+		p.setRenderHint(QPainter::Antialiasing);
+		const auto pal = palette();
+		const auto group = !isEnabled() ? QPalette::Disabled
+						: (isActiveWindow() ? QPalette::Active : QPalette::Inactive);
+		const QColor accent = pal.color(group, QPalette::Highlight);
+		const QColor face = pal.color(group, QPalette::Button);
+		const QColor ink = pal.color(group, QPalette::ButtonText);
+		const QColor edge = pal.color(group, QPalette::Mid);
+		const QPointF center(width() / 2.0, height() / 2.0);
+		const double radius = std::min(width(), height()) / 2.0;
+		const double trackRadius = radius - 3.0;
+		const QRectF arc(center.x() - trackRadius, center.y() - trackRadius, trackRadius * 2, trackRadius * 2);
+		const double fraction = maximum() > minimum()
+						? std::clamp((static_cast<double>(value()) - minimum()) /
+								     (static_cast<double>(maximum()) - minimum()),
+							     0.0, 1.0)
+						: 0.0;
+		constexpr int startAngle = 225 * 16;
+		constexpr int sweep = 270 * 16;
+		// Thin, low-contrast track with a full-opacity active arc.
+		p.setPen(QPen(edge, 2.4, Qt::SolidLine, Qt::RoundCap));
+		p.drawArc(arc, startAngle, -sweep);
+		if (fraction > 0) {
+			p.setPen(QPen(accent, 2.4, Qt::SolidLine, Qt::RoundCap));
+			p.drawArc(arc, startAngle, -qRound(sweep * fraction));
+		}
+		const double faceRadius = radius - 7;
+		p.setBrush(face);
+		p.setPen(QPen(isEnabled() && (underMouse() || isSliderDown() || hasFocus()) ? accent : edge, 0.8));
+		p.drawEllipse(center, faceRadius, faceRadius);
+		const double theta = (225.0 - 270.0 * fraction) * 3.14159265358979323846 / 180.0;
+		const QPointF direction(std::cos(theta), -std::sin(theta));
+		p.setPen(QPen(ink, 1.7, Qt::SolidLine, Qt::RoundCap));
+		p.drawLine(center + direction * (faceRadius * 0.43), center + direction * (faceRadius - 2.0));
+		if (hasFocus() && isEnabled()) {
+			p.setBrush(Qt::NoBrush);
+			p.setPen(QPen(accent, 0.8, Qt::DotLine));
+			p.drawEllipse(center, radius - 0.9, radius - 0.9);
+		}
+	}
+
+	void sliderChange(SliderChange change) override
+	{
+		QDial::sliderChange(change);
+		update();
+	}
+
 	void mousePressEvent(QMouseEvent *event) override
 	{
 		if (event->button() != Qt::LeftButton || !isEnabled()) {
@@ -89,7 +142,23 @@ protected:
 		     (event->type() == QEvent::EnabledChange && !isEnabled())) &&
 		    isSliderDown())
 			setSliderDown(false);
-		return QDial::event(event);
+		const bool handled = QDial::event(event);
+		switch (event->type()) {
+		case QEvent::HoverEnter:
+		case QEvent::HoverLeave:
+		case QEvent::FocusIn:
+		case QEvent::FocusOut:
+		case QEvent::PaletteChange:
+		case QEvent::EnabledChange:
+		case QEvent::MouseButtonPress:
+		case QEvent::MouseButtonRelease:
+		case QEvent::UngrabMouse:
+			update();
+			break;
+		default:
+			break;
+		}
+		return handled;
 	}
 
 	void keyPressEvent(QKeyEvent *event) override
@@ -136,9 +205,33 @@ private:
 	int wheelRemainder = 0;
 };
 
+// Live text must not determine layout geometry. Keep the full QLabel text
+// for accessibility/tooltips and elide only its painted representation.
+class StableCaption final : public QLabel {
+public:
+	explicit StableCaption(QWidget *parent) : QLabel(parent)
+	{
+		setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QStylePainter painter(this);
+		painter.setFont(font());
+		const auto area = contentsRect();
+		const QString visible = fontMetrics().elidedText(text(), Qt::ElideMiddle, area.width());
+		painter.drawItemText(area, Qt::AlignCenter | Qt::TextSingleLine, palette(), isEnabled(), visible,
+				     foregroundRole());
+	}
+};
+
 class ParameterWidget final : public QWidget {
 public:
-	ParameterWidget(const MacroButton &button, QWidget *parent) : QWidget(parent), binding(button.binding)
+	ParameterWidget(const MacroButton &button, QWidget *parent)
+		: QWidget(parent),
+		  binding(button.binding),
+		  kind(button.kind)
 	{
 		setObjectName("macro-parameter-control");
 		setContextMenuPolicy(Qt::CustomContextMenu);
@@ -146,7 +239,7 @@ public:
 		layout->setContentsMargins(3, 0, 3, 0);
 		layout->setSpacing(0);
 		setFixedHeight(MacroButtonWidget::kWidgetHeight);
-		label = new QLabel(this);
+		label = new StableCaption(this);
 		label->setAlignment(Qt::AlignCenter);
 		label->setTextFormat(Qt::PlainText);
 		label->setObjectName("macro-parameter-caption");
@@ -226,7 +319,7 @@ public:
 				dial->setObjectName("macro-parameter-knob");
 				dial->setWrapping(false);
 				dial->setNotchesVisible(false);
-				dial->setFixedSize(28, 28);
+				dial->setFixedSize(32, 32);
 				slider = dial;
 			} else {
 				auto *fader = new QSlider(Qt::Horizontal, this);
@@ -269,6 +362,7 @@ public:
 				refresh(++pollCount % 8 == 0);
 		});
 		refresh(true);
+		reserveColumnWidth();
 		readTimer.start();
 	}
 
@@ -298,10 +392,39 @@ public:
 		label->setFixedHeight(labelHeight);
 		controlRow->setFixedHeight(controlHeight);
 		setFixedHeight(labelHeight + controlHeight);
+		reserveColumnWidth();
 		updateGeometry();
 	}
 
 private:
+	void reserveColumnWidth()
+	{
+		const QFontMetrics fm(label->font());
+		// Width depends on the assigned caption and control kind, never
+		// the live value or current availability of the target.
+		QString sample = title;
+		if (kind != MacroControlKind::Text) {
+			const QString value = kind == MacroControlKind::Toggle
+						      ? tr("Off")
+						      : (binding.domain == "mixer" ? QStringLiteral("-100.0 dB")
+										   : QStringLiteral("-0.000000"));
+			sample += " · " + value;
+		}
+		int width = std::clamp(fm.horizontalAdvance(sample) + 8, 52, 220);
+		if (slider)
+			width = std::max(width, slider->minimumWidth());
+		if (toggle) {
+			toggle->ensurePolished();
+			width = std::max(width, toggle->sizeHint().width());
+		}
+		if (textRow) {
+			textRow->ensurePolished();
+			editText->ensurePolished();
+			width = std::max({width, textRow->sizeHint().width(), editText->sizeHint().width(),
+					  textRow->minimumSizeHint().width()});
+		}
+		setFixedWidth(width + layout()->contentsMargins().left() + layout()->contentsMargins().right());
+	}
 	void queueValue(double value)
 	{
 		if (!spec)
@@ -337,6 +460,8 @@ private:
 			       (binding.domain == "mixer" && binding.type == MacroParameterType::Float
 					? MacroParameter::mixerVolumeLabel(value)
 					: display));
+		label->setToolTip(label->text());
+		setToolTip(label->text() + "\n" + spec->label + " (" + binding.key + ")");
 	}
 	void refresh(bool schema)
 	{
@@ -383,16 +508,19 @@ private:
 		}
 		if (valid) {
 			updateLabel(*value);
-			setToolTip(spec->label + " (" + binding.key + ")");
+
 			if (qobject_cast<QDial *>(slider))
 				slider->setToolTip(
+					label->text() + "\n" +
 					tr("Drag up/down · Shift: fine adjustment · Focus then scroll: one step"));
 		} else {
 			label->setText(title + " · " + tr("Unavailable"));
+			label->setToolTip(label->text());
 			setToolTip(tr("Bound source, filter or property is unavailable. Right-click to edit."));
 		}
 	}
 	MacroParameterBinding binding;
+	MacroControlKind kind;
 	std::optional<MacroParameter::Spec> spec;
 	std::optional<double> pending;
 	QAbstractSlider *slider = nullptr;

@@ -2872,6 +2872,91 @@ private slots:
 		QVERIFY(!MacroParameter::read(enabled));
 	}
 
+	void testMacroArcKnobAndStableCaptionGeometry()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Stable caption target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton knob, slider, toggle, action;
+		knob.kind = MacroControlKind::Knob;
+		knob.label = "Gain";
+		knob.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		slider = knob;
+		slider.id = QUuid::createUuid().toString();
+		slider.kind = MacroControlKind::Slider;
+		toggle.kind = MacroControlKind::Toggle;
+		toggle.binding = {knob.binding.sourceUuid, {}, "enabled", MacroParameterType::Boolean};
+		toggle.label = "Enabled";
+		action.label = "Next";
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		for (const auto &b : {knob, slider, toggle, action})
+			dock.buttonModel()->addButton(b);
+		dock.resize(1000, dock.minimumHeight());
+		dock.show();
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QCoreApplication::processEvents();
+		auto *dial = dock.findChild<QDial *>("macro-parameter-knob");
+		auto *fader = dock.findChild<QSlider *>("macro-parameter-slider");
+		auto *check = dock.findChild<QCheckBox *>("macro-parameter-toggle");
+		auto *next = dock.findChild<MacroButtonWidget *>();
+		QVERIFY(dial && fader && check && next);
+		auto geometry = [&] {
+			QList<QRect> rects;
+			for (auto *w : {static_cast<QWidget *>(dial), static_cast<QWidget *>(fader),
+					static_cast<QWidget *>(check), static_cast<QWidget *>(next)})
+				rects.append(QRect(w->mapTo(&dock, QPoint()), w->size()));
+			for (auto *w : dock.findChildren<QWidget *>("macro-parameter-control"))
+				rects.append(QRect(w->mapTo(&dock, QPoint()), w->size()));
+			return rects;
+		};
+		const auto initial = geometry();
+		QVERIFY(MacroParameter::write(knob.binding, -0.95));
+		QTRY_COMPARE(dial->value(), 1);
+		QTRY_COMPARE(fader->value(), 1);
+		QCOMPARE(geometry(), initial);
+		QVERIFY(MacroParameter::write(knob.binding, 1.0));
+		QTRY_COMPARE(dial->value(), 40);
+		QTRY_COMPARE(fader->value(), 40);
+		QCOMPARE(geometry(), initial);
+
+		// Render the actual control under a distinctive theme accent.
+		QPalette palette = dial->palette();
+		const QColor accent("#e71993");
+		palette.setColor(QPalette::Highlight, accent);
+		palette.setColor(QPalette::Button, QColor("#e9e9e9"));
+		palette.setColor(QPalette::ButtonText, QColor("#19232a"));
+		dial->setPalette(palette);
+		auto accentPixels = [&] {
+			QImage image(dial->size(), QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::transparent);
+			dial->render(&image);
+			int count = 0;
+			for (int y = 0; y < image.height(); ++y)
+				for (int x = 0; x < image.width(); ++x)
+					if (image.pixelColor(x, y) == accent)
+						++count;
+			return count;
+		};
+		const auto full = accentPixels();
+		QVERIFY(full > 20);
+		{
+			const QSignalBlocker block(dial);
+			dial->setValue(dial->minimum());
+		}
+		QVERIFY(accentPixels() < full);
+		QVERIFY(MacroParameter::write(toggle.binding, 0));
+		QTRY_VERIFY(!check->isChecked());
+		QTRY_VERIFY_WITH_TIMEOUT(!dial->isEnabled() && !fader->isEnabled(), 3000);
+		QCOMPARE(geometry(), initial);
+		obs_source_remove(source);
+		QTRY_VERIFY_WITH_TIMEOUT(!dial->isEnabled() && !fader->isEnabled() && !check->isEnabled(), 3000);
+		QCOMPARE(geometry(), initial);
+	}
+
 	void testMacroKnobRelativeDragAndFineControl()
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Knob gesture target", nullptr, nullptr);

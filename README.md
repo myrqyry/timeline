@@ -104,7 +104,9 @@ those exposed by third-party plugins. Controls inherit the declared range,
 step and units and reflect changes made elsewhere in OBS, including scheduled
 Timeline cues. Saved bindings follow source/filter identities through renames.
 
-Knobs use vertical dragging, with no value jump on click. Hold **Shift** for
+Knobs use a compact, themed progress arc and vertical dragging, with no
+value jump on click. Captions reserve fixed space, so live values never
+shift neighboring controls. Hold **Shift** for
 10× finer movement, or focus a knob and use the wheel or arrow keys.
 
 Audio sources also expose **Mixer / Volume** and **Mixer / Mute**. Volume
@@ -181,7 +183,7 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **95/95 tests passing** in the local native OBS32 build, including
+- **96/96 tests passing** in the local native OBS32 build, including
   owner-aware hotkeys, native mixer bindings, text controls, theme refresh,
   clock holds, ending states and parameter ramps (November 19, 2026). Qt widgets and libobs are real; frontend
   interactions in the harness use test doubles.

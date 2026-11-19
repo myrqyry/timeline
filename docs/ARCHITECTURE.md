@@ -307,8 +307,9 @@ has focus). Final acceptance revalidates the
 binding against the current property schema.
 
 Native Qt slider/dial/check box controls read current OBS settings without
-writing at startup. The dial retains Qt rendering but uses relative vertical
-mouse movement with a fractional accumulator, saturates at range endpoints,
+writing at startup. The dial retains QDial behavior and accessibility but custom-paints a
+32-pixel arc and face using palette roles (including disabled colors). It
+uses relative vertical mouse movement with a fractional accumulator, saturates at range endpoints,
 and scales drag motion by 0.1 with Shift. Successful coalesced writes do not
 read back into controls during an active drag; final release resumes normal
 readback. Focused wheel and arrow events adjust individual steps. Visible
@@ -600,6 +601,10 @@ Macro Strip uses shared caption and control rows derived from caption font
 metrics, native slider/toggle/text-entry/button size hints and the fixed dial size. The inner
 scroll area reserves horizontal scrollbar space; the outer dock remains
 resizable. Rows recalculate on model rebuild and frontend theme changes.
+Live parameter columns reserve width from the assigned caption, control
+kind and native control minimums, independently of current values or schema
+availability. StableCaption preserves its full QLabel text while painting
+a middle-elided line inside the reserved width.
 
 ### Grid, snapping, and BPM
 

@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Arc knobs and stable captions — 2026-11-19
+- User selected the middle arc-knob design and requested that changing labels not move elements. RelativeDial keeps QDial value/accessibility, vertical relative drag, fine Shift adjustment, focus wheel/keys and release semantics. Custom antialiased 32 px face, pointer and 270-degree progress arc use active/inactive/disabled theme palette colors. Hover/focus/gesture repaint in place.
+- Fixed parameter column widths based on assigned caption, kind, reserved value space and native widget minimums; recalculate on construction and theme/layout refresh, not live readback. StableCaption paints middle-elided text, retains the underlying full label; numeric full caption available in tooltip. Same aligned rows/height cap.
+- RED geometry regression reproduced 1 px movement on negative value. GREEN stable positions/sizes through negative and maximum values, boolean changes, schema disappearance and source removal; rendered actual dial into QImage and checked theme-accent pixels change with value. Existing relative drag and aligned rows tests passed. Full strict native OBS32 build/suite 96 passed, zero failed/skipped, clang-format 19.1.1 pass. Logs /tmp/timeline-arc-red.log, /tmp/timeline-arc-green2.log, /tmp/timeline-arc-full.log.
+- No install/push; appearance in user's native OBS theme still needs interactive acceptance.
+
 ### Parameter animation — 2026-11-19
 - User requested an ending parameter value eased over a timed cue. Set Parameter Value now offers Duration, End value and Linear/Ease in/Ease out/Ease in-out for numeric bindings; boolean/text remain discrete. Shared parameter picker, version-2 payload and ordinary event duration persist through JSON. Older decoders reject ramp payloads instead of writing a step. Native Qt inputs inherit styling.
 - Scheduler tracks active ramps by exact binding identity, samples before due cue edges and at logical ticks, and sends progress to the executor in both dock and headless paths. New same-binding cues supersede old ramps; exact endpoint at completion; pause/Freeze Time suspend samples; seek reconstructs active ramp without writing while scrubbing; loop clears state. Writes use live schema/step validation and skip unchanged intermediate values. Independent timelines and manual writers do not share this arbitration. Actual plugin update cost/render smoothness and cross-platform UI are not yet measured.

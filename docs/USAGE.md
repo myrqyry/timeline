@@ -201,11 +201,15 @@ OBS settings update; continuous adjustments are coalesced and flushed on
 release, while toggles apply immediately. The target plugin remains
 responsible for applying the setting.
 
-Knobs retain native Qt rendering with relative vertical movement:
+Knobs use a 32-pixel rotary face with a theme-colored 270-degree progress
+arc and position pointer. Relative vertical movement is unchanged:
 160 logical pixels for a full wide-range drag, up to eight pixels per
 discrete step for smaller ranges. Shift scales movement to one tenth.
 There is no click-to-angle jump, and reversing at either limit responds
 immediately. Wheel and arrow keys adjust one step when focused.
+Parameter caption columns reserve width when created or when theme metrics
+change, not when values or availability change. Long captions elide in
+place, preserving control alignment and neighboring positions.
 
 Only visible, enabled integer, float, boolean and ordinary editable text
 settings are discoverable (numeric controls are limited to one million
