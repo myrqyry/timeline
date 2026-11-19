@@ -3,6 +3,7 @@
 #include <QString>
 #include <QByteArray>
 #include <QWidget>
+#include <QApplication>
 #include <QMainWindow>
 #include <QVariant>
 #include <obs-frontend-api.h>
@@ -38,35 +39,16 @@ inline QColor getThemeStatusColor(const QWidget *w)
 	return QColor(72, 210, 100); // Absolute last resort (standard OBS green)
 }
 
-// Returns a good foreground/icon color for the given palette and state.
-// Prefers WindowText / ButtonText / HighlightedText depending on context.
-// Applies fallbacks so we almost never return a near-black on dark themes.
+// A valid dark foreground is intentional on light themes. Use the role
+// paired with the actual surface rather than a brightness heuristic.
 inline QColor iconColorFor(const QPalette &pal, bool onHighlight = false)
 {
-	QColor c;
-	if (onHighlight) {
-		c = pal.color(QPalette::HighlightedText);
-	}
-	if (!c.isValid() || c.lightness() < 55) {
-		c = pal.color(QPalette::WindowText);
-	}
-	if (!c.isValid() || c.lightness() < 55) {
-		c = pal.color(QPalette::Text);
-	}
-	if (!c.isValid() || c.lightness() < 55) {
-		c = pal.color(QPalette::ButtonText);
-	}
-	if (!c.isValid() || c.lightness() < 55) {
-		c = QColor(225, 225, 225); // safe light for dark OBS themes
-	}
-	return c;
+	return pal.color(onHighlight ? QPalette::HighlightedText : QPalette::WindowText);
 }
-
-// Convenience: resolve from a widget (polishes first for OBS theme accuracy).
 inline QColor iconColorFor(const QWidget *w, bool onHighlight = false)
 {
 	if (!w)
-		return QColor(225, 225, 225);
+		return iconColorFor(QApplication::palette(), onHighlight);
 	const_cast<QWidget *>(w)->ensurePolished();
 	return iconColorFor(w->palette(), onHighlight);
 }

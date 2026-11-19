@@ -306,17 +306,10 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		painter->save();
 		painter->setRenderHint(QPainter::TextAntialiasing);
 
-		// Prefer colors pushed from the dock (OBS palette at creation/refresh time).
-		// Fall back to QApplication (global) then a safe light-on-dark default.
+		// The dock supplies the current palette; valid dark text is not an error.
 		QColor textColor = labelTextColor.isValid() ? labelTextColor
 							    : QApplication::palette().color(QPalette::Text);
 		QColor bgColor = labelBgColor.isValid() ? labelBgColor : QApplication::palette().color(QPalette::Base);
-		if (!textColor.isValid() || textColor.lightness() < 40) {
-			textColor = QColor(235, 235, 235);
-		}
-		if (!bgColor.isValid()) {
-			bgColor = QColor(40, 40, 40);
-		}
 
 		QFont font = painter->font();
 		font.setPointSize(8);

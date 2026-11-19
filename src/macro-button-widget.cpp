@@ -140,7 +140,7 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 
 	// Bubble fill + border
 	painter.setBrush(QBrush(m_button.color));
-	painter.setPen(QPen(m_borderColor, 1.5));
+	painter.setPen(QPen(m_borderColor.isValid() ? m_borderColor : palette().color(QPalette::Text), 1.5));
 	painter.drawEllipse(center, radius, radius);
 
 	// Icon (use compact padding = 4 px to mirror TimelineEventItem::paint compact path)
@@ -166,14 +166,8 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		const int boxX = (width() - boxW) / 2;
 		const int boxY = 0;
 
-		QColor textColor = m_labelTextColor.isValid() ? m_labelTextColor
-							      : QApplication::palette().color(QPalette::Text);
-		QColor bgColor = m_labelBgColor.isValid() ? m_labelBgColor
-							  : QApplication::palette().color(QPalette::Base);
-		if (!textColor.isValid() || textColor.lightness() < 40)
-			textColor = QColor(235, 235, 235);
-		if (!bgColor.isValid())
-			bgColor = QColor(40, 40, 40);
+		QColor textColor = m_labelTextColor.isValid() ? m_labelTextColor : palette().color(QPalette::Text);
+		QColor bgColor = m_labelBgColor.isValid() ? m_labelBgColor : palette().color(QPalette::Base);
 
 		QRectF box(boxX, boxY, boxW, boxH);
 		QColor pillBg = bgColor;

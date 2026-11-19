@@ -70,7 +70,7 @@ private:
 	bool m_isHovered = false;
 	bool m_isPressed = false;
 
-	QColor m_borderColor = Qt::black;
+	QColor m_borderColor;
 	QColor m_labelTextColor;
 	QColor m_labelBgColor;
 };

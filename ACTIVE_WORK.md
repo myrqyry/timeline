@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Theme awareness correction — 2026-11-18
+- User asked whether all controls are theme-aware. Audited actual widgets and found valid dark foregrounds were being replaced by light fallback colors, ruler/grid color caches could stay stale, and Macro Strip rebuilt controls and scheduled a save on theme changes (losing text drafts).
+- New Qt controls inherit native theme styling; fixed older custom painting to respect valid foreground roles, toolbar IconaMoon icons use ButtonText/HighlightedText, caption pills use the native palette, editor swatch borders and time hint no longer force black/gray. Timeline refresh updates ruler/grid caches, playhead and handles, end-marker overlay, drag guide and empty hint. Macro Strip recalculates themed row heights and repaints existing widgets rather than rebuilding. Semantic event colors and custom artwork unchanged.
+- RED: light palette foreground assertion and preservation of a live-text draft both failed on old code. GREEN: both cases and themed control height pass. Native OBS32 build and strict suite: 89 passed, 0 failed/skipped; exact clang-format 19.1.1 check passed. Logs /tmp/timeline-theme-red.log, /tmp/timeline-theme-green.log and /tmp/timeline-theme-full.log. No install/push; full native OBS theme matrix and actual appearance not manually verified.
+
+
 ### Boolean and text parameter controls — 2026-11-18
 - User requested boolean toggles and string entry. Existing boolean toggle discovery verified through the assignment dialog; added a distinct text binding/control type and typed cue value. Ordinary single-line and multiline editable properties are discovered, excluding password/info/hidden/disabled fields. Text updates use explicit Apply or modal OK; live readback preserves modified drafts. Multiline editing uses a popup to retain compact strip height. Both manual and scheduled string writes revalidate schema, support empty/Unicode/multiline values, and cannot redirect missing UUIDs.
 - RED: absent text API reproduced by new regression compilation failure. GREEN: real libobs property discovery, actual assignment dialog for both text and bool, macro serialization, explicit Apply, readback, multiline modal and defined-value dialog, scheduled execution, excluded fields and removed target. Full strict native OBS32 suite 87 passed, zero failures/skips; clang-format 19.1.1 passed. Logs /tmp/timeline-text-red.log, /tmp/timeline-text-green3.log and /tmp/timeline-text-full.log.

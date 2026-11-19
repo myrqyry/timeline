@@ -175,12 +175,13 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **87/87 tests passing** in the local native OBS32 build, including
-  owner-aware hotkeys, native mixer bindings and text controls (November 18, 2026). Qt widgets and libobs are real; frontend
+- **89/89 tests passing** in the local native OBS32 build, including
+  owner-aware hotkeys, native mixer bindings, text controls and theme refresh
+  (November 18, 2026). Qt widgets and libobs are real; frontend
   interactions in the harness use test doubles.
 - Build `68ab09a` loaded both docks and the WebSocket vendor in an
-  isolated OBS 32.2.0 session. The new hotkey and mixer changes still
-  require native interactive testing.
+  isolated OBS 32.2.0 session. The newer hotkey, mixer, text and theme changes still require native
+  interactive testing.
 - HyperShaderFX effect opacity and a shader uniform have been verified through
   the real plugin's property interface; rendered output has not been verified.
 - Additional multi-selection editing, HTTP actions and release-grade

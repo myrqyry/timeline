@@ -96,6 +96,7 @@ private:
 	void updateEndMarker();
 	void updatePlayButtonIcon();
 	void updateToolbarIcons();
+	void refreshTheme();
 	void updateHistoryControls();
 	void undoEdit();
 	void redoEdit();

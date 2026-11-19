@@ -193,7 +193,8 @@ void EventEditor::buildUi()
 	// Color picker + custom icon
 	colorButton = new QPushButton(this);
 	colorButton->setFixedSize(60, 24);
-	colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+	colorButton->setStyleSheet(
+		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
 	colorButton->setToolTip(obs_module_text("EventEditor.ClickColor"));
 	connect(colorButton, &QPushButton::clicked, this, &EventEditor::pickColor);
 
@@ -253,7 +254,7 @@ void EventEditor::buildUi()
 				  .arg(seconds, 2, 10, QChar('0'))
 				  .arg(ms / 10, 2, 10, QChar('0'));
 	timeInfoLabel = new QLabel(timeStr, this);
-	timeInfoLabel->setStyleSheet("color: gray; font-style: italic;");
+	timeInfoLabel->setStyleSheet("font-style: italic;");
 	layout->addRow(timeInfoLabel);
 
 	// Connect live updates
@@ -698,7 +699,8 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 	}
 
 	selectedColor = evt.color;
-	colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+	colorButton->setStyleSheet(
+		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
 	iconPathEdit->setText(evt.customIconPath);
 	showLabelCheck->setChecked(evt.showLabel);
 	labelEdit->setText(evt.label);
@@ -708,7 +710,8 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 	timeSpin->setValue(evt.timeMs / 1000.0);
 	onActionChanged(actionCombo->currentIndex());
 	selectedColor = evt.color;
-	colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+	colorButton->setStyleSheet(
+		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
 }
 
 void EventEditor::validateAndAccept()
@@ -800,7 +803,8 @@ void EventEditor::onActionChanged(int index)
 	durationCheck->setEnabled(!instantaneous);
 	durationSpin->setEnabled(!instantaneous && durationCheck->isChecked());
 	selectedColor = ThemeIcons::getDefaultColor(selectedActionType());
-	colorButton->setStyleSheet(QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+	colorButton->setStyleSheet(
+		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
 }
 
 void EventEditor::chooseDefinedParameter()
@@ -836,7 +840,7 @@ void EventEditor::pickColor()
 	if (newColor.isValid()) {
 		selectedColor = newColor;
 		colorButton->setStyleSheet(
-			QString("background-color: %1; border: 1px solid black;").arg(selectedColor.name()));
+			QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
 	}
 }
 

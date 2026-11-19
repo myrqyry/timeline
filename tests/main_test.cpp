@@ -3326,6 +3326,78 @@ private slots:
 		QCOMPARE(spy.count(), 1);
 	}
 
+	void testThemePalettePreservesDarkForegroundsAndRefreshesGrid()
+	{
+		QPalette light;
+		light.setColor(QPalette::Window, Qt::white);
+		light.setColor(QPalette::WindowText, Qt::black);
+		light.setColor(QPalette::ButtonText, QColor("#15232e"));
+		light.setColor(QPalette::Text, QColor("#102030"));
+		light.setColor(QPalette::HighlightedText, Qt::black);
+		light.setColor(QPalette::Highlight, QColor("#ffdd99"));
+		light.setColor(QPalette::Link, QColor("#234567"));
+		QCOMPARE(ThemeIcons::iconColorFor(light), QColor(Qt::black));
+		QCOMPARE(ThemeIcons::iconColorFor(light, true), QColor(Qt::black));
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineDock dock(nullptr, dir.filePath("timeline.json"));
+		dock.resize(800, 180);
+		dock.show();
+		QCoreApplication::processEvents();
+		dock.setPalette(light);
+		QCoreApplication::processEvents();
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(view && view->scene());
+		int gridLines = 0;
+		for (auto *item : view->scene()->items()) {
+			auto *line = qgraphicsitem_cast<QGraphicsLineItem *>(item);
+			if (!line)
+				continue;
+			if (line->zValue() == -1) {
+				auto expected = light.color(QPalette::Text);
+				expected.setAlpha(55);
+				QCOMPARE(line->pen().color(), expected);
+				++gridLines;
+			}
+			if (line->zValue() == 100)
+				QCOMPARE(line->pen().color(), light.color(QPalette::Link));
+		}
+		QVERIFY(gridLines > 0);
+	}
+
+	void testMacroThemeChangePreservesTextDraftAndDoesNotSave()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Theme text target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroStripDock dock;
+		MacroButton text;
+		text.kind = MacroControlKind::Text;
+		text.binding = {QString::fromUtf8(obs_source_get_uuid(source)),
+				{},
+				"untouched",
+				MacroParameterType::Text};
+		dock.buttonModel()->addButton(text);
+		dock.show();
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		auto *entry = dock.findChild<QLineEdit *>("macro-parameter-text");
+		QVERIFY(entry);
+		entry->setText("draft");
+		entry->setModified(true);
+		QPointer<QLineEdit> original(entry);
+		QSignalSpy saves(&dock, &MacroStripDock::saveRequested);
+		dock.onFrontendEvent(OBS_FRONTEND_EVENT_THEME_CHANGED);
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QVERIFY(original);
+		QCOMPARE(original->text(), QString("draft"));
+		QVERIFY(original->isModified());
+		QCOMPARE(saves.count(), 0);
+		QCOMPARE(MacroParameter::readText(text.binding).value(), QString("keep"));
+	}
+
 	void testDockSurvivesThemeEvent()
 	{
 		MacroStripDock dock;

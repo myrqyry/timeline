@@ -160,8 +160,14 @@ scene-owned ruler objects (`src/timeline-dock.cpp:98-112`).
 
 TimelineDock handles theme changes, scene collection changes, finished loading,
 and OBS exit through `frontendEventCallback`. Qt work is queued back to the dock
-thread (`src/timeline-dock.cpp:153-211`). Macro Strip handles theme changes by
-rebuilding its button widgets (`src/macro-strip-dock.cpp:246-255`).
+thread. Both docks refresh palette-dependent graphics and geometry in place
+on frontend theme changes and queued Qt palette/style/font changes. The
+Timeline invalidates ruler/grid caches and recolors markers and handles.
+Macro Strip retains existing controls, pending text drafts and gestures;
+a theme refresh does not schedule a model save. Native inputs inherit
+OBS/Qt styling. IconaMoon toolbar colors use the paired palette role,
+including valid dark foregrounds on light themes. Intentional event colors
+and custom SVG artwork remain independent of the theme.
 
 ## Core data model
 
@@ -549,7 +555,7 @@ instead of imposing an unbounded minimum dock height. The ruler currently
 scrolls with the scene. Playhead, grid and end marker use the scene height.
 
 Macro Strip uses shared caption and control rows derived from caption font
-metrics, native slider/toggle size hints and the fixed dial size. The inner
+metrics, native slider/toggle/text-entry/button size hints and the fixed dial size. The inner
 scroll area reserves horizontal scrollbar space; the outer dock remains
 resizable. Rows recalculate on model rebuild and frontend theme changes.
 

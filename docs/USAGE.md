@@ -194,7 +194,9 @@ Both are available for instantaneous Set Parameter Value cues.
 
 Missing sources, filters or properties disable the control rather than
 redirecting it by name. The dock aligns its rows using the native theme's
-control sizes and reserves room for the horizontal scrollbar.
+control sizes and reserves room for the horizontal scrollbar. Both docks
+follow OBS palette and theme changes, keeping event colors and custom SVG
+artwork intact. Theme refreshes do not discard unfinished text edits.
 
 ## Plugins and integrations
 

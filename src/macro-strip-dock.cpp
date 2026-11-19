@@ -408,9 +408,30 @@ void MacroStripDock::onFrontendEvent(enum obs_frontend_event event)
 {
 	switch (event) {
 	case OBS_FRONTEND_EVENT_THEME_CHANGED:
-		rebuildFromModel();
+		refreshTheme();
 		break;
 	default:
 		break;
 	}
+}
+
+void MacroStripDock::refreshTheme()
+{
+	if (!m_buttonLayout || !m_scrollArea || !m_addButton)
+		return;
+	// Refresh geometry and painting in place. Rebuilding discards text
+	// drafts and active gestures, and incorrectly schedules a save.
+	updateStripHeight();
+	for (int i = 0; i < m_buttonLayout->count(); ++i)
+		if (auto *widget = m_buttonLayout->itemAt(i)->widget())
+			widget->update();
+	update();
+}
+
+void MacroStripDock::changeEvent(QEvent *event)
+{
+	QWidget::changeEvent(event);
+	if (event->type() == QEvent::PaletteChange || event->type() == QEvent::StyleChange ||
+	    event->type() == QEvent::FontChange)
+		QMetaObject::invokeMethod(this, [this] { refreshTheme(); }, Qt::QueuedConnection);
 }

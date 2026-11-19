@@ -171,26 +171,7 @@ void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *pr
 
 	switch (event) {
 	case OBS_FRONTEND_EVENT_THEME_CHANGED:
-		QMetaObject::invokeMethod(
-			dock,
-			[dock]() {
-				dock->ensurePolished();
-				dock->playheadColor = dock->computePlayheadColor();
-				if (dock->timecodeDisplay)
-					dock->timecodeDisplay->setStatusColor(ThemeIcons::getThemeStatusColor(dock));
-				dock->applyThemeColorsToItems();
-				dock->updateToolbarIcons();
-				dock->updateLayout();
-				if (dock->view && dock->view->viewport())
-					dock->view->viewport()->update();
-				if (dock->timecodeDisplay)
-					dock->timecodeDisplay->update();
-				if (dock->zoomLabel)
-					dock->zoomLabel->update();
-				if (dock->hoverTimeLabel)
-					dock->hoverTimeLabel->update();
-			},
-			Qt::QueuedConnection);
+		QMetaObject::invokeMethod(dock, [dock] { dock->refreshTheme(); }, Qt::QueuedConnection);
 		break;
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGING:
 		QMetaObject::invokeMethod(
@@ -707,7 +688,7 @@ void TimelineDock::setupUi()
 	playheadItem->setZValue(100);
 
 	// Drag Guide (hidden by default)
-	QPen dragPen(QColor(0, 200, 0), 1, Qt::DashLine);
+	QPen dragPen(palette().color(QPalette::Highlight), 1, Qt::DashLine);
 	dragPen.setCosmetic(true);
 	dragGuideItem = scene->addLine(0, 20, 0, view->height(), dragPen);
 	dragGuideItem->setZValue(110);
@@ -1587,7 +1568,7 @@ void TimelineDock::updateEndMarker()
 	const QRectF sceneRect = scene->sceneRect();
 	double sceneW = std::max(sceneRect.right(), x);
 	if (!postEndOverlay) {
-		QColor dimColor = Qt::black;
+		QColor dimColor = palette().color(QPalette::Window);
 		dimColor.setAlpha(120);
 		postEndOverlay = scene->addRect(x, 0, sceneW - x, h, Qt::NoPen, QBrush(dimColor));
 		postEndOverlay->setZValue(95);
@@ -1596,6 +1577,9 @@ void TimelineDock::updateEndMarker()
 	} else {
 		postEndOverlay->setRect(x, 0, sceneW - x, h);
 	}
+	QColor dimColor = palette().color(QPalette::Window);
+	dimColor.setAlpha(120);
+	postEndOverlay->setBrush(QBrush(dimColor));
 	postEndOverlay->setVisible(true);
 }
 
@@ -1632,20 +1616,47 @@ void TimelineDock::keyPressEvent(QKeyEvent *event)
 void TimelineDock::changeEvent(QEvent *event)
 {
 	QWidget::changeEvent(event);
-	if (event->type() == QEvent::PaletteChange) {
-		playheadColor = computePlayheadColor();
-		applyThemeColorsToItems();
-		updateToolbarIcons();
-		if (view && view->viewport())
-			view->viewport()->update();
-		if (timecodeDisplay)
-			timecodeDisplay->update();
-		if (zoomLabel)
-			zoomLabel->update();
-		if (hoverTimeLabel)
-			hoverTimeLabel->update();
-		update();
+	if (event->type() == QEvent::PaletteChange || event->type() == QEvent::StyleChange ||
+	    event->type() == QEvent::FontChange)
+		QMetaObject::invokeMethod(this, [this] { refreshTheme(); }, Qt::QueuedConnection);
+}
+
+void TimelineDock::refreshTheme()
+{
+	if (!view || !scene || !playheadItem || !playheadGrabHandle)
+		return;
+	ensurePolished();
+	playheadColor = computePlayheadColor();
+	if (timecodeDisplay)
+		timecodeDisplay->setStatusColor(ThemeIcons::getThemeStatusColor(this));
+	applyThemeColorsToItems();
+	updateToolbarIcons();
+	// Cached graphics contain color as well as geometry.
+	cachedGridPxPerSec = -1;
+	cachedRulerPxPerSec = -1;
+	if (dragGuideItem) {
+		auto pen = dragGuideItem->pen();
+		pen.setColor(palette().color(QPalette::Highlight));
+		dragGuideItem->setPen(pen);
 	}
+	if (playheadHandle)
+		playheadHandle->setBrush(QBrush(playheadColor));
+	auto pen = playheadItem->pen();
+	pen.setColor(playheadColor);
+	playheadItem->setPen(pen);
+	refreshPlayheadHandlePixmap();
+	playheadGrabHandle->setPixmap(playheadHandlePixmap);
+	if (emptyHintItem) {
+		auto color = palette().color(QPalette::Text);
+		color.setAlpha(128);
+		emptyHintItem->setBrush(QBrush(color));
+	}
+	updateViewportGeometry();
+	drawRuler();
+	view->viewport()->update();
+	if (timecodeDisplay)
+		timecodeDisplay->update();
+	update();
 }
 
 void TimelineDock::copySelectedEvents()
@@ -2318,7 +2329,7 @@ void TimelineDock::updateMoonButtonIcon(QAbstractButton *btn, const char *inner,
 		return;
 	btn->ensurePolished();
 	bool onHighlight = btn->isCheckable() && btn->isChecked();
-	QColor color = ThemeIcons::iconColorFor(btn, onHighlight);
+	QColor color = btn->palette().color(onHighlight ? QPalette::HighlightedText : QPalette::ButtonText);
 
 	QByteArray svgData = ThemeIcons::wrapIconMoon(inner, color.name());
 	QPixmap pixmap = QPixmap::fromImage(QImage::fromData(svgData));

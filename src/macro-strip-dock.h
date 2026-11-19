@@ -55,6 +55,9 @@ public slots:
 signals:
 	void saveRequested();
 
+protected:
+	void changeEvent(QEvent *event) override;
+
 private slots:
 	void rebuildFromModel();
 	void onButtonFired(const MacroButton &button);
@@ -75,6 +78,7 @@ private:
 
 	void setupUi();
 	void updateStripHeight();
+	void refreshTheme();
 	void connectModel();
 	void showAddEditor();
 	void showEditEditor(const QString &id);
