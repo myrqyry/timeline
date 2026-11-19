@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Move undo/redo to menu — 2026-11-19
+- User reported that the joined history buttons still did not visually match zoom and requested moving them to the menu. Removed both toolbar buttons and their container. Native menu actions at the top of the existing Timeline menu show localized labels and platform shortcut hints. Retained existing dock-scoped QShortcuts, history enable/disable checks, playback/drag guards and history model. Zoom styling and sizes unchanged.
+- RED: updated existing dock tests failed for missing menu actions and unwanted toolbar history buttons. GREEN: tests click actual menu actions, verify shortcut behavior, history lockout and persistence, plus compact zoom geometry. Native OBS32 rebuild and full strict suite: 89 passed, 0 failed/skipped; exact clang-format 19.1.1 passed. Logs /tmp/timeline-history-menu-red.log, /tmp/timeline-history-menu-green.log and /tmp/timeline-history-menu-full.log.
+- No installation or push. Native OBS visual acceptance remains outstanding.
+
+
 ### Theme awareness correction — 2026-11-18
 - User asked whether all controls are theme-aware. Audited actual widgets and found valid dark foregrounds were being replaced by light fallback colors, ruler/grid color caches could stay stale, and Macro Strip rebuilt controls and scheduled a save on theme changes (losing text drafts).
 - New Qt controls inherit native theme styling; fixed older custom painting to respect valid foreground roles, toolbar IconaMoon icons use ButtonText/HighlightedText, caption pills use the native palette, editor swatch borders and time hint no longer force black/gray. Timeline refresh updates ruler/grid caches, playhead and handles, end-marker overlay, drag guide and empty hint. Macro Strip recalculates themed row heights and repaints existing widgets rather than rebuilding. Semantic event colors and custom artwork unchanged.

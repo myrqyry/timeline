@@ -157,7 +157,8 @@ Restart OBS and enable the Timeline and Macro Strip docks.
 | Shift + mouse wheel | Scroll vertically when event lanes overflow |
 
 Use **Settings → Compact mode** to shrink the Timeline toolbar and events
-together. Undo/redo is session-only, edits event data rather than live OBS
+together. Undo and Redo are also at the top of the Timeline menu.
+History is session-only, edits event data rather than live OBS
 state, and is disabled during playback.
 
 ## Compatibility and saved state

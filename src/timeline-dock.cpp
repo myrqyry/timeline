@@ -404,21 +404,6 @@ void TimelineDock::setupUi()
 	addEventButton = new QPushButton(obs_module_text("TimelineDock.AddEvent"), this);
 	addEventButton->setObjectName("timeline-add-event-btn");
 	addEventButton->setToolTip(obs_module_text("TimelineDock.AddEventTooltip"));
-	undoButton = new QPushButton(this);
-	undoButton->setObjectName("timeline-undo-btn");
-	undoButton->setToolTip(
-		QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.UndoEdit"),
-					      QKeySequence(QKeySequence::Undo).toString(QKeySequence::NativeText)));
-	undoButton->setAccessibleName(obs_module_text("TimelineDock.UndoEdit"));
-	redoButton = new QPushButton(this);
-	redoButton->setObjectName("timeline-redo-btn");
-	redoButton->setToolTip(
-		QStringLiteral("%1 (%2)").arg(obs_module_text("TimelineDock.RedoEdit"),
-					      QKeySequence(QKeySequence::Redo).toString(QKeySequence::NativeText)));
-	redoButton->setAccessibleName(obs_module_text("TimelineDock.RedoEdit"));
-	connect(undoButton, &QPushButton::clicked, this, &TimelineDock::undoEdit);
-	connect(redoButton, &QPushButton::clicked, this, &TimelineDock::redoEdit);
-	updateHistoryControls();
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
 	connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
@@ -522,6 +507,22 @@ void TimelineDock::setupUi()
 	endLabel = new QLabel(obs_module_text("TimelineDock.EndTime"), this);
 
 	settingsMenu = new QMenu(this);
+	settingsMenu->setObjectName("timeline-settings-menu");
+	// Show native shortcut hints without registering a second shortcut.
+	// The existing dock-local QShortcuts preserve their focus restrictions.
+	undoAction = settingsMenu->addAction(
+		QStringLiteral("%1\t%2").arg(obs_module_text("TimelineDock.UndoEdit"),
+					     QKeySequence(QKeySequence::Undo).toString(QKeySequence::NativeText)),
+		this, &TimelineDock::undoEdit);
+	undoAction->setObjectName("timeline-undo-action");
+	redoAction = settingsMenu->addAction(
+		QStringLiteral("%1\t%2").arg(obs_module_text("TimelineDock.RedoEdit"),
+					     QKeySequence(QKeySequence::Redo).toString(QKeySequence::NativeText)),
+		this, &TimelineDock::redoEdit);
+	redoAction->setObjectName("timeline-redo-action");
+	connect(settingsMenu, &QMenu::aboutToShow, this, &TimelineDock::updateHistoryControls);
+	updateHistoryControls();
+	settingsMenu->addSeparator();
 	settingsMenu->addAction(obs_module_text("TimelineDock.SaveTimeline"), this, &TimelineDock::onSaveClicked);
 	settingsMenu->addAction(obs_module_text("TimelineDock.LoadTimeline"), this, &TimelineDock::onLoadClicked);
 	settingsMenu->addSeparator();
@@ -638,7 +639,7 @@ void TimelineDock::setupUi()
 	// Create mode toggle (Time/BPM) buttons
 	setupModeToggle();
 
-	// Use the same joined action-button treatment for zoom and history.
+	// Keep the zoom buttons joined. History lives in the menu.
 	auto joinedButtons = [this](const char *name, QPushButton *left, QPushButton *right) {
 		auto *container = new QWidget(this);
 		container->setObjectName(name);
@@ -655,7 +656,6 @@ void TimelineDock::setupUi()
 		return container;
 	};
 	zoomToggleContainer = joinedButtons("timeline-zoom-container", zoomOutButton, zoomInButton);
-	historyContainer = joinedButtons("timeline-history-container", undoButton, redoButton);
 
 	updateToolbarIcons();
 	updateZoomLabel();
@@ -779,7 +779,6 @@ void TimelineDock::updateControlsLayout()
 	controlsLayout->addWidget(show(settingsButton));
 	controlsLayout->addWidget(show(settingsSeparator));
 	controlsLayout->addWidget(show(addEventButton));
-	controlsLayout->addWidget(show(historyContainer));
 	controlsLayout->addWidget(show(addSeparator));
 	if (centerControls) {
 		controlsLayout->addStretch();
@@ -2242,10 +2241,10 @@ void TimelineDock::updateZoomLabel()
 void TimelineDock::updateHistoryControls()
 {
 	const bool allowed = !scheduler->isPlaying() && !isDragging && !loadingTimeline;
-	if (undoButton)
-		undoButton->setEnabled(allowed && model->canUndo());
-	if (redoButton)
-		redoButton->setEnabled(allowed && model->canRedo());
+	if (undoAction)
+		undoAction->setEnabled(allowed && model->canUndo());
+	if (redoAction)
+		redoAction->setEnabled(allowed && model->canRedo());
 }
 
 void TimelineDock::undoEdit()
@@ -2290,8 +2289,6 @@ void TimelineDock::updateToolbarIcons()
 	updateMoonButtonIcon(timeModeBtn, ThemeIcons::MOON_CLOCK, secondarySize, QString(), 8);
 	updateMoonButtonIcon(bpmModeBtn, ThemeIcons::MOON_MUSIC, secondarySize, QString(), 8);
 
-	updateMoonButtonIcon(undoButton, ThemeIcons::MOON_UNDO, zoomSize, QString(), 6);
-	updateMoonButtonIcon(redoButton, ThemeIcons::MOON_REDO, zoomSize, QString(), 6);
 	updateMoonButtonIcon(addEventButton, ThemeIcons::MOON_PLUS, secondarySize,
 			     obs_module_text("TimelineDock.AddEvent"), 6);
 }

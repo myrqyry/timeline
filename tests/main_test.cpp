@@ -1558,27 +1558,21 @@ private slots:
 		auto *model = dock.findChild<TimelineModel *>();
 		auto *view = dock.findChild<QGraphicsView *>();
 		auto *play = dock.findChild<QPushButton *>("timeline-play-btn");
-		auto *undo = dock.findChild<QPushButton *>("timeline-undo-btn");
 		auto *settings = dock.findChild<QPushButton *>("timeline-settings-btn");
-		QVERIFY(model && view && play && undo && settings);
-		auto *redo = dock.findChild<QPushButton *>("timeline-redo-btn");
 		auto *zoomOut = dock.findChild<QPushButton *>("timeline-zoom-out-btn");
 		auto *zoomIn = dock.findChild<QPushButton *>("timeline-zoom-in-btn");
-		QVERIFY(redo && zoomOut && zoomIn);
-		auto verifyJoinedHistory = [&] {
-			QCOMPARE(undo->parentWidget(), redo->parentWidget());
-			QVERIFY(undo->parentWidget() != &dock);
-			QCOMPARE(undo->size(), zoomOut->size());
-			QCOMPARE(redo->size(), zoomIn->size());
-			QCOMPARE(undo->iconSize(), zoomOut->iconSize());
-			QCOMPARE(redo->iconSize(), zoomIn->iconSize());
-			QCOMPARE(undo->styleSheet(), zoomOut->styleSheet());
-			QCOMPARE(redo->styleSheet(), zoomIn->styleSheet());
-			QCOMPARE(undo->geometry().right() + 1, redo->geometry().left());
-			QCOMPARE(undo->y(), redo->y());
-			QVERIFY(undo->isVisible() && redo->isVisible());
+		QVERIFY(model && view && play && settings && zoomOut && zoomIn);
+		QVERIFY(!dock.findChild<QPushButton *>("timeline-undo-btn"));
+		QVERIFY(!dock.findChild<QPushButton *>("timeline-redo-btn"));
+		auto verifyJoinedZoom = [&] {
+			QCOMPARE(zoomOut->parentWidget(), zoomIn->parentWidget());
+			QCOMPARE(zoomOut->size(), zoomIn->size());
+			QCOMPARE(zoomOut->geometry().right() + 1, zoomIn->geometry().left());
+			QCOMPARE(zoomOut->y(), zoomIn->y());
+			QVERIFY(zoomOut->isVisible() && zoomIn->isVisible());
 		};
-		verifyJoinedHistory();
+		verifyJoinedZoom();
+		QCOMPARE(zoomOut->height(), 24);
 		QTest::mouseClick(settings, Qt::LeftButton);
 		QTRY_VERIFY(QApplication::activePopupWidget());
 		auto *menu = QApplication::activePopupWidget();
@@ -1610,8 +1604,8 @@ private slots:
 		compact->setChecked(true);
 		QCoreApplication::processEvents();
 		QCOMPARE(play->height(), 28);
-		QCOMPARE(undo->height(), 20);
-		verifyJoinedHistory();
+		QCOMPARE(zoomOut->height(), 20);
+		verifyJoinedZoom();
 		QVERIFY(marker(a.id)->isCompactMode());
 		QCOMPARE(marker(b.id)->getStackOffset(), 0);
 		QCOMPARE(marker(a.id)->getTimeMs(), a.timeMs);
@@ -1626,7 +1620,7 @@ private slots:
 		dock.load();
 		QCoreApplication::processEvents();
 		QCOMPARE(play->height(), 28);
-		verifyJoinedHistory();
+		verifyJoinedZoom();
 		QVERIFY(marker(a.id)->isCompactMode());
 		QCOMPARE(marker(b.id)->getStackOffset(), 0);
 
@@ -1661,10 +1655,21 @@ private slots:
 		auto *model = dock.findChild<TimelineModel *>();
 		auto *scheduler = dock.findChild<TimelineScheduler *>();
 		auto *view = dock.findChild<QGraphicsView *>();
-		auto *undo = dock.findChild<QPushButton *>("timeline-undo-btn");
-		auto *redo = dock.findChild<QPushButton *>("timeline-redo-btn");
-		QVERIFY(model && scheduler && view && undo && redo);
+		auto *undo = dock.findChild<QAction *>("timeline-undo-action");
+		auto *redo = dock.findChild<QAction *>("timeline-redo-action");
+		auto *menu = dock.findChild<QMenu *>("timeline-settings-menu");
+		auto *settings = dock.findChild<QPushButton *>("timeline-settings-btn");
+		QVERIFY(model && scheduler && view && undo && redo && menu && settings);
+		QVERIFY(menu->actions().contains(undo) && menu->actions().contains(redo));
+		QVERIFY(undo->text().contains(QKeySequence(QKeySequence::Undo).toString(QKeySequence::NativeText)));
+		QVERIFY(redo->text().contains(QKeySequence(QKeySequence::Redo).toString(QKeySequence::NativeText)));
 		QVERIFY(!undo->isEnabled() && !redo->isEnabled());
+		auto clickHistory = [&](QAction *action) {
+			QTest::mouseClick(settings, Qt::LeftButton);
+			QTRY_VERIFY(menu->isVisible());
+			QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier, menu->actionGeometry(action).center());
+			QTRY_VERIFY(!menu->isVisible());
+		};
 		TimelineEvent a, b;
 		a.timeMs = 1500;
 		a.type = TimelineEventType::MediaStart;
@@ -1672,10 +1677,10 @@ private slots:
 		b.timeMs = 2500;
 		model->addEvents({a, b});
 		QTRY_VERIFY(undo->isEnabled());
-		QTest::mouseClick(undo, Qt::LeftButton);
+		clickHistory(undo);
 		QVERIFY(model->getEvents().empty());
 		QVERIFY(redo->isEnabled());
-		QTest::mouseClick(redo, Qt::LeftButton);
+		clickHistory(redo);
 		QCOMPARE(model->getEvents().size(), size_t(2));
 		// Real widget shortcut, not a direct call to the model.
 		QApplication::setActiveWindow(&dock);
@@ -1701,7 +1706,7 @@ private slots:
 		QTest::keyClick(view, Qt::Key_Right, Qt::ShiftModifier);
 		QTRY_COMPARE_WITH_TIMEOUT(model->findEventById(a.id)->timeMs, a.timeMs + 100, 1500);
 		QCOMPARE(model->findEventById(b.id)->timeMs, b.timeMs + 100);
-		QTest::mouseClick(undo, Qt::LeftButton);
+		undo->trigger();
 		QCOMPARE(model->findEventById(a.id)->timeMs, a.timeMs);
 		QCOMPARE(model->findEventById(b.id)->timeMs, b.timeMs);
 		QCoreApplication::processEvents();
@@ -1713,7 +1718,7 @@ private slots:
 		QCOMPARE(model->getEvents()[2].timeMs, 4000.0);
 		QCOMPARE(model->getEvents()[3].timeMs, 5000.0);
 		QVERIFY(model->getEvents()[2].id != a.id);
-		QTest::mouseClick(undo, Qt::LeftButton);
+		undo->trigger();
 		QCOMPARE(model->getEvents().size(), size_t(2));
 		QCoreApplication::processEvents();
 		scheduler->seek(0);
@@ -1723,7 +1728,7 @@ private slots:
 		view->setFocus();
 		QTest::keyClick(view, Qt::Key_Delete);
 		QTRY_VERIFY_WITH_TIMEOUT(model->getEvents().empty(), 1500);
-		QTest::mouseClick(undo, Qt::LeftButton);
+		undo->trigger();
 		QCOMPARE(model->getEvents().size(), size_t(2));
 		QCoreApplication::processEvents();
 
@@ -1745,7 +1750,7 @@ private slots:
 		QCoreApplication::sendEvent(view->viewport(), &move);
 		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, end);
 		QTRY_VERIFY_WITH_TIMEOUT(model->findEventById(a.id)->timeMs > a.timeMs, 1500);
-		QTest::mouseClick(undo, Qt::LeftButton);
+		undo->trigger();
 		QCOMPARE(model->findEventById(a.id)->timeMs, a.timeMs);
 		QCoreApplication::processEvents();
 
@@ -1767,7 +1772,7 @@ private slots:
 		QVERIFY(QMetaObject::invokeMethod(marker, "doubleClicked", Qt::DirectConnection));
 		QVERIFY(editedTime);
 		QCOMPARE(model->findEventById(a.id)->timeMs, 1678.0);
-		QTest::mouseClick(undo, Qt::LeftButton);
+		undo->trigger();
 		QCOMPARE(model->findEventById(a.id)->timeMs, a.timeMs);
 
 		auto *play = dock.findChild<QPushButton *>("timeline-play-btn");

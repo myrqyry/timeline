@@ -22,6 +22,7 @@ struct TimelineDocument;
 class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
 class TimecodeDisplay;
+class QAction;
 
 class TimelineDock : public QWidget {
 	Q_OBJECT
@@ -143,13 +144,12 @@ private:
 	QPushButton *zoomInButton = nullptr;
 	QPushButton *zoomOutButton = nullptr;
 	QPushButton *addEventButton = nullptr;
-	QPushButton *undoButton = nullptr;
-	QPushButton *redoButton = nullptr;
+	QAction *undoAction = nullptr;
+	QAction *redoAction = nullptr;
 	QPushButton *saveButton = nullptr;
 	QPushButton *loadButton = nullptr;
 	QPushButton *settingsButton = nullptr;
 	QWidget *zoomToggleContainer = nullptr;
-	QWidget *historyContainer = nullptr;
 	QFrame *settingsSeparator = nullptr;
 	QFrame *playbackSeparator = nullptr;
 	QFrame *zoomSeparator = nullptr;

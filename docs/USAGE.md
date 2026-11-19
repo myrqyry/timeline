@@ -120,7 +120,8 @@ Missing vendors, invalid names and unavailable APIs are logged.
 
 ### Undo and redo
 
-The dock-local shortcuts and toolbar buttons share the last 100 event edits
+The Undo/Redo actions at the top of the Timeline menu and dock-local
+shortcuts share the last 100 event edits
 in memory. Add/remove, dragging, timestamps, labels, colors, icons, durations
 and action parameters are restored. Batch paste, deletion and nudging take
 one undo step. No-op edits retain redo; a new edit after undo discards redo.
