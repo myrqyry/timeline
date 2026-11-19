@@ -603,6 +603,15 @@ private slots:
 		executor.executeEventEnd(evt);
 		QCOMPARE(g_websocket_request_count, 2); // Timed event clears overlay
 		QCOMPARE(g_websocket_last_request.value("requestData").toObject().value("scene").toString(), QString());
+		evt.endAction = "select-overlay";
+		evt.endScene = "Next Overlay";
+		executor.executeEventEnd(evt);
+		QCOMPARE(g_websocket_request_count, 3);
+		QCOMPARE(g_websocket_last_request.value("requestData").toObject().value("scene").toString(),
+			 QString("Next Overlay"));
+		evt.endAction = "keep";
+		executor.executeEventEnd(evt);
+		QCOMPARE(g_websocket_request_count, 3);
 	}
 
 	void testDownstreamKeyerSceneValidatesBeforeDispatch()
@@ -1186,6 +1195,16 @@ private slots:
 		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PAUSED);
 		executor.executeEventStart(event);
 		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PLAYING);
+		event.endAction = "stop";
+		executor.executeEventEnd(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_STOPPED);
+		event.endAction = "restart";
+		executor.executeEventEnd(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PLAYING);
+		event.endAction = "keep";
+		executor.executeEventEnd(event);
+		QTRY_COMPARE(obs_source_media_get_state(clip.get()), OBS_MEDIA_STATE_PLAYING);
+		event.endAction.clear();
 		event.type = TimelineEventType::MediaSeekTo;
 		event.data = MediaTarget::encode(QString::fromUtf8(obs_source_get_uuid(clip.get())), 70000);
 		executor.executeEventStart(event);
@@ -1417,6 +1436,60 @@ private slots:
 		evt.type = TimelineEventType::FilterDisable;
 		executor.executeEventStart(evt);
 		QVERIFY(!obs_source_enabled(filter_item));
+	}
+
+	void testExplicitTimedEndingStates()
+	{
+		auto *filter = obs_source_create("test_filter", "Ending state filter", nullptr, nullptr);
+		QVERIFY(filter);
+		obs_source_filter_add(source_item, filter);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_filter_remove(source_item, filter);
+			obs_source_release(filter);
+		});
+		TimelineEvent cue;
+		cue.type = TimelineEventType::FilterEnable;
+		cue.sourceName = QString::fromUtf8(obs_source_get_name(source_item));
+		cue.filterName = "Ending state filter";
+		cue.hasDuration = true;
+		cue.durationMs = 100;
+		cue.endAction = "enable";
+		ObsExecutor executor;
+		executor.executeEventStart(cue);
+		obs_source_set_enabled(filter, false);
+		executor.executeEventEnd(cue);
+		QVERIFY(obs_source_enabled(filter));
+		cue.endAction = "keep";
+		obs_source_set_enabled(filter, false);
+		executor.executeEventEnd(cue);
+		QVERIFY(!obs_source_enabled(filter));
+		cue.endAction = "enable";
+		TimelineModel model, restored;
+		model.setHistoryEnabled(true);
+		model.addEvent(cue);
+		auto edited = cue;
+		edited.endAction = "disable";
+		QVERIFY(model.replaceEventById(cue.id, edited));
+		QVERIFY(model.undo());
+		QCOMPARE(model.getEvents().front().endAction, QString("enable"));
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().front().endAction, cue.endAction);
+		EventEditor editor(restored.getEvents().front());
+		auto *ending = editor.findChild<QComboBox *>("eventEndActionCombo");
+		QVERIFY(ending);
+		QCOMPARE(ending->currentData().toString(), QString("enable"));
+		ending->setCurrentIndex(ending->findData(QString("disable")));
+		editor.getUpdatedEvent(edited);
+		QCOMPARE(edited.endAction, QString("disable"));
+		executor.executeEventEnd(edited);
+		QVERIFY(!obs_source_enabled(filter));
+		edited.endAction = "invalid";
+		obs_source_set_enabled(filter, true);
+		executor.executeEventEnd(edited);
+		QVERIFY(obs_source_enabled(filter));
+		edited.endAction.clear();
+		executor.executeEventEnd(edited);
+		QVERIFY(!obs_source_enabled(filter)); // historical inverse
 	}
 
 	void testDurationFilterDisableReenablesOnEnd()

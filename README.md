@@ -46,7 +46,8 @@ Build reusable sequences without leaving OBS.
 | Downstream Keyer Scene | Select or hide an overlay scene in a named keyer (optional integration). |
 
 Visibility, filter and compatible media actions can have a duration, with
-an inverse action at the end. Seek and parameter-value cues are instantaneous.
+an explicit ending state or the original inverse at the end. Seek and
+parameter-value cues are instantaneous.
 See [action behavior](docs/USAGE.md#action-behavior) for the details.
 
 ### Create your first sequence
@@ -177,7 +178,7 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **93/93 tests passing** in the local native OBS32 build, including
+- **94/94 tests passing** in the local native OBS32 build, including
   owner-aware hotkeys, native mixer bindings, text controls and theme refresh
   (November 18, 2026). Qt widgets and libobs are real; frontend
   interactions in the harness use test doubles.

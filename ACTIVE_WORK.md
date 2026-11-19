@@ -1,6 +1,10 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Explicit timed ending states — 2026-11-19
+- User requested selectable ending states rather than forced reversal. Duration editor offers At end with legacy default, leave unchanged and supported states on the original target (visibility show/hide, filter enable/disable, media restart/stop/pause/resume, DSK hide/select ending overlay). Optional endAction/endScene persist in JSON and undo history. Explicit operations reuse start-action target validation; unknown states skip rather than reverse. Existing files keep legacy defaults. Instant parameter/seek cues unchanged. Older versions ignore the new end fields.
+- RED missing endAction API. GREEN filter actual libobs writes, keep/default/invalid behavior, undo/JSON/editor roundtrip, real media probe endings and mocked DSK ending scene. Full native strict suite 94 passed, zero failed/skipped; clang-format pass. Logs /tmp/timeline-ending-red.log, /tmp/timeline-ending-green.log, /tmp/timeline-ending-full.log. Freeze Time separately committed c6c3d3e after 93 passed. No install/push; interactive OBS acceptance outstanding.
+
 ### Freeze Time — 2026-11-19
 - User requested a timed clock hold to compress long gaps visually. Appended event ID 15, separate real-time wait payload 0–24h (positive for valid cue), single labeled clock marker, native theme highlight for frozen clock and remaining tooltip. Same-time cues dispatch together; holds accumulate; later starts and ends shift; pause preserves remaining, seek/restart cancel, loop/end and headless clocks respect holds. OBS sources and independently running children continue. Active hold progress not persisted. Full wait starts at actual dispatch, including late wakeups.
 - RED absent event type; focused scheduler/roundtrip/long-marker tests green. Full suite initially caught old picker-count assertion and test invoking inactive timer; updated test to start playback and retained original loop tick semantics. Native strict 93 passed, 0 failed/skipped. Logs /tmp/timeline-freeze-full2.log. Formatter check before commit. No install/push.

@@ -252,6 +252,21 @@ void EventEditor::buildUi()
 	durationLayout->addWidget(durationCheck);
 	durationLayout->addWidget(durationSpin);
 	layout->addRow(durationLayout);
+	endingWidget = new QWidget(this);
+	auto *endingLayout = new QHBoxLayout(endingWidget);
+	endingLayout->setContentsMargins(0, 0, 0, 0);
+	endingLayout->addWidget(new QLabel(obs_module_text("EventEditor.EndingState"), endingWidget));
+	endingCombo = new QComboBox(endingWidget);
+	endingCombo->setObjectName("eventEndActionCombo");
+	endingLayout->addWidget(endingCombo);
+	endingScene = new QLineEdit(endingWidget);
+	endingScene->setObjectName("eventEndScene");
+	endingScene->setPlaceholderText(obs_module_text("EventEditor.EndScene"));
+	endingLayout->addWidget(endingScene);
+	layout->addRow(endingWidget);
+	endingWidget->hide();
+	connect(durationCheck, &QCheckBox::toggled, this, &EventEditor::updateEndingStateVisibility);
+	connect(endingCombo, &QComboBox::currentIndexChanged, this, &EventEditor::updateEndingStateVisibility);
 
 	// Fine-tune exact time (seconds with millisecond precision)
 	timeSpin = new QDoubleSpinBox(this);
@@ -732,6 +747,16 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 	durationSpin->setValue(evt.durationMs / 1000.0);
 	timeSpin->setValue(evt.timeMs / 1000.0);
 	onActionChanged(actionCombo->currentIndex());
+	if (!evt.endAction.isEmpty() && supportsEndingState(evt.type)) {
+		int index = endingCombo->findData(evt.endAction);
+		if (index < 0) {
+			endingCombo->addItem(obs_module_text("EventEditor.UnknownEndingState"), evt.endAction);
+			index = endingCombo->count() - 1;
+		}
+		endingCombo->setCurrentIndex(index);
+	}
+	endingScene->setText(evt.endScene);
+	updateEndingStateVisibility();
 	selectedColor = evt.color;
 	colorButton->setStyleSheet(
 		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
@@ -801,6 +826,12 @@ void EventEditor::validateAndAccept()
 		}
 	}
 
+	if (durationCheck->isChecked() && supportsEndingState(selectedActionType()) &&
+	    (!validEndingState(selectedActionType(), endingCombo->currentData().toString()) ||
+	     (endingCombo->currentData().toString() == "select-overlay" && endingScene->text().trimmed().isEmpty()))) {
+		warn(obs_module_text("EventEditor.WarnEndingState"));
+		return;
+	}
 	if (durationCheck->isChecked() && durationSpin->value() < 0.0) {
 		warn(obs_module_text("EventEditor.WarnDuration"));
 		return;
@@ -827,15 +858,55 @@ void EventEditor::onActionChanged(int index)
 	durationCheck->setVisible(!freeze);
 	durationSpin->setVisible(!freeze);
 	mediaSeekWidget->setVisible(seek);
-	durationCheck->setText(obs_module_text(
-		selectedActionType() == TimelineEventType::MediaPause    ? "EventEditor.ResumeAfterDuration"
-		: selectedActionType() == TimelineEventType::MediaResume ? "EventEditor.PauseAfterDuration"
-									 : "EventEditor.HasDuration"));
+	durationCheck->setText(obs_module_text("EventEditor.TimedDuration"));
 	durationCheck->setEnabled(!instantaneous);
 	durationSpin->setEnabled(!instantaneous && durationCheck->isChecked());
+	updateEndingStateChoices();
 	selectedColor = ThemeIcons::getDefaultColor(selectedActionType());
 	colorButton->setStyleSheet(
 		QString("background-color: %1; border: 1px solid palette(mid);").arg(selectedColor.name()));
+}
+
+void EventEditor::updateEndingStateChoices()
+{
+	const auto previous = endingCombo->currentData().toString();
+	const QSignalBlocker blocker(endingCombo);
+	endingCombo->clear();
+	const auto type = selectedActionType();
+	if (supportsEndingState(type)) {
+		auto add = [this](const char *label, const QString &action) {
+			endingCombo->addItem(obs_module_text(label), action);
+		};
+		add(type == TimelineEventType::DownstreamKeyerScene ? "EventEditor.EndDefaultOverlay"
+								    : "EventEditor.EndReverse",
+		    QString());
+		add("EventEditor.EndKeep", "keep");
+		if (type == TimelineEventType::SourceShow || type == TimelineEventType::SourceHide) {
+			add("EventEditor.ActionShow", "show");
+			add("EventEditor.ActionHide", "hide");
+		} else if (type == TimelineEventType::FilterEnable || type == TimelineEventType::FilterDisable) {
+			add("EventEditor.ActionEnable", "enable");
+			add("EventEditor.ActionDisable", "disable");
+		} else if (isMediaAction(type)) {
+			add("EventEditor.ActionRestart", "restart");
+			add("EventEditor.ActionStop", "stop");
+			add("EventEditor.ActionPause", "pause");
+			add("EventEditor.ActionResume", "resume");
+		} else {
+			add("EventEditor.ActionHide", "hide");
+			add("EventEditor.EndSelectOverlay", "select-overlay");
+		}
+		const int index = endingCombo->findData(previous);
+		endingCombo->setCurrentIndex(index >= 0 ? index : 0);
+	}
+	updateEndingStateVisibility();
+}
+
+void EventEditor::updateEndingStateVisibility()
+{
+	const bool show = allowFreeze && durationCheck->isChecked() && supportsEndingState(selectedActionType());
+	endingWidget->setVisible(show);
+	endingScene->setVisible(show && endingCombo->currentData().toString() == "select-overlay");
 }
 
 void EventEditor::chooseDefinedParameter()
@@ -963,4 +1034,7 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 			  evt.type != TimelineEventType::SetParameterValue &&
 			  evt.type != TimelineEventType::FreezeTime && durationCheck->isChecked();
 	evt.durationMs = evt.type == TimelineEventType::FreezeTime ? 0.0 : durationSpin->value() * 1000.0;
+	evt.endAction = evt.hasDuration && supportsEndingState(evt.type) ? endingCombo->currentData().toString()
+									 : QString();
+	evt.endScene = evt.endAction == "select-overlay" ? endingScene->text().trimmed() : QString();
 }

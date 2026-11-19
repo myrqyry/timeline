@@ -35,6 +35,8 @@ private:
 	void pickColor();
 	void chooseDefinedParameter();
 	void updateDefinedParameterLabel();
+	void updateEndingStateChoices();
+	void updateEndingStateVisibility();
 
 	QComboBox *typeCombo = nullptr;
 	QLabel *actionLabel = nullptr;
@@ -65,6 +67,9 @@ private:
 	QLineEdit *iconPathEdit = nullptr;
 	QCheckBox *durationCheck = nullptr;
 	QDoubleSpinBox *durationSpin = nullptr;
+	QWidget *endingWidget = nullptr;
+	QComboBox *endingCombo = nullptr;
+	QLineEdit *endingScene = nullptr;
 	QLabel *timeInfoLabel = nullptr;
 
 	QDoubleSpinBox *timeSpin = nullptr;

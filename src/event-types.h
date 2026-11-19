@@ -40,6 +40,8 @@ struct TimelineEvent {
 	// Duration
 	bool hasDuration = false;
 	double durationMs = 0.0;
+	QString endAction; // Empty preserves the historical inverse.
+	QString endScene;  // Optional DSK ending scene.
 };
 
 inline bool isMediaAction(TimelineEventType type)
@@ -58,4 +60,30 @@ inline double freezeDurationMs(const TimelineEvent &evt)
 	bool ok = false;
 	const double ms = evt.data.toDouble(&ok);
 	return ok && std::isfinite(ms) && ms > 0.0 && ms <= kMaxFreezeMs ? ms : 0.0;
+}
+
+// Ending actions are constrained to the original target and action family.
+inline bool supportsEndingState(TimelineEventType type)
+{
+	return type == TimelineEventType::SourceShow || type == TimelineEventType::SourceHide ||
+	       type == TimelineEventType::FilterEnable || type == TimelineEventType::FilterDisable ||
+	       (isMediaAction(type) && type != TimelineEventType::MediaSeekTo) ||
+	       type == TimelineEventType::DownstreamKeyerScene;
+}
+
+inline bool validEndingState(TimelineEventType type, const QString &action)
+{
+	if (action.isEmpty())
+		return true;
+	if (!supportsEndingState(type))
+		return false;
+	if (action == "keep")
+		return true;
+	if (type == TimelineEventType::SourceShow || type == TimelineEventType::SourceHide)
+		return action == "show" || action == "hide";
+	if (type == TimelineEventType::FilterEnable || type == TimelineEventType::FilterDisable)
+		return action == "enable" || action == "disable";
+	if (isMediaAction(type))
+		return action == "restart" || action == "stop" || action == "pause" || action == "resume";
+	return action == "hide" || action == "select-overlay";
 }

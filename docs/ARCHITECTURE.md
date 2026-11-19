@@ -200,7 +200,7 @@ groups the five current media actions under Media Playback.
 
 The executor interprets duration and instant events differently:
 
-| Type | Start action | End action when duration is enabled |
+| Type | Start action | Default end action when duration is enabled |
 | --- | --- | --- |
 | `SourceShow` | Make source visible | Hide source |
 | `SourceHide` | Hide source | Make source visible |
@@ -227,6 +227,16 @@ to work with existing Timeline and Macro Strip persistence. A blank UUID
 denotes a deliberately name-based legacy target. Malformed explicit
 targets and missing UUIDs do not fall back. Seek requires the versioned
 data and dispatches only at the start; duration is disabled in its editor.
+
+Optional duration fields `endAction` and `endScene` specify an explicit
+ending operation. Empty/absent endAction retains the historical default;
+keep is a no-op. Visibility, filter, media and DSK endings are restricted
+to the original action family and preserve its target data. For DSK,
+select-overlay uses the ending scene on the original keyer/view. Unknown
+or incompatible explicit actions skip execution. The executor maps
+explicit ends to the normal start-action path, so target validation is
+shared. Both fields participate in model equality/history and JSON.
+This does not capture or restore arbitrary live prior state.
 
 The mapping is implemented in `ObsExecutor::performAction()`
 (`src/obs-executor.cpp:110-162`).

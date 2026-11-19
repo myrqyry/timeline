@@ -15,7 +15,8 @@ bool sameEvent(const TimelineEvent &a, const TimelineEvent &b)
 	return a.id == b.id && a.timeMs == b.timeMs && a.type == b.type && a.sourceName == b.sourceName &&
 	       a.filterName == b.filterName && a.data == b.data && a.color == b.color &&
 	       a.customIconPath == b.customIconPath && a.label == b.label && a.showLabel == b.showLabel &&
-	       a.hasDuration == b.hasDuration && a.durationMs == b.durationMs;
+	       a.hasDuration == b.hasDuration && a.durationMs == b.durationMs && a.endAction == b.endAction &&
+	       a.endScene == b.endScene;
 }
 } // namespace
 
@@ -205,6 +206,10 @@ QJsonArray TimelineModel::toJson() const
 		if (evt.hasDuration) {
 			obj["hasDuration"] = true;
 			obj["duration"] = evt.durationMs;
+			if (!evt.endAction.isEmpty())
+				obj["endAction"] = evt.endAction;
+			if (evt.endAction == "select-overlay")
+				obj["endScene"] = evt.endScene;
 		}
 		if (!evt.data.isNull()) {
 			obj["data"] = QJsonValue::fromVariant(evt.data);
@@ -272,6 +277,10 @@ void TimelineModel::fromJson(const QJsonArray &json)
 		    obj.contains("hasDuration")) {
 			evt.hasDuration = obj["hasDuration"].toBool();
 			evt.durationMs = obj["duration"].toDouble();
+			if (obj.contains("endAction"))
+				evt.endAction = obj["endAction"].isString() ? obj["endAction"].toString()
+									    : QStringLiteral("invalid");
+			evt.endScene = obj["endScene"].toString();
 		}
 		if (obj.contains("data")) {
 			evt.data = obj["data"].toVariant();

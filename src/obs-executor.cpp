@@ -126,6 +126,39 @@ void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 
 void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 {
+	// Explicit ending state is a normal action on the original binding.
+	// Never reinterpret a malformed explicit state as the legacy inverse.
+	if (!isStartAction && !evt.endAction.isEmpty()) {
+		if (!evt.hasDuration || !validEndingState(evt.type, evt.endAction) || evt.endAction == "keep")
+			return;
+		TimelineEvent end = evt;
+		const auto &action = evt.endAction;
+		end.hasDuration = false;
+		end.endAction.clear();
+		if (evt.type == TimelineEventType::DownstreamKeyerScene) {
+			if (action == "select-overlay" && evt.endScene.trimmed().isEmpty())
+				return;
+			end.filterName = action == "hide" ? QString() : evt.endScene;
+		} else if (action == "show")
+			end.type = TimelineEventType::SourceShow;
+		else if (action == "hide")
+			end.type = TimelineEventType::SourceHide;
+		else if (action == "enable")
+			end.type = TimelineEventType::FilterEnable;
+		else if (action == "disable")
+			end.type = TimelineEventType::FilterDisable;
+		else if (action == "restart")
+			end.type = TimelineEventType::MediaStart;
+		else if (action == "stop")
+			end.type = TimelineEventType::MediaStop;
+		else if (action == "pause")
+			end.type = TimelineEventType::MediaPause;
+		else if (action == "resume")
+			end.type = TimelineEventType::MediaResume;
+		performAction(end, true);
+		return;
+	}
+
 	switch (evt.type) {
 	case TimelineEventType::FreezeTime:
 		// Scheduler-owned clock control; no OBS source operation.

@@ -48,7 +48,16 @@ has a separate ID. Older builds may not understand current media targets.
 | Media Pause / Resume | Resume / Pause |
 | Downstream Keyer Scene | Hide overlay |
 
-These are inverse operations, not snapshots of arbitrary prior OBS state.
+These are the historical default end actions. Enable **Duration**, then
+choose **At end** to override that default. Visibility can explicitly
+show/hide, filters enable/disable, media restart/stop/pause/resume, and
+Downstream Keyer can hide or select another named overlay on the same keyer.
+**Leave unchanged** performs no OBS operation at the end. These choices
+operate on the original target; they are not snapshots of arbitrary prior
+OBS state. Existing files without an ending state retain their default.
+An unknown explicit ending state skips execution rather than reversing.
+Older builds ignore explicit ending states, so use the current build for
+these cues. Freeze Time delays duration endings along with other cues.
 Scene switches, hotkeys, nested timeline triggers, seek and Set Parameter
 Value do not have an automatic end action.
 
