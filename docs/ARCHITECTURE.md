@@ -267,8 +267,8 @@ and scalar type. They never dispatch a timeline action.
 The same binding catalog and typed write path are used by the
 `SetParameterValue` timeline event (appended enum ID 14). Its string data
 contains a versioned JSON object with source/filter UUID, key, scalar type,
-and numeric value (boolean as 0/1). The event editor reuses the dynamic
-binding dialog, replacing control kind with a numeric or On/Off value editor.
+and typed value (numeric, boolean as 0/1, or string for text). The event editor reuses the dynamic
+binding dialog, replacing control kind with a numeric, On/Off or text value editor.
 The executor validates the payload and live property and applies it at event
 start only; no duration reversal or interpolation. No writes occur on editor
 acceptance. A Macro Strip action button can use the same event payload.
@@ -277,7 +277,7 @@ Existing live parameter widgets read the resulting OBS value normally.
 The target catalog traverses scene/group sources and enumerates standalone
 sources and their filters. Bindings resolve by UUID only; private filters are
 resolved through their owner. Property discovery walks visible, enabled
-numeric/boolean properties recursively, honoring checkable groups. Dedicated
+numeric/boolean/text properties recursively, honoring checkable groups. Dedicated
 action adapters are not required for standard scalar properties.
 The parameter editor reads the current property description, range, step and
 suffix; missing saved keys require explicit reassignment. The editor refreshes the live
@@ -304,6 +304,21 @@ the value. Parameter adjustments do not modify macro configuration/history.
 Unavailable targets disable interaction. Schema refresh and update callbacks
 run on the dock thread; performance depends on the target plugin's property
 and update implementation.
+
+### Text bindings
+
+Text controls use a distinct scalar type and control kind, serialized as
+`text`. Only enabled, visible OBS_TEXT_DEFAULT and OBS_TEXT_MULTILINE
+properties qualify; password and informational properties are excluded.
+The text read/write path validates the live schema and avoids numeric
+conversion. String values use UTF-8 OBS settings updates and versioned
+JSON cue payloads; embedded NUL is rejected. The single-line control
+preserves a local draft until Apply (or the native returnPressed signal),
+and external readback updates only clean entries. Multiline editing uses
+a modal dialog to preserve the strip's two-row layout; committed values
+are not stored in the macro configuration. Older versions do not
+understand text bindings and may reject macro documents containing them;
+back up configurations before downgrading.
 
 ### Native mixer binding domain
 

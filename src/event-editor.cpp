@@ -806,7 +806,7 @@ void EventEditor::onActionChanged(int index)
 void EventEditor::chooseDefinedParameter()
 {
 	MacroButton initial;
-	std::optional<double> value;
+	std::optional<QVariant> value;
 	if (const auto saved = MacroParameter::decodeValue(parameterPayload)) {
 		initial.binding = saved->binding;
 		value = saved->value;

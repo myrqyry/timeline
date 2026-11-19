@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Boolean and text parameter controls — 2026-11-18
+- User requested boolean toggles and string entry. Existing boolean toggle discovery verified through the assignment dialog; added a distinct text binding/control type and typed cue value. Ordinary single-line and multiline editable properties are discovered, excluding password/info/hidden/disabled fields. Text updates use explicit Apply or modal OK; live readback preserves modified drafts. Multiline editing uses a popup to retain compact strip height. Both manual and scheduled string writes revalidate schema, support empty/Unicode/multiline values, and cannot redirect missing UUIDs.
+- RED: absent text API reproduced by new regression compilation failure. GREEN: real libobs property discovery, actual assignment dialog for both text and bool, macro serialization, explicit Apply, readback, multiline modal and defined-value dialog, scheduled execution, excluded fields and removed target. Full strict native OBS32 suite 87 passed, zero failures/skips; clang-format 19.1.1 passed. Logs /tmp/timeline-text-red.log, /tmp/timeline-text-green3.log and /tmp/timeline-text-full.log.
+- Native Enter signal connected, but initial Xvfb synthetic Return test did not commit; explicit Apply is verified by widget click. Native OBS keyboard routing, theme appearance, and real OBS text-source rendering remain unverified. No native install/push; installed runtime remains 68ab09a. Older builds cannot read new text-control macros safely; keep backups.
+
+
 ### Native audio mixer controls — 2026-11-18
 - User invoked Remote Desktop Commander following the Control Panel adaptation discussion. Continued the agreed native audio-control direction: shared parameter editor discovers source-level volume and mute when libobs exposes audio capability. Separate optional mixer domain prevents conflating native audio controls with arbitrary plugin settings. UUID binding, slider/knob/toggle readback and instantaneous scheduled value cues reuse the existing implementation. Independent implementation using libobs APIs; no upstream code imported.
 - Volume uses OBS_FADER_LOG conversion, normalized 0–100% fader travel in 0.1% increments, dB caption, silence to unity, no positive gain. Readback above unity saturates. Mute does not change volume. Native writes avoid property-schema enumeration. No meter, volume ramp, or action-button state feedback included.

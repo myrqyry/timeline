@@ -55,8 +55,8 @@ Value do not have an automatic end action.
 ### Setting a parameter
 
 Select **Set Parameter Value**, then **Choose parameter and value**. Use the
-live source/filter picker to choose an exposed numeric or boolean property,
-and define its value using the property's current range and increment.
+live source/filter picker to choose an exposed numeric, boolean or text property,
+and define its value using the appropriate editor.
 
 Configuration does not apply a value. On execution, the event sets the
 property once, clamping and quantizing to the live range and step. A missing
@@ -134,7 +134,7 @@ The normal autosave path persists the resulting event data.
 ## Live parameter controls
 
 Macro Strip mixes immediate action buttons with live numeric sliders/knobs
-and boolean toggles. The shared parameter catalog walks scenes, nested
+boolean toggles and editable text controls. The shared parameter catalog walks scenes, nested
 groups, standalone sources, attached filters and exposed property groups.
 It reads the property's current type, range, increment and unit suffix.
 
@@ -157,10 +157,27 @@ discrete step for smaller ranges. Shift scales movement to one tenth.
 There is no click-to-angle jump, and reversing at either limit responds
 immediately. Wheel and arrow keys adjust one step when focused.
 
-Only visible, enabled integer, float and boolean settings with supported
-ranges are discoverable (numeric controls are limited to one million
-increments). List/color/text/button properties, custom ranges, scene-item
+Only visible, enabled integer, float, boolean and ordinary editable text
+settings are discoverable (numeric controls are limited to one million
+increments). List/color/button properties, custom ranges, scene-item
 transforms and interpolation are not included.
+
+### Boolean and text controls
+
+Boolean properties automatically offer a Toggle; the checked state tracks
+the current OBS value. Text properties offer Text entry. Single-line fields
+use an inline entry and an explicit **Apply** button, keeping unsubmitted
+edits separate from the live value. External updates refresh clean entries
+without replacing a draft. Multiline properties open an editable text
+dialog, with OK to apply and Cancel to leave the source unchanged. This
+keeps the strip compact regardless of text length. Drafts are not persisted.
+The field retains normal text editing and clipboard behavior; use the
+caption or surrounding control for the binding menu.
+
+Text can also be assigned by Set Parameter Value, including empty strings,
+Unicode and multiline content. The shared binding editor does not apply
+text when configuring a cue. Password and informational text properties
+are never offered. Writes revalidate the current property schema.
 
 ### Native mixer controls
 

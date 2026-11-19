@@ -2,10 +2,11 @@
 
 #include <QList>
 #include <QString>
+#include <QVariant>
 #include <optional>
 
-enum class MacroControlKind { Action, Slider, Knob, Toggle };
-enum class MacroParameterType { Integer, Float, Boolean };
+enum class MacroControlKind { Action, Slider, Knob, Toggle, Text };
+enum class MacroParameterType { Integer, Float, Boolean, Text };
 
 struct MacroParameterBinding {
 	QString sourceUuid;
@@ -18,7 +19,7 @@ struct MacroParameterBinding {
 namespace MacroParameter {
 struct DefinedValue {
 	MacroParameterBinding binding;
-	double value;
+	QVariant value;
 };
 QString encodeValue(const DefinedValue &value);
 std::optional<DefinedValue> decodeValue(const QString &payload);
@@ -44,10 +45,12 @@ struct Spec {
 	double max;
 	double step;
 	QString domain;
+	bool multiline = false;
 	bool operator==(const Spec &other) const
 	{
 		return key == other.key && label == other.label && suffix == other.suffix && type == other.type &&
-		       min == other.min && max == other.max && step == other.step && domain == other.domain;
+		       min == other.min && max == other.max && step == other.step && domain == other.domain &&
+		       multiline == other.multiline;
 	}
 	int steps() const;
 	double valueAt(int index) const;
@@ -59,4 +62,6 @@ QList<Spec> properties(const MacroParameterBinding &binding);
 std::optional<Spec> describe(const MacroParameterBinding &binding);
 std::optional<double> read(const MacroParameterBinding &binding);
 bool write(const MacroParameterBinding &binding, double value);
+std::optional<QString> readText(const MacroParameterBinding &binding);
+bool writeText(const MacroParameterBinding &binding, const QString &value);
 } // namespace MacroParameter

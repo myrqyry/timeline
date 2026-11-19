@@ -97,6 +97,13 @@ void collectProperties(obs_properties_t *props, obs_data_t *settings, const QStr
 		case OBS_PROPERTY_BOOL:
 			spec.type = MacroParameterType::Boolean;
 			break;
+		case OBS_PROPERTY_TEXT:
+			if (obs_property_text_type(p) != OBS_TEXT_DEFAULT &&
+			    obs_property_text_type(p) != OBS_TEXT_MULTILINE)
+				continue;
+			spec.type = MacroParameterType::Text;
+			spec.multiline = obs_property_text_type(p) == OBS_TEXT_MULTILINE;
+			break;
 		default:
 			continue;
 		}
@@ -146,15 +153,17 @@ namespace MacroParameter {
 QString encodeValue(const DefinedValue &cue)
 {
 	const auto &b = cue.binding;
+	const auto type = b.type == MacroParameterType::Integer   ? "int"
+			  : b.type == MacroParameterType::Float   ? "float"
+			  : b.type == MacroParameterType::Boolean ? "bool"
+								  : "text";
 	return QString::fromUtf8(QJsonDocument(QJsonObject{{"version", 1},
 							   {"sourceUuid", b.sourceUuid},
 							   {"filterUuid", b.filterUuid},
 							   {"key", b.key},
 							   {"domain", b.domain},
-							   {"type", b.type == MacroParameterType::Integer ? "int"
-								    : b.type == MacroParameterType::Float ? "float"
-													  : "bool"},
-							   {"value", cue.value}})
+							   {"type", type},
+							   {"value", QJsonValue::fromVariant(cue.value)}})
 					 .toJson(QJsonDocument::Compact));
 }
 std::optional<DefinedValue> decodeValue(const QString &payload)
@@ -168,19 +177,26 @@ std::optional<DefinedValue> decodeValue(const QString &payload)
 	if (obj.contains("domain") && (!obj["domain"].isString() || (!domain.isEmpty() && domain != "mixer")))
 		return std::nullopt;
 	if (obj["version"].toInt(-1) != 1 || !obj["sourceUuid"].isString() || obj["sourceUuid"].toString().isEmpty() ||
-	    !obj["filterUuid"].isString() || obj["key"].toString().isEmpty() || !obj["value"].isDouble() ||
-	    (type != "int" && type != "float" && type != "bool"))
+	    !obj["filterUuid"].isString() || obj["key"].toString().isEmpty())
+		return std::nullopt;
+	MacroParameterBinding binding{obj["sourceUuid"].toString(), obj["filterUuid"].toString(), obj["key"].toString(),
+				      MacroParameterType::Float, domain};
+	if (type == "text") {
+		if (!domain.isEmpty() || !obj["value"].isString() || obj["value"].toString().contains(QChar::Null))
+			return std::nullopt;
+		binding.type = MacroParameterType::Text;
+		return DefinedValue{binding, obj["value"].toString()};
+	}
+	if ((type != "int" && type != "float" && type != "bool") || !obj["value"].isDouble())
 		return std::nullopt;
 	const double value = obj["value"].toDouble();
 	if (!std::isfinite(value) || (type == "bool" && value != 0 && value != 1) ||
 	    (type == "int" && value != std::round(value)))
 		return std::nullopt;
-	return DefinedValue{{obj["sourceUuid"].toString(), obj["filterUuid"].toString(), obj["key"].toString(),
-			     type == "int"     ? MacroParameterType::Integer
-			     : type == "float" ? MacroParameterType::Float
-					       : MacroParameterType::Boolean,
-			     domain},
-			    value};
+	binding.type = type == "int"    ? MacroParameterType::Integer
+		       : type == "bool" ? MacroParameterType::Boolean
+					: MacroParameterType::Float;
+	return DefinedValue{binding, value};
 }
 QString mixerVolumeLabel(double position)
 {
@@ -194,16 +210,17 @@ QString mixerVolumeLabel(double position)
 
 QString displayValue(const DefinedValue &cue)
 {
+	if (cue.binding.type == MacroParameterType::Text)
+		return cue.binding.key + " = " + cue.value.toString();
+	const double value = cue.value.toDouble();
 	if (isMixerVolume(cue.binding))
-		return "Mixer volume = " + QString::number(cue.value, 'g', 7) + "% (" + mixerVolumeLabel(cue.value) +
-		       ")";
+		return "Mixer volume = " + QString::number(value, 'g', 7) + "% (" + mixerVolumeLabel(value) + ")";
 	if (isMixerMute(cue.binding))
-		return cue.value != 0 ? QStringLiteral("Mixer mute = On") : QStringLiteral("Mixer mute = Off");
-
+		return value != 0 ? QStringLiteral("Mixer mute = On") : QStringLiteral("Mixer mute = Off");
 	return cue.binding.key + " = " +
 	       (cue.binding.type == MacroParameterType::Boolean
-			? (cue.value != 0 ? QStringLiteral("On") : QStringLiteral("Off"))
-			: QString::number(cue.value, 'g', 12));
+			? (value != 0 ? QStringLiteral("On") : QStringLiteral("Off"))
+			: QString::number(value, 'g', 12));
 }
 int Spec::steps() const
 {
@@ -283,7 +300,7 @@ std::optional<Spec> describe(const MacroParameterBinding &binding)
 std::optional<double> read(const MacroParameterBinding &binding)
 {
 	auto source = resolve(binding);
-	if (!source || binding.key.isEmpty())
+	if (!source || binding.key.isEmpty() || binding.type == MacroParameterType::Text)
 		return std::nullopt;
 	if (!binding.domain.isEmpty()) {
 		if (!binding.filterUuid.isEmpty() || !supportsMixer(source.get()))
@@ -327,12 +344,14 @@ std::optional<double> read(const MacroParameterBinding &binding)
 	case MacroParameterType::Boolean:
 		value = obs_data_get_bool(settings.get(), key.constData()) ? 1 : 0;
 		break;
+	case MacroParameterType::Text:
+		return std::nullopt;
 	}
 	return std::isfinite(value) ? std::optional<double>(value) : std::nullopt;
 }
 bool write(const MacroParameterBinding &binding, double value)
 {
-	if (!std::isfinite(value))
+	if (!std::isfinite(value) || binding.type == MacroParameterType::Text)
 		return false;
 	auto source = resolve(binding);
 	if (!source)
@@ -367,7 +386,43 @@ bool write(const MacroParameterBinding &binding, double value)
 	case MacroParameterType::Boolean:
 		obs_data_set_bool(patch.get(), key.constData(), value != 0);
 		break;
+	case MacroParameterType::Text:
+		return false;
 	}
+	obs_source_update(source.get(), patch.get());
+	return true;
+}
+std::optional<QString> readText(const MacroParameterBinding &binding)
+{
+	if (binding.type != MacroParameterType::Text || !binding.domain.isEmpty())
+		return std::nullopt;
+	auto source = resolve(binding);
+	if (!source || !describeFor(source.get(), binding))
+		return std::nullopt;
+	Data settings(obs_source_get_settings(source.get()), obs_data_release);
+	if (!settings)
+		return std::nullopt;
+	const auto key = binding.key.toUtf8();
+	auto *item = obs_data_item_byname(settings.get(), key.constData());
+	if (item) {
+		const auto type = obs_data_item_gettype(item);
+		obs_data_item_release(&item);
+		if (type != OBS_DATA_STRING)
+			return std::nullopt;
+	}
+	return QString::fromUtf8(obs_data_get_string(settings.get(), key.constData()));
+}
+bool writeText(const MacroParameterBinding &binding, const QString &value)
+{
+	if (binding.type != MacroParameterType::Text || !binding.domain.isEmpty() || value.contains(QChar::Null))
+		return false;
+	auto source = resolve(binding);
+	if (!source || !describeFor(source.get(), binding))
+		return false;
+	Data patch(obs_data_create(), obs_data_release);
+	if (!patch)
+		return false;
+	obs_data_set_string(patch.get(), binding.key.toUtf8().constData(), value.toUtf8().constData());
 	obs_source_update(source.get(), patch.get());
 	return true;
 }

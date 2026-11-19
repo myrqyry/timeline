@@ -19,16 +19,19 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 		// as legacy scene-switch buttons.
 		obj["type"] = b.kind == MacroControlKind::Action ? static_cast<int>(b.type) : -1;
 		if (b.kind != MacroControlKind::Action) {
-			obj["control"] = b.kind == MacroControlKind::Slider ? "slider"
-					 : b.kind == MacroControlKind::Knob ? "knob"
-									    : "toggle";
-			obj["binding"] = QJsonObject{{"sourceUuid", b.binding.sourceUuid},
-						     {"filterUuid", b.binding.filterUuid},
-						     {"key", b.binding.key},
-						     {"domain", b.binding.domain},
-						     {"type", b.binding.type == MacroParameterType::Integer ? "int"
-							      : b.binding.type == MacroParameterType::Float ? "float"
-													    : "bool"}};
+			obj["control"] = b.kind == MacroControlKind::Slider   ? "slider"
+					 : b.kind == MacroControlKind::Knob   ? "knob"
+					 : b.kind == MacroControlKind::Toggle ? "toggle"
+									      : "text";
+			obj["binding"] =
+				QJsonObject{{"sourceUuid", b.binding.sourceUuid},
+					    {"filterUuid", b.binding.filterUuid},
+					    {"key", b.binding.key},
+					    {"domain", b.binding.domain},
+					    {"type", b.binding.type == MacroParameterType::Integer   ? "int"
+						     : b.binding.type == MacroParameterType::Float   ? "float"
+						     : b.binding.type == MacroParameterType::Boolean ? "bool"
+												     : "text"}};
 		}
 		obj["source"] = b.sourceName;
 		if (!b.filterName.isEmpty())
@@ -78,22 +81,25 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 			const QString domain = binding["domain"].toString();
 			if ((binding.contains("domain") &&
 			     (!binding["domain"].isString() || (!domain.isEmpty() && domain != "mixer"))) ||
-			    (kind != "slider" && kind != "knob" && kind != "toggle") ||
-			    (type != "int" && type != "float" && type != "bool") ||
-			    ((kind == "toggle") != (type == "bool")) || binding["sourceUuid"].toString().isEmpty() ||
+			    (kind != "slider" && kind != "knob" && kind != "toggle" && kind != "text") ||
+			    (type != "int" && type != "float" && type != "bool" && type != "text") ||
+			    ((kind == "toggle") != (type == "bool")) || ((kind == "text") != (type == "text")) ||
+			    (type == "text" && !domain.isEmpty()) || binding["sourceUuid"].toString().isEmpty() ||
 			    binding["key"].toString().isEmpty()) {
 				if (errorMessage)
 					*errorMessage = "Invalid or unsupported macro parameter binding";
 				return false;
 			}
-			b.kind = kind == "slider" ? MacroControlKind::Slider
-				 : kind == "knob" ? MacroControlKind::Knob
-						  : MacroControlKind::Toggle;
+			b.kind = kind == "slider"   ? MacroControlKind::Slider
+				 : kind == "knob"   ? MacroControlKind::Knob
+				 : kind == "toggle" ? MacroControlKind::Toggle
+						    : MacroControlKind::Text;
 			b.binding = {binding["sourceUuid"].toString(), binding["filterUuid"].toString(),
 				     binding["key"].toString(),
 				     type == "int"     ? MacroParameterType::Integer
 				     : type == "float" ? MacroParameterType::Float
-						       : MacroParameterType::Boolean,
+				     : type == "bool"  ? MacroParameterType::Boolean
+						       : MacroParameterType::Text,
 				     domain};
 		} else {
 			if (typeInt < 0 || typeInt > maxTypeValue)

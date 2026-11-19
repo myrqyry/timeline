@@ -4,8 +4,8 @@
 
 Timeline is a native OBS Studio plugin for arranging scene changes, effects,
 media and other actions into timed sequences. Its companion Macro Strip dock
-lets you build a compact control surface with buttons, sliders, knobs and
-toggles.
+lets you build a compact control surface with buttons, sliders, knobs, toggles and
+text entry.
 
 ![Timeline dock with event markers, ruler and playback controls](Screenshot.png)
 
@@ -39,7 +39,7 @@ Build reusable sequences without leaving OBS.
 | Source Visibility | Show or hide a scene item, including nested sources and groups. |
 | Media Playback | Restart, stop, pause, resume or seek a media source. |
 | Filter Visibility | Enable or disable a source filter. |
-| Set Parameter Value | Set a numeric or boolean source/filter property to a defined value. |
+| Set Parameter Value | Set a numeric, boolean or text source/filter property to a defined value. |
 | Hotkey Trigger | Run an OBS or third-party plugin hotkey. |
 | Trigger Timeline | Play another saved timeline. |
 | Downstream Keyer Scene | Select or hide an overlay scene in a named keyer (optional integration). |
@@ -85,12 +85,13 @@ parameter control.
 | Slider | Adjust mixer volume, effect opacity or another numeric property. |
 | Knob | Adjust shader speed or intensity. |
 | Toggle | Mute an audio source or turn a boolean setting on or off. |
+| Text entry | Edit a source caption or another exposed string property. |
 
 ### Assign a live control
 
 1. Click **+ → Parameter control**.
 2. Select a source or filter, then one of its available parameters.
-3. Choose a slider, knob or toggle and give it a label.
+3. Choose a compatible control and give it a label.
 4. Adjust it directly in the dock. Right-click to edit, reorder or remove it.
 
 The parameter picker discovers compatible OBS properties dynamically, including
@@ -105,8 +106,10 @@ Audio sources also expose **Mixer / Volume** and **Mixer / Mute**. Volume
 uses OBS’s logarithmic fader curve with a dB readout; both can be scheduled
 with Set Parameter Value.
 
-Numeric and boolean properties are supported. Color, list and text controls,
-custom ranges and scene-item transforms are not yet supported. See [live control details](docs/USAGE.md#live-parameter-controls).
+Numeric, boolean and editable text properties are supported. Text fields
+apply changes explicitly; multiline fields open a larger editor without
+growing the dock. Password and informational fields are excluded. Color,
+list controls, custom ranges and scene-item transforms are not yet supported. See [live control details](docs/USAGE.md#live-parameter-controls).
 
 ## Installation
 
@@ -172,8 +175,8 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **86/86 tests passing** in the local native OBS32 build, including
-  owner-aware hotkeys and native mixer bindings (November 18, 2026). Qt widgets and libobs are real; frontend
+- **87/87 tests passing** in the local native OBS32 build, including
+  owner-aware hotkeys, native mixer bindings and text controls (November 18, 2026). Qt widgets and libobs are real; frontend
   interactions in the harness use test doubles.
 - Build `68ab09a` loaded both docks and the WebSocket vendor in an
   isolated OBS 32.2.0 session. The new hotkey and mixer changes still

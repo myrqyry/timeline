@@ -18,6 +18,10 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QInputDialog>
+#include <QPointer>
+#include <QHBoxLayout>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QTimer>
@@ -161,7 +165,53 @@ public:
 		controlLayout->setContentsMargins(0, 0, 0, 0);
 		controlLayout->setSpacing(0);
 		layout->addWidget(controlRow);
-		if (button.kind == MacroControlKind::Toggle) {
+		if (button.kind == MacroControlKind::Text) {
+			textEntry = new QLineEdit(this);
+			textEntry->setObjectName("macro-parameter-text");
+			textEntry->setFixedWidth(140);
+			textEntry->setMaxLength(1000000);
+			textEntry->setAccessibleName(title);
+			textEntry->setToolTip(
+				tr("Press Enter or Apply to submit text. Unsubmitted text is not sent to OBS."));
+			editText = new QPushButton(tr("Edit text…"), this);
+			editText->setObjectName("macro-parameter-multiline");
+			editText->setAccessibleName(title);
+			editText->setFixedWidth(160);
+			textRow = new QWidget(this);
+			auto *textLayout = new QHBoxLayout(textRow);
+			textLayout->setContentsMargins(0, 0, 0, 0);
+			textLayout->setSpacing(2);
+			applyText = new QPushButton(tr("Apply"), textRow);
+			applyText->setObjectName("macro-parameter-text-apply");
+			applyText->setAutoDefault(false);
+			textLayout->addWidget(textEntry);
+			textLayout->addWidget(applyText);
+			controlLayout->addWidget(textRow, 0, Qt::AlignCenter);
+			controlLayout->addWidget(editText, 0, Qt::AlignCenter);
+			editText->hide();
+			auto apply = [this] {
+				if (textEntry->isModified() && isVisible() &&
+				    MacroParameter::writeText(binding, textEntry->text()))
+					textEntry->setModified(false);
+				refresh(true);
+			};
+			connect(textEntry, &QLineEdit::returnPressed, this, apply);
+			connect(applyText, &QPushButton::clicked, this, apply);
+			connect(editText, &QPushButton::clicked, this, [this] {
+				auto current = MacroParameter::readText(binding);
+				if (!current)
+					return;
+				QPointer<ParameterWidget> guard(this);
+				bool accepted = false;
+				const QString next = QInputDialog::getMultiLineText(this, tr("Edit text"), tr("Value"),
+										    *current, &accepted);
+				if (!guard)
+					return;
+				if (accepted && isVisible())
+					MacroParameter::writeText(binding, next);
+				refresh(true);
+			});
+		} else if (button.kind == MacroControlKind::Toggle) {
 			toggle = new QCheckBox(this);
 			toggle->setObjectName("macro-parameter-toggle");
 			toggle->setAccessibleName(title);
@@ -199,10 +249,17 @@ public:
 		}
 		// Right-click on either the wrapper or its native control opens the
 		// same strip context menu (edit/reorder/delete).
-		QWidget *input = slider ? static_cast<QWidget *>(slider) : static_cast<QWidget *>(toggle);
-		input->setContextMenuPolicy(Qt::CustomContextMenu);
-		connect(input, &QWidget::customContextMenuRequested, this,
-			[this, input](const QPoint &p) { emit customContextMenuRequested(input->mapTo(this, p)); });
+		for (QWidget *input : {static_cast<QWidget *>(slider), static_cast<QWidget *>(toggle),
+				       static_cast<QWidget *>(editText), static_cast<QWidget *>(applyText)}) {
+			if (!input)
+				continue;
+			input->setContextMenuPolicy(Qt::CustomContextMenu);
+			connect(input, &QWidget::customContextMenuRequested, this, [this, input](const QPoint &p) {
+				emit customContextMenuRequested(input->mapTo(this, p));
+			});
+		}
+		// Keep the line edit's standard cut/copy/paste menu; the caption
+		// and wrapper still provide the strip's binding context menu.
 		writeTimer.setSingleShot(true);
 		writeTimer.setInterval(80);
 		connect(&writeTimer, &QTimer::timeout, this, [this] { flush(); });
@@ -219,6 +276,14 @@ public:
 	{
 		const int labelHeight =
 			std::max(MacroButtonWidget::kLabelHeight, QFontMetrics(label->font()).height() + 2);
+		if (textEntry) {
+			textEntry->ensurePolished();
+			editText->ensurePolished();
+			applyText->ensurePolished();
+			return QSize(labelHeight,
+				     std::max({MacroButtonWidget::kControlHeight, textEntry->sizeHint().height(),
+					       editText->sizeHint().height(), applyText->sizeHint().height()}));
+		}
 		auto *input = slider ? static_cast<QWidget *>(slider) : static_cast<QWidget *>(toggle);
 		input->ensurePolished();
 		// A dial has an intentional fixed size; native sliders and toggles
@@ -277,6 +342,29 @@ private:
 	{
 		if (schema)
 			spec = MacroParameter::describe(binding);
+		if (textEntry) {
+			auto value = spec ? MacroParameter::readText(binding) : std::nullopt;
+			const bool valid = value.has_value();
+			const bool multiline = spec && spec->multiline;
+			textRow->setVisible(!multiline);
+			editText->setVisible(multiline);
+			textEntry->setEnabled(valid);
+			applyText->setEnabled(valid);
+			editText->setEnabled(valid);
+			if (!valid) {
+				textEntry->clear();
+				textEntry->setModified(false);
+				label->setText(title + " · " + tr("Unavailable"));
+			} else {
+				if (!textEntry->isModified() || multiline) {
+					if (textEntry->text() != *value)
+						textEntry->setText(*value);
+					textEntry->setModified(false);
+				}
+				label->setText(title);
+			}
+			return;
+		}
 		auto value = spec ? MacroParameter::read(binding) : std::nullopt;
 		const bool valid = spec.has_value() && value.has_value();
 		if (slider) {
@@ -309,6 +397,10 @@ private:
 	std::optional<double> pending;
 	QAbstractSlider *slider = nullptr;
 	QCheckBox *toggle = nullptr;
+	QLineEdit *textEntry = nullptr;
+	QPushButton *applyText = nullptr;
+	QWidget *textRow = nullptr;
+	QPushButton *editText = nullptr;
 	QLabel *label = nullptr;
 	QWidget *controlRow = nullptr;
 	QString title;
@@ -337,7 +429,7 @@ void setMacroParameterRows(QWidget *widget, int labelHeight, int controlHeight)
 }
 
 static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButton &initial,
-						std::optional<double> *definedValue)
+						std::optional<QVariant> *definedValue)
 {
 	QDialog dialog(parent);
 	dialog.setWindowTitle(definedValue ? QObject::tr("Define parameter value")
@@ -361,11 +453,15 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	boolValue->setObjectName("parameter-defined-bool");
 	boolValue->addItem(QObject::tr("Off"), 0);
 	boolValue->addItem(QObject::tr("On"), 1);
+	auto *textValue = new QPlainTextEdit(&dialog);
+	textValue->setObjectName("parameter-defined-text");
+	textValue->setMaximumHeight(120);
 	auto *valueRow = new QWidget(&dialog);
 	auto *valueLayout = new QVBoxLayout(valueRow);
 	valueLayout->setContentsMargins(0, 0, 0, 0);
 	valueLayout->addWidget(valueSpin);
 	valueLayout->addWidget(boolValue);
+	valueLayout->addWidget(textValue);
 	auto *info = new QLabel(&dialog);
 	info->setWordWrap(true);
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
@@ -404,7 +500,7 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		return result;
 	};
 	MacroParameterBinding valueBinding = initial.binding;
-	std::optional<double> previousValue = definedValue ? *definedValue : std::nullopt;
+	std::optional<QVariant> previousValue = definedValue ? *definedValue : std::nullopt;
 	auto sameBinding = [](const MacroParameterBinding &a, const MacroParameterBinding &b) {
 		return a.sourceUuid == b.sourceUuid && a.filterUuid == b.filterUuid && a.key == b.key &&
 		       a.type == b.type && a.domain == b.domain;
@@ -414,6 +510,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	if (definedValue) {
 		QObject::connect(valueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), &dialog,
 				 [&](double v) { previousValue = v; });
+		QObject::connect(textValue, &QPlainTextEdit::textChanged, &dialog,
+				 [&] { previousValue = textValue->toPlainText(); });
 		QObject::connect(boolValue, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int i) {
 			if (i >= 0)
 				previousValue = boolValue->currentData().toDouble();
@@ -428,23 +526,32 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		if (!valid) {
 			if (definedValue)
 				valueRow->setEnabled(false);
-			info->setText(QObject::tr("Choose an exposed numeric or boolean property."));
+			info->setText(QObject::tr("Choose an exposed numeric, boolean or text property."));
 			return;
 		}
 		const auto &spec = specs[index];
 		if (definedValue) {
 			const auto binding = selectedBinding();
 			const bool same = sameBinding(binding, valueBinding);
-			const double start = same && previousValue ? *previousValue
-								   : MacroParameter::read(binding).value_or(spec.min);
+			const bool text = spec.type == MacroParameterType::Text;
+			const QVariant start =
+				same && previousValue
+					? *previousValue
+					: (text ? QVariant(MacroParameter::readText(binding).value_or(QString()))
+						: QVariant(MacroParameter::read(binding).value_or(spec.min)));
 			valueBinding = binding;
 			const QSignalBlocker spinBlock(valueSpin);
 			const QSignalBlocker boolBlock(boolValue);
+			const QSignalBlocker textBlock(textValue);
 			boolValue->setVisible(spec.type == MacroParameterType::Boolean);
-			valueSpin->setVisible(spec.type != MacroParameterType::Boolean);
+			valueSpin->setVisible(!text && spec.type != MacroParameterType::Boolean);
+			textValue->setVisible(text);
 			valueRow->setEnabled(true);
-			if (spec.type == MacroParameterType::Boolean) {
-				boolValue->setCurrentIndex(start != 0 ? 1 : 0);
+			if (text) {
+				textValue->setPlainText(start.toString());
+				previousValue = textValue->toPlainText();
+			} else if (spec.type == MacroParameterType::Boolean) {
+				boolValue->setCurrentIndex(start.toDouble() != 0 ? 1 : 0);
 				previousValue = boolValue->currentData().toDouble();
 			} else {
 				// Preserve the precision of the declared range and increments.
@@ -461,11 +568,13 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 				valueSpin->setRange(spec.min, spec.max);
 				valueSpin->setSingleStep(spec.step);
 				valueSpin->setSuffix(spec.suffix);
-				valueSpin->setValue(start);
+				valueSpin->setValue(start.toDouble());
 				previousValue = valueSpin->value();
 			}
 		}
-		if (spec.type == MacroParameterType::Boolean)
+		if (spec.type == MacroParameterType::Text)
+			kindCombo->addItem(QObject::tr("Text entry"), static_cast<int>(MacroControlKind::Text));
+		else if (spec.type == MacroParameterType::Boolean)
 			kindCombo->addItem(QObject::tr("Toggle"), static_cast<int>(MacroControlKind::Toggle));
 		else {
 			kindCombo->addItem(QObject::tr("Slider"), static_cast<int>(MacroControlKind::Slider));
@@ -474,12 +583,13 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		const int kindIndex = kindCombo->findData(static_cast<int>(preferred));
 		if (kindIndex >= 0)
 			kindCombo->setCurrentIndex(kindIndex);
-		info->setText(spec.type == MacroParameterType::Boolean ? spec.key
-								       : QObject::tr("%1 · %2 to %3 · step %4")
-										 .arg(spec.key)
-										 .arg(spec.min)
-										 .arg(spec.max)
-										 .arg(spec.step));
+		info->setText((spec.type == MacroParameterType::Boolean || spec.type == MacroParameterType::Text)
+				      ? spec.key
+				      : QObject::tr("%1 · %2 to %3 · step %4")
+						.arg(spec.key)
+						.arg(spec.min)
+						.arg(spec.max)
+						.arg(spec.step));
 	};
 	auto updateProperties = [&](const MacroParameterBinding &selection, bool force) {
 		const auto fresh = selection.sourceUuid.isEmpty() ? QList<MacroParameter::Spec>{}
@@ -539,9 +649,9 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	catalogTimer.setInterval(1000);
 	QObject::connect(&catalogTimer, &QTimer::timeout, &dialog, [&] {
 		// Do not disrupt an open dropdown; refresh after it closes.
-		if ((definedValue && valueSpin->hasFocus()) || targetCombo->view()->isVisible() ||
-		    propertyCombo->view()->isVisible() || kindCombo->view()->isVisible() ||
-		    (definedValue && boolValue->view()->isVisible()))
+		if ((definedValue && (valueSpin->hasFocus() || textValue->hasFocus())) ||
+		    targetCombo->view()->isVisible() || propertyCombo->view()->isVisible() ||
+		    kindCombo->view()->isVisible() || (definedValue && boolValue->view()->isVisible()))
 			return;
 		refreshCatalog(selectedBinding(), false);
 	});
@@ -562,7 +672,9 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	const auto current = MacroParameter::describe(result.binding);
 	if (!current)
 		return std::nullopt;
-	if (definedValue) {
+	if (definedValue && spec.type == MacroParameterType::Text) {
+		*definedValue = textValue->toPlainText();
+	} else if (definedValue) {
 		const double requested = spec.type == MacroParameterType::Boolean ? boolValue->currentData().toDouble()
 										  : valueSpin->value();
 		*definedValue = current->valueAt(current->indexOf(requested));
@@ -576,7 +688,7 @@ std::optional<MacroButton> editMacroParameter(QWidget *parent, const MacroButton
 }
 
 std::optional<MacroButton> editDefinedParameter(QWidget *parent, const MacroButton &initial,
-						std::optional<double> &value)
+						std::optional<QVariant> &value)
 {
 	return editParameter(parent, initial, &value);
 }

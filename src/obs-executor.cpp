@@ -130,7 +130,9 @@ void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 	case TimelineEventType::SetParameterValue: {
 		if (isStartAction) {
 			const auto cue = MacroParameter::decodeValue(evt.data.toString());
-			if (!cue || !MacroParameter::write(cue->binding, cue->value))
+			if (!cue || !(cue->binding.type == MacroParameterType::Text
+					      ? MacroParameter::writeText(cue->binding, cue->value.toString())
+					      : MacroParameter::write(cue->binding, cue->value.toDouble())))
 				blog(LOG_WARNING, "[Timeline] Set parameter value: invalid or unavailable binding");
 		}
 		break;

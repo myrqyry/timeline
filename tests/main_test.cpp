@@ -48,6 +48,8 @@
 #include "event-editor.h"
 #include "hotkey-catalog.h"
 #include <obs-audio-controls.h>
+#include <QPlainTextEdit>
+#include <QInputDialog>
 #include "plugin-integrations.h"
 #include <QMenu>
 #include <QComboBox>
@@ -304,6 +306,9 @@ private slots:
 			obs_properties_add_int_slider(group, "count", "Count", 2, 10, 2);
 			obs_properties_add_group(props, "controls", "Controls", OBS_GROUP_NORMAL, group);
 			obs_properties_add_text(props, "untouched", "Text", OBS_TEXT_DEFAULT);
+			obs_properties_add_text(props, "caption", "Caption", OBS_TEXT_MULTILINE);
+			obs_properties_add_text(props, "secret", "Secret", OBS_TEXT_PASSWORD);
+			obs_properties_add_text(props, "notice", "Notice", OBS_TEXT_INFO);
 			auto *hidden = obs_properties_add_float(props, "hidden", "Hidden", 0, 1, 0.1);
 			obs_property_set_visible(hidden, false);
 			return props;
@@ -2376,7 +2381,7 @@ private slots:
 		QVERIFY(payload);
 		QCOMPARE(payload->binding.sourceUuid, binding.sourceUuid);
 		QCOMPARE(payload->binding.key, binding.key);
-		QCOMPARE(payload->value, 0.65);
+		QCOMPARE(payload->value.toDouble(), 0.65);
 		QCOMPARE(MacroParameter::read(binding).value(), 0.25); // configuring is not execution
 		TimelineModel model;
 		model.addEvent(cue);
@@ -2455,7 +2460,7 @@ private slots:
 		enabled.type = MacroParameterType::Boolean;
 		MacroButton initial;
 		initial.binding = enabled;
-		std::optional<double> value = 1;
+		std::optional<QVariant> value = 1;
 		bool configured = false;
 		QTimer::singleShot(0, &dock, [&] {
 			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
@@ -2476,7 +2481,7 @@ private slots:
 		});
 		auto selected = editDefinedParameter(&dock, initial, value);
 		QVERIFY(configured && selected && value);
-		QCOMPARE(*value, 0.0);
+		QCOMPARE(value->toDouble(), 0.0);
 		QCOMPARE(MacroParameter::read(enabled).value_or(-1), 1.0);
 		cue.data = MacroParameter::encodeValue({enabled, *value});
 		executor.executeEventStart(cue);
@@ -2588,6 +2593,160 @@ private slots:
 			QVERIFY(input);
 			QVERIFY(qAbs(input->mapTo(&dock, QPoint(0, input->height() / 2)).y() - center) <= 1);
 		}
+	}
+
+	void testTextParameterControlsAndScheduledValues()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Text target", nullptr, nullptr);
+		QVERIFY(source);
+		auto release = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		const QString uuid = QString::fromUtf8(obs_source_get_uuid(source));
+		MacroParameterBinding text{uuid, {}, "untouched", MacroParameterType::Text};
+		MacroParameterBinding multi{uuid, {}, "caption", MacroParameterType::Text};
+		QVERIFY(MacroParameter::describe(text));
+		const auto multilineSpec = MacroParameter::describe(multi);
+		QVERIFY(multilineSpec && multilineSpec->multiline);
+		auto secret = text;
+		secret.key = "secret";
+		QVERIFY(!MacroParameter::describe(secret));
+		secret.key = "notice";
+		QVERIFY(!MacroParameter::describe(secret));
+		QCOMPARE(MacroParameter::readText(text).value(), QString("keep"));
+		MacroButton button;
+		button.kind = MacroControlKind::Text;
+		button.binding = text;
+		button.label = "Text";
+		MacroButtonModel model;
+		model.addButton(button);
+		MacroButtonModel restored;
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(model)),
+							     restored));
+		QCOMPARE(restored.buttons().first().kind, MacroControlKind::Text);
+		QCOMPARE(restored.buttons().first().binding.type, MacroParameterType::Text);
+		// Discover both control types through the actual assignment UI.
+		QWidget editorHost;
+		auto choose = [&](const QString &propertyName) -> std::optional<MacroButton> {
+			QTimer::singleShot(0, &editorHost, [&, propertyName] {
+				auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+				if (!dialog)
+					return;
+				auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
+				auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+				auto *buttons = dialog->findChild<QDialogButtonBox *>();
+				if (target && property && buttons) {
+					target->setCurrentIndex(target->findText("Text target"));
+					property->setCurrentIndex(property->findText(propertyName));
+					if (buttons->button(QDialogButtonBox::Ok)->isEnabled()) {
+						dialog->accept();
+						return;
+					}
+				}
+				dialog->reject();
+			});
+			return editMacroParameter(&editorHost, MacroButton{});
+		};
+		const auto textChoice = choose("Text");
+		QVERIFY(textChoice);
+		QCOMPARE(textChoice->kind, MacroControlKind::Text);
+		QCOMPARE(textChoice->binding.key, text.key);
+		const auto boolChoice = choose("Enabled");
+		QVERIFY(boolChoice);
+		QCOMPARE(boolChoice->kind, MacroControlKind::Toggle);
+		QCOMPARE(boolChoice->binding.type, MacroParameterType::Boolean);
+
+		QWidget host;
+		auto *control = createMacroParameterWidget(button, &host);
+		host.resize(250, 100);
+		control->resize(control->sizeHint());
+		host.show();
+		auto *entry = control->findChild<QLineEdit *>("macro-parameter-text");
+		QVERIFY(entry && entry->isEnabled());
+		QCOMPARE(entry->text(), QString("keep"));
+		entry->setFocus();
+		QTest::keyClick(entry, Qt::Key_A, Qt::ControlModifier);
+		QTest::keyClicks(entry, "new caption");
+		QCOMPARE(MacroParameter::readText(text).value(), QString("keep"));
+		QTest::qWait(300);
+		QCOMPARE(entry->text(), QString("new caption"));
+		QVERIFY(entry->isModified());
+		auto *apply = control->findChild<QPushButton *>("macro-parameter-text-apply");
+		QVERIFY(apply && apply->isVisible() && control->isVisible());
+		QTest::mouseClick(apply, Qt::LeftButton);
+		QCOMPARE(MacroParameter::readText(text).value(), QString("new caption"));
+		QVERIFY(MacroParameter::writeText(text, "external"));
+		QTRY_COMPARE(entry->text(), QString("external"));
+		TimelineEvent cue;
+		cue.type = TimelineEventType::SetParameterValue;
+		const QString caption = QStringLiteral("First line\nSecond line — 日本語");
+		cue.data = MacroParameter::encodeValue({multi, caption});
+		auto decoded = MacroParameter::decodeValue(cue.data.toString());
+		QVERIFY(decoded);
+		QCOMPARE(decoded->value.toString(), caption);
+		ObsExecutor executor;
+		executor.executeEventStart(cue);
+		QCOMPARE(MacroParameter::readText(multi).value(), caption);
+		MacroButton multilineButton = button;
+		multilineButton.binding = multi;
+		auto *multilineControl = createMacroParameterWidget(multilineButton, &host);
+		multilineControl->move(0, 55);
+		multilineControl->resize(multilineControl->sizeHint());
+		host.resize(300, 120);
+		multilineControl->show();
+		auto *edit = multilineControl->findChild<QPushButton *>("macro-parameter-multiline");
+		QVERIFY(edit && edit->isVisible());
+		const QString editedCaption = QStringLiteral("Live\nEdit");
+		bool modalEdited = false;
+		QTimer::singleShot(0, &host, [&] {
+			auto *dialog = qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto *area = dialog->findChild<QPlainTextEdit *>();
+			if (area) {
+				area->setPlainText(editedCaption);
+				modalEdited = true;
+				dialog->accept();
+			} else {
+				dialog->reject();
+			}
+		});
+		edit->click();
+		QVERIFY(modalEdited);
+		QCOMPARE(MacroParameter::readText(multi).value(), editedCaption);
+		// A defined value is configured without applying it.
+		std::optional<QVariant> value;
+		MacroButton initial;
+		initial.binding = multi;
+		bool defined = false;
+		QTimer::singleShot(0, &editorHost, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto *area = dialog->findChild<QPlainTextEdit *>("parameter-defined-text");
+			if (area && area->toPlainText() == editedCaption) {
+				area->setPlainText(caption);
+				defined = true;
+				dialog->accept();
+			} else {
+				dialog->reject();
+			}
+		});
+		const auto selection = editDefinedParameter(&editorHost, initial, value);
+		QVERIFY(defined && selection && value);
+		QCOMPARE(selection->binding.key, multi.key);
+		QCOMPARE(value->toString(), caption);
+		QCOMPARE(MacroParameter::readText(multi).value(), editedCaption);
+		executor.executeEventStart(cue);
+		QCOMPARE(MacroParameter::readText(multi).value(), caption);
+
+		QVERIFY(MacroParameter::writeText(text, QString()));
+		QTRY_COMPARE(entry->text(), QString());
+		QVERIFY(!MacroParameter::writeText(secret, "bad"));
+		obs_source_remove(source);
+		QVERIFY(!MacroParameter::writeText(text, "bad"));
+		QTRY_VERIFY(!entry->isEnabled());
 	}
 
 	void testNativeMixerBindingsUseObsFaderCurve()
@@ -2716,7 +2875,7 @@ private slots:
 		slider.label = "Gain";
 		slider.binding = {sourceId, filterId, "gain", MacroParameterType::Float};
 		const auto properties = MacroParameter::properties(slider.binding);
-		QCOMPARE(properties.size(), 3);
+		QCOMPARE(properties.size(), 5);
 		const auto spec = MacroParameter::describe(slider.binding);
 		QVERIFY(spec);
 		QCOMPARE(spec->min, -1.0);
