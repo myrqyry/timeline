@@ -1757,7 +1757,8 @@ private slots:
 		clickHistory(redo);
 		QCOMPARE(model->getEvents().size(), size_t(2));
 		// Real widget shortcut, not a direct call to the model.
-		QApplication::setActiveWindow(&dock);
+		dock.activateWindow();
+		QVERIFY(QTest::qWaitForWindowActive(&dock));
 		view->setFocus();
 		QTRY_VERIFY_WITH_TIMEOUT(view->hasFocus(), 1000);
 		const auto undoKey = QKeySequence::keyBindings(QKeySequence::Undo).first()[0];
@@ -2997,8 +2998,10 @@ private slots:
 		QVERIFY(MacroParameter::writePair(xy.binding, -1.0, xy.bindingY, 2.0));
 		QTRY_VERIFY(caption->text().contains("-1") && caption->text().contains("2"));
 		QCOMPARE(QRect(next->mapTo(&dock, QPoint()), next->size()), initial);
-		QApplication::setActiveWindow(&dock);
+		dock.activateWindow();
+		QVERIFY(QTest::qWaitForWindowActive(&dock));
 		pad->setFocus();
+		QTRY_VERIFY(pad->hasFocus());
 		QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
 		QCoreApplication::sendEvent(pad, &right);
 		QTRY_VERIFY(qAbs(MacroParameter::read(xy.binding).value() + 0.95) < 1e-9);
@@ -3146,7 +3149,8 @@ private slots:
 		QTest::mousePress(dial, Qt::LeftButton, Qt::NoModifier, start);
 		QTest::mouseRelease(dial, Qt::LeftButton, Qt::NoModifier, start);
 		QCOMPARE(changes.count(), before);
-		QApplication::setActiveWindow(&host);
+		host.activateWindow();
+		QVERIFY(QTest::qWaitForWindowActive(&host));
 		dial->setFocus();
 		QTRY_VERIFY(dial->hasFocus());
 		QVERIFY(!dial->isSliderDown());

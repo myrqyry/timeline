@@ -1,6 +1,12 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Newer Qt CI compatibility — 2026-11-19
+
+- OBS33 Linux CI compiled the plugin but rejected two test calls to QApplication::setActiveWindow under -Werror=deprecated-declarations. Current local XY work contained one additional call. Replaced all three with QWidget::activateWindow and explicit waits for active-window state; retained focus and keyboard assertions, added an XY focus assertion. No production or compiler flag changes.
+- Local OBS32/Qt 6.4.2 cannot reproduce the exact newer SDK warning. A temporary forced-include GCC poisoned-API compile probe rejected the old calls; the corrected test translation unit passed the probe. All three focused interactions passed. Full strict native Qt/libobs suite: 98 passed, 0 failed/skipped. Exact CI clang-format passed. Exact OBS33 runner confirmation remains pending.
+- Commit and synchronize the tested XY feature plus this CI compatibility fix to rerun remote checks. No installation or release.
+
 ### XY controller — 2026-11-19
 
 - User requested an XY controller for Macro Strip. Added independent numeric X/Y bindings, dedicated assignment dialog reusing live numeric-only catalog, version-compatible macro record with bindingY, fixed 64 px themed pad, upward Y, absolute mouse drag, arrow-key steps, coalesced pair updates and external readback. Shared row height expands only when an XY pad is present; fixed caption width prevents shifting. Same-source settings use one two-key patch; separate objects/mixer writes are not atomic. Both axes validate before writing, and missing/duplicate axes are rejected or disable the pad.
