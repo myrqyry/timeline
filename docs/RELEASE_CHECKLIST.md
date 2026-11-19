@@ -50,6 +50,11 @@ use have not been demonstrated**.
 - This verifies a local OBS32 source checkpoint, not the new remote
   CI matrix or OBS31/33, Windows or macOS runtime. No release was tagged.
 
+- Subsequent local XY control work passed 98 strict Qt/libobs tests,
+  including independent axis assignment, paired writes, keyboard steps,
+  serialization and stable geometry. Native OBS XY installation and
+  interaction are not yet verified.
+
 ## Before tagging (release blockers)
 
 - [ ] Confirm the exact commit, its six build jobs, two Linux test jobs and
@@ -121,6 +126,8 @@ runtime check**. Run the OBS 31 suite with `obs31` in its own build tree.
 - [ ] Schedule numeric, boolean and text Set Parameter Value cues and trigger
   immediate preset buttons; verify no configuration-time writes, actual
   plugin behavior, and Macro Strip readback.
+- [ ] Test XY pads with two real source/filter parameters, including
+  cross-source bindings, external readback, missing axes and row height.
 - [ ] Schedule native mixer volume/mute and numeric ramps with each easing
   curve; check actual rendered/audio output, endpoint, pause, seek, overlapping
   ramps, and updates to the same parameter. Profile costly source updates.

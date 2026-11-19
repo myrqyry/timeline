@@ -118,7 +118,7 @@ lifetime, and callback teardown must remain easy to trace.
 | `event-editor.cpp/.h` | Modal event creation/editing and OBS target discovery | Qt dialog and OBS enumeration |
 | `macro-strip-dock.cpp/.h` | Macro action and parameter-control UI, separate persistence | `MacroButtonModel`, shared executor, parameter bindings |
 | `macro-parameter.cpp/.h` | Source/filter identity, live property discovery, typed read/write | libobs source/property/settings API |
-| `macro-parameter-widget.cpp/.h` | Parameter editor and live slider/knob/toggle/text entry | Qt Widgets, MacroParameter |
+| `macro-parameter-widget.cpp/.h` | Parameter editor and live slider/knob/toggle/text entry/XY pad | Qt Widgets, MacroParameter |
 | `macro-serialization.cpp/.h` | Macro button JSON format and atomic file I/O | `QJsonDocument`, `QSaveFile` (writes), `QFile` (reads) |
 | `theme-helpers.h` | Theme-aware SVG paths and default colors | Qt palette and OBS theme widgets |
 | `timecode-display.cpp/.h` | Theme-aware playback clock | Qt custom widget |
@@ -608,6 +608,21 @@ Live parameter columns reserve width from the assigned caption, control
 kind and native control minimums, independently of current values or schema
 availability. StableCaption preserves its full QLabel text while painting
 a middle-elided line inside the reserved width.
+
+### XY control surface
+
+An XY macro stores its horizontal binding in `binding` and the vertical
+binding in `bindingY`, with `control: "xy"`. The bindings must be distinct
+numeric properties. Both use the existing live catalog and exact identity
+resolver. The assignment dialog reuses its numeric-only picker separately
+for each axis, and revalidates both before acceptance. The pad normalizes
+each property's step-index range independently, with upward Y. Live
+readback, coalesced writes, stable captions and shared row height preserve
+the strip's existing conventions. Both axes are validated before a pair
+write; two settings on the same OBS object use a single patch, while
+cross-object/native mixer writes are not transactional. Missing or invalid
+axes disable the whole pad. Unknown XY records are rejected by earlier
+macro deserializers rather than interpreted as actions.
 
 ### Grid, snapping, and BPM
 

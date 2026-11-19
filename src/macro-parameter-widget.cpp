@@ -29,6 +29,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <cmath>
+#include <functional>
 
 namespace {
 // Retain QDial's value model and accessibility; paint a compact, themed
@@ -224,6 +225,266 @@ protected:
 		painter.drawItemText(area, Qt::AlignCenter | Qt::TextSingleLine, palette(), isEnabled(), visible,
 				     foregroundRole());
 	}
+};
+
+class XYPad final : public QWidget {
+public:
+	explicit XYPad(QWidget *parent) : QWidget(parent)
+	{
+		setObjectName("macro-parameter-xy");
+		setFixedSize(64, 64);
+		setFocusPolicy(Qt::StrongFocus);
+		setCursor(Qt::CrossCursor);
+	}
+	std::function<void(QPointF)> moved;
+	std::function<void()> released;
+	std::function<void(int, int)> stepped;
+	void setPosition(QPointF position)
+	{
+		point = position;
+		update();
+	}
+	bool dragging() const { return active; }
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter p(this);
+		p.setRenderHint(QPainter::Antialiasing);
+		const auto group = isEnabled() ? (isActiveWindow() ? QPalette::Active : QPalette::Inactive)
+					       : QPalette::Disabled;
+		const auto pal = palette();
+		const auto accent = pal.color(group, QPalette::Highlight);
+		const QRectF box(1, 1, width() - 2, height() - 2);
+		p.setPen(QPen(hasFocus() && isEnabled() ? accent : pal.color(group, QPalette::Mid), 1));
+		p.setBrush(pal.color(group, QPalette::Base));
+		p.drawRoundedRect(box, 3, 3);
+		auto grid = pal.color(group, QPalette::Mid);
+		grid.setAlpha(100);
+		p.setPen(QPen(grid, 1));
+		p.drawLine(QPointF(width() / 2.0, 4), QPointF(width() / 2.0, height() - 4));
+		p.drawLine(QPointF(4, height() / 2.0), QPointF(width() - 4, height() / 2.0));
+		const QPointF marker(4 + point.x() * (width() - 9), 4 + (1 - point.y()) * (height() - 9));
+		p.setPen(QPen(accent, 1, Qt::DashLine));
+		p.drawLine(QPointF(marker.x(), 4), QPointF(marker.x(), height() - 4));
+		p.drawLine(QPointF(4, marker.y()), QPointF(width() - 4, marker.y()));
+		p.setPen(QPen(pal.color(group, QPalette::HighlightedText), 1));
+		p.setBrush(accent);
+		p.drawEllipse(marker, 3.5, 3.5);
+	}
+	void mousePressEvent(QMouseEvent *e) override
+	{
+		if (!isEnabled() || e->button() != Qt::LeftButton) {
+			e->ignore();
+			return;
+		}
+		setFocus(Qt::MouseFocusReason);
+		active = true;
+		moveTo(e->position());
+		e->accept();
+	}
+	void mouseMoveEvent(QMouseEvent *e) override
+	{
+		if (!active || !(e->buttons() & Qt::LeftButton)) {
+			e->ignore();
+			return;
+		}
+		moveTo(e->position());
+		e->accept();
+	}
+	void mouseReleaseEvent(QMouseEvent *e) override
+	{
+		if (!active || e->button() != Qt::LeftButton) {
+			e->ignore();
+			return;
+		}
+		moveTo(e->position());
+		active = false;
+		if (released)
+			released();
+		e->accept();
+	}
+	void keyPressEvent(QKeyEvent *e) override
+	{
+		if (!isEnabled() || active || !stepped) {
+			e->ignore();
+			return;
+		}
+		switch (e->key()) {
+		case Qt::Key_Left:
+			stepped(-1, 0);
+			break;
+		case Qt::Key_Right:
+			stepped(1, 0);
+			break;
+		case Qt::Key_Down:
+			stepped(0, -1);
+			break;
+		case Qt::Key_Up:
+			stepped(0, 1);
+			break;
+		default:
+			QWidget::keyPressEvent(e);
+			return;
+		}
+		e->accept();
+	}
+	bool event(QEvent *e) override
+	{
+		if (e->type() == QEvent::UngrabMouse || (e->type() == QEvent::EnabledChange && !isEnabled()))
+			active = false;
+		const bool handled = QWidget::event(e);
+		if (e->type() == QEvent::FocusIn || e->type() == QEvent::FocusOut ||
+		    e->type() == QEvent::PaletteChange || e->type() == QEvent::EnabledChange)
+			update();
+		return handled;
+	}
+
+private:
+	void moveTo(QPointF pos)
+	{
+		if (moved)
+			moved({std::clamp((pos.x() - 4) / (width() - 9), 0.0, 1.0),
+			       1 - std::clamp((pos.y() - 4) / (height() - 9), 0.0, 1.0)});
+	}
+	QPointF point{0.5, 0.5};
+	bool active = false;
+};
+
+class XYParameterWidget final : public QWidget {
+public:
+	XYParameterWidget(const MacroButton &button, QWidget *parent)
+		: QWidget(parent),
+		  x(button.binding),
+		  y(button.bindingY),
+		  title(button.label.isEmpty() ? tr("XY") : button.label)
+	{
+		setObjectName("macro-parameter-control");
+		auto *layout = new QVBoxLayout(this);
+		layout->setContentsMargins(3, 0, 3, 0);
+		layout->setSpacing(0);
+		caption = new StableCaption(this);
+		caption->setObjectName("macro-parameter-caption");
+		caption->setTextFormat(Qt::PlainText);
+		caption->setAttribute(Qt::WA_TransparentForMouseEvents);
+		QFont f = font();
+		f.setPointSize(8);
+		f.setBold(true);
+		caption->setFont(f);
+		layout->addWidget(caption);
+		row = new QWidget(this);
+		auto *controls = new QVBoxLayout(row);
+		controls->setContentsMargins(0, 0, 0, 0);
+		pad = new XYPad(row);
+		pad->setAccessibleName(title + tr(" XY pad"));
+		pad->setAccessibleDescription(tr("Arrow keys adjust individual axes."));
+		controls->addWidget(pad, 0, Qt::AlignCenter);
+		layout->addWidget(row);
+		setContextMenuPolicy(Qt::CustomContextMenu);
+		pad->setContextMenuPolicy(Qt::CustomContextMenu);
+		connect(pad, &QWidget::customContextMenuRequested, this,
+			[this](QPoint p) { emit customContextMenuRequested(pad->mapTo(this, p)); });
+		pad->moved = [this](QPointF p) {
+			if (!xs || !ys)
+				return;
+			queue(xs->valueAt(qRound(p.x() * xs->steps())), ys->valueAt(qRound(p.y() * ys->steps())));
+		};
+		pad->released = [this] {
+			flush();
+		};
+		pad->stepped = [this](int dx, int dy) {
+			if (!xs || !ys)
+				return;
+			const auto xv = MacroParameter::read(x);
+			const auto yv = MacroParameter::read(y);
+			if (!xv || !yv) {
+				refresh();
+				return;
+			}
+			queue(xs->valueAt(std::clamp(xs->indexOf(*xv) + dx, 0, xs->steps())),
+			      ys->valueAt(std::clamp(ys->indexOf(*yv) + dy, 0, ys->steps())));
+			flush();
+		};
+		writer.setSingleShot(true);
+		writer.setInterval(80);
+		connect(&writer, &QTimer::timeout, this, [this] { flush(); });
+		reader.setInterval(250);
+		connect(&reader, &QTimer::timeout, this, [this] {
+			if (isVisible() && !pad->dragging() && !pending)
+				refresh();
+		});
+		const auto size = requiredRows();
+		setRowHeights(size.width(), size.height());
+		refresh();
+		reader.start();
+	}
+	QSize requiredRows() const
+	{
+		return {std::max(MacroButtonWidget::kLabelHeight, QFontMetrics(caption->font()).height() + 2), 64};
+	}
+	void setRowHeights(int captionHeight, int controlHeight)
+	{
+		caption->setFixedHeight(captionHeight);
+		row->setFixedHeight(std::max(64, controlHeight));
+		setFixedHeight(captionHeight + row->height());
+		setFixedWidth(
+			std::clamp(QFontMetrics(caption->font()).horizontalAdvance(title + " · -0.000 / -0.000") + 8,
+				   88, 220) +
+			6);
+	}
+
+private:
+	void display(double xv, double yv)
+	{
+		if (!xs || !ys)
+			return;
+		pad->setPosition({double(xs->indexOf(xv)) / xs->steps(), double(ys->indexOf(yv)) / ys->steps()});
+		caption->setText(title + " · " + QString::number(xv, 'g', 5) + " / " + QString::number(yv, 'g', 5));
+		pad->setToolTip(title + "\nX: " + xs->label + " = " + QString::number(xv, 'g', 12) + xs->suffix +
+				"\nY: " + ys->label + " = " + QString::number(yv, 'g', 12) + ys->suffix);
+	}
+	void queue(double xv, double yv)
+	{
+		pending = QPointF(xv, yv);
+		display(xv, yv);
+		if (!writer.isActive())
+			writer.start();
+	}
+	void flush()
+	{
+		writer.stop();
+		const auto value = pending;
+		pending.reset();
+		if (value && isVisible() && !MacroParameter::writePair(x, value->x(), y, value->y())) {
+			refresh();
+			return;
+		}
+		if (!pad->dragging())
+			refresh();
+	}
+	void refresh()
+	{
+		xs = MacroParameter::describe(x);
+		ys = MacroParameter::describe(y);
+		const auto xv = xs ? MacroParameter::read(x) : std::nullopt;
+		const auto yv = ys ? MacroParameter::read(y) : std::nullopt;
+		const bool valid = MacroParameter::numericPair(x, y) && xv && yv;
+		pad->setEnabled(valid);
+		if (valid)
+			display(*xv, *yv);
+		else {
+			caption->setText(title + " · " + tr("Unavailable"));
+			pad->setToolTip(tr("One or both XY bindings are unavailable. Right-click to edit."));
+		}
+	}
+	MacroParameterBinding x, y;
+	QString title;
+	std::optional<MacroParameter::Spec> xs, ys;
+	std::optional<QPointF> pending;
+	StableCaption *caption;
+	QWidget *row;
+	XYPad *pad;
+	QTimer writer, reader;
 };
 
 class ParameterWidget final : public QWidget {
@@ -540,12 +801,16 @@ private:
 
 QWidget *createMacroParameterWidget(const MacroButton &button, QWidget *parent)
 {
+	if (button.kind == MacroControlKind::XY)
+		return new XYParameterWidget(button, parent);
 	return new ParameterWidget(button, parent);
 }
 
 QSize macroParameterRequiredRows(QWidget *widget)
 {
 	if (auto *control = dynamic_cast<ParameterWidget *>(widget))
+		return control->requiredRows();
+	if (auto *control = dynamic_cast<XYParameterWidget *>(widget))
 		return control->requiredRows();
 	return QSize(0, 0);
 }
@@ -554,14 +819,18 @@ void setMacroParameterRows(QWidget *widget, int labelHeight, int controlHeight)
 {
 	if (auto *control = dynamic_cast<ParameterWidget *>(widget))
 		control->setRowHeights(labelHeight, controlHeight);
+	else if (auto *xy = dynamic_cast<XYParameterWidget *>(widget))
+		xy->setRowHeights(labelHeight, controlHeight);
 }
 
 static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButton &initial,
-						std::optional<QVariant> *definedValue)
+						std::optional<QVariant> *definedValue, const QString &axis = {})
 {
 	QDialog dialog(parent);
 	dialog.setWindowTitle(definedValue ? QObject::tr("Define parameter value")
 					   : QObject::tr("Bind source or filter parameter"));
+	if (!axis.isEmpty())
+		dialog.setWindowTitle(axis);
 	dialog.setMinimumWidth(440);
 	auto *form = new QFormLayout(&dialog);
 	auto *targetCombo = new QComboBox(&dialog);
@@ -600,8 +869,13 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		kindCombo->hide();
 		label->hide();
 	} else {
-		form->addRow(QObject::tr("Control"), kindCombo);
-		form->addRow(QObject::tr("Label"), label);
+		if (axis.isEmpty()) {
+			form->addRow(QObject::tr("Control"), kindCombo);
+			form->addRow(QObject::tr("Label"), label);
+		} else {
+			kindCombo->hide();
+			label->hide();
+		}
 		valueRow->hide();
 	}
 	form->addRow(info);
@@ -720,8 +994,15 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 						.arg(spec.step));
 	};
 	auto updateProperties = [&](const MacroParameterBinding &selection, bool force) {
-		const auto fresh = selection.sourceUuid.isEmpty() ? QList<MacroParameter::Spec>{}
-								  : MacroParameter::properties(selection);
+		auto fresh = selection.sourceUuid.isEmpty() ? QList<MacroParameter::Spec>{}
+							    : MacroParameter::properties(selection);
+		if (!axis.isEmpty())
+			fresh.erase(std::remove_if(fresh.begin(), fresh.end(),
+						   [](const auto &spec) {
+							   return spec.type != MacroParameterType::Integer &&
+								  spec.type != MacroParameterType::Float;
+						   }),
+				    fresh.end());
 		if (!force && fresh == specs)
 			return;
 		const QSignalBlocker block(propertyCombo);
@@ -810,8 +1091,71 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	return result;
 }
 
+static std::optional<MacroButton> editXYParameter(QWidget *parent, const MacroButton &initial)
+{
+	QDialog dialog(parent);
+	dialog.setWindowTitle(QObject::tr("Bind XY controller"));
+	dialog.setMinimumWidth(420);
+	auto *form = new QFormLayout(&dialog);
+	auto *xButton = new QPushButton(&dialog);
+	auto *yButton = new QPushButton(&dialog);
+	xButton->setObjectName("macro-xy-bind-x");
+	yButton->setObjectName("macro-xy-bind-y");
+	auto *label = new QLineEdit(initial.label, &dialog);
+	label->setPlaceholderText(QObject::tr("XY"));
+	label->setObjectName("macro-xy-label");
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	form->addRow(QObject::tr("X axis (horizontal)"), xButton);
+	form->addRow(QObject::tr("Y axis (vertical)"), yButton);
+	form->addRow(QObject::tr("Label"), label);
+	auto *hint = new QLabel(QObject::tr("Choose two different numeric parameters. Up increases Y."), &dialog);
+	hint->setWordWrap(true);
+	form->addRow(hint);
+	form->addRow(buttons);
+	MacroButton result = initial;
+	auto describe = [](const MacroParameterBinding &b) {
+		for (const auto &target : MacroParameter::targets())
+			if (target.sourceUuid == b.sourceUuid && target.filterUuid == b.filterUuid)
+				if (auto spec = MacroParameter::describe(b))
+					return target.label + " / " + spec->label;
+		return b.key.isEmpty() ? QObject::tr("Choose parameter…") : b.key + QObject::tr(" (unavailable)");
+	};
+	auto refresh = [&] {
+		xButton->setText(describe(result.binding));
+		yButton->setText(describe(result.bindingY));
+		buttons->button(QDialogButtonBox::Ok)
+			->setEnabled(MacroParameter::numericPair(result.binding, result.bindingY) &&
+				     MacroParameter::describe(result.binding) &&
+				     MacroParameter::describe(result.bindingY));
+	};
+	auto select = [&](MacroParameterBinding &binding, const QString &title) {
+		MacroButton axis;
+		axis.kind = MacroControlKind::Slider;
+		axis.binding = binding;
+		if (auto choice = editParameter(&dialog, axis, nullptr, title))
+			binding = choice->binding;
+		refresh();
+	};
+	QObject::connect(xButton, &QPushButton::clicked, &dialog,
+			 [&] { select(result.binding, QObject::tr("Choose X parameter")); });
+	QObject::connect(yButton, &QPushButton::clicked, &dialog,
+			 [&] { select(result.bindingY, QObject::tr("Choose Y parameter")); });
+	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	refresh();
+	if (dialog.exec() != QDialog::Accepted || !MacroParameter::numericPair(result.binding, result.bindingY) ||
+	    !MacroParameter::describe(result.binding) || !MacroParameter::describe(result.bindingY))
+		return std::nullopt;
+	result.label = label->text().trimmed();
+	if (result.label.isEmpty())
+		result.label = QObject::tr("XY");
+	return result;
+}
+
 std::optional<MacroButton> editMacroParameter(QWidget *parent, const MacroButton &initial)
 {
+	if (initial.kind == MacroControlKind::XY)
+		return editXYParameter(parent, initial);
 	return editParameter(parent, initial, nullptr);
 }
 

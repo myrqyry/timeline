@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### XY controller — 2026-11-19
+
+- User requested an XY controller for Macro Strip. Added independent numeric X/Y bindings, dedicated assignment dialog reusing live numeric-only catalog, version-compatible macro record with bindingY, fixed 64 px themed pad, upward Y, absolute mouse drag, arrow-key steps, coalesced pair updates and external readback. Shared row height expands only when an XY pad is present; fixed caption width prevents shifting. Same-source settings use one two-key patch; separate objects/mixer writes are not atomic. Both axes validate before writing, and missing/duplicate axes are rejected or disable the pad.
+- RED: new test failed to compile on missing XY API. GREEN: real libobs paired/cross-source writes, persistence and duplicate rejection, real editor selection, no initial writes, mouse endpoints and keyboard steps, unavailable-axis and stable geometry. Full strict native suite 98 passed, 0 failed/skipped; CI clang-format check passed. Logs /tmp/timeline-xy-red.log, /tmp/timeline-xy-green.log, /tmp/timeline-xy-editor.log, /tmp/timeline-xy-full.log.
+- New local change only. Last installed source 9773946; remote main 27fde85. Native visual/real target plugin acceptance and cross-platform CI not established. No install or push.
+
+
 ## Current checkpoint — 2026-11-19
 
 - Installed source commit `9773946` in the native OBS32.2.0 user-plugin location. Matching staged/runtime assets and ELF build ID, relocation checks clean, configuration checksums unchanged before/after installation and isolated startup. Both docks and WebSocket vendor registered. Preserved prior install/config in a local rollback archive; machine-specific paths/logs remain in ignored local history.

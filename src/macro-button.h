@@ -16,4 +16,5 @@ struct MacroButton {
 	QColor color = QColor(0, 200, 255);
 	MacroControlKind kind = MacroControlKind::Action;
 	MacroParameterBinding binding;
+	MacroParameterBinding bindingY; // XY controls only.
 };

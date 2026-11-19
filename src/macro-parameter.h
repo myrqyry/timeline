@@ -5,7 +5,7 @@
 #include <QVariant>
 #include <optional>
 
-enum class MacroControlKind { Action, Slider, Knob, Toggle, Text };
+enum class MacroControlKind { Action, Slider, Knob, Toggle, Text, XY };
 enum class MacroParameterType { Integer, Float, Boolean, Text };
 
 struct MacroParameterBinding {
@@ -71,6 +71,8 @@ QList<Spec> properties(const MacroParameterBinding &binding);
 std::optional<Spec> describe(const MacroParameterBinding &binding);
 std::optional<double> read(const MacroParameterBinding &binding);
 bool write(const MacroParameterBinding &binding, double value, bool skipUnchanged = false);
+bool numericPair(const MacroParameterBinding &x, const MacroParameterBinding &y);
+bool writePair(const MacroParameterBinding &x, double xValue, const MacroParameterBinding &y, double yValue);
 std::optional<QString> readText(const MacroParameterBinding &binding);
 bool writeText(const MacroParameterBinding &binding, const QString &value);
 } // namespace MacroParameter

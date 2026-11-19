@@ -215,6 +215,26 @@ settings are discoverable (numeric controls are limited to one million
 increments). List/color/button properties, custom ranges, scene-item
 transforms and manual ramp controls are not included in Macro Strip.
 
+### XY controllers
+
+Choose **+ → XY controller**, assign a numeric property to each axis,
+and name the control. X increases to the right; Y increases upward.
+Click or drag in the pad to set both values. Focus the pad and use the
+arrow keys to adjust the corresponding axis by a single property step.
+Axes can bind to different sources or filters, but not the same property.
+The square pad reserves 64 logical pixels in the control row, and its
+caption does not resize as values change. A strip without an XY control
+keeps its ordinary row height.
+
+Both bindings are saved, and values are read from OBS without writing on
+startup. A missing axis disables the whole pad rather than redirecting
+a write. Drag writes are coalesced; release commits the latest pair.
+Same-source settings properties travel in one settings update. Separate
+sources or mixer operations are validated before writing, but cannot be
+updated transactionally across OBS objects. Right-click to edit or remove
+the control. Older builds cannot read XY macro records; keep a backup
+before downgrading.
+
 ### Boolean and text controls
 
 Boolean properties automatically offer a Toggle; the checked state tracks

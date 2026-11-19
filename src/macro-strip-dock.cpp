@@ -188,12 +188,13 @@ void MacroStripDock::addButtonAtEnd()
 	QMenu menu(this);
 	auto *action = menu.addAction(tr("Action button"));
 	auto *parameter = menu.addAction(tr("Parameter control…"));
+	auto *xy = menu.addAction(tr("XY controller…"));
 	auto *chosen = menu.exec(m_addButton->mapToGlobal(QPoint(0, m_addButton->height())));
 	if (chosen == action)
 		showAddEditor();
-	else if (chosen == parameter) {
+	else if (chosen == parameter || chosen == xy) {
 		MacroButton initial;
-		initial.kind = MacroControlKind::Slider;
+		initial.kind = chosen == xy ? MacroControlKind::XY : MacroControlKind::Slider;
 		if (auto edited = editMacroParameter(this, initial))
 			m_model.addButton(*edited);
 	}

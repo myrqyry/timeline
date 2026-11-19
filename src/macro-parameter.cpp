@@ -450,6 +450,50 @@ bool write(const MacroParameterBinding &binding, double value, bool skipUnchange
 	obs_source_update(source.get(), patch.get());
 	return true;
 }
+bool numericPair(const MacroParameterBinding &x, const MacroParameterBinding &y)
+{
+	auto numeric = [](const MacroParameterBinding &b) {
+		return !b.sourceUuid.isEmpty() && !b.key.isEmpty() &&
+		       (b.type == MacroParameterType::Integer || b.type == MacroParameterType::Float) &&
+		       (b.domain.isEmpty() || (isMixerVolume(b) && b.filterUuid.isEmpty()));
+	};
+	return numeric(x) && numeric(y) && bindingIdentity(x) != bindingIdentity(y);
+}
+
+bool writePair(const MacroParameterBinding &x, double xValue, const MacroParameterBinding &y, double yValue)
+{
+	if (!numericPair(x, y) || !std::isfinite(xValue) || !std::isfinite(yValue))
+		return false;
+	// Validate both axes before touching either target.
+	auto xSource = resolve(x);
+	auto ySource = resolve(y);
+	const auto xs = describeFor(xSource.get(), x);
+	const auto ys = describeFor(ySource.get(), y);
+	if (!xs || !ys)
+		return false;
+	xValue = xs->valueAt(xs->indexOf(xValue));
+	yValue = ys->valueAt(ys->indexOf(yValue));
+	if (xSource.get() == ySource.get() && x.domain.isEmpty() && y.domain.isEmpty()) {
+		// One settings update for paired uniforms on the same source/filter.
+		Data patch(obs_data_create(), obs_data_release);
+		if (!patch)
+			return false;
+		auto add = [&](const MacroParameterBinding &b, double value) {
+			const auto key = b.key.toUtf8();
+			if (b.type == MacroParameterType::Integer)
+				obs_data_set_int(patch.get(), key.constData(), std::llround(value));
+			else
+				obs_data_set_double(patch.get(), key.constData(), value);
+		};
+		add(x, xValue);
+		add(y, yValue);
+		obs_source_update(xSource.get(), patch.get());
+		return true;
+	}
+	// Separate OBS objects/native mixer operations cannot be transactional.
+	return write(x, xValue, true) && write(y, yValue, true);
+}
+
 std::optional<QString> readText(const MacroParameterBinding &binding)
 {
 	if (binding.type != MacroParameterType::Text || !binding.domain.isEmpty())

@@ -2872,6 +2872,146 @@ private slots:
 		QVERIFY(!MacroParameter::read(enabled));
 	}
 
+	void testMacroXYEditorSelectsIndependentNumericAxes()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "XY editor target", nullptr, nullptr);
+		auto *other = obs_source_create("timeline_parameter_probe", "XY other target", nullptr, nullptr);
+		QVERIFY(source && other);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+			obs_source_remove(other);
+			obs_source_release(other);
+		});
+		QWidget host;
+		MacroButton initial;
+		initial.kind = MacroControlKind::XY;
+		bool configured = false;
+		QTimer::singleShot(0, &host, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto *x = dialog->findChild<QPushButton *>("macro-xy-bind-x");
+			auto *y = dialog->findChild<QPushButton *>("macro-xy-bind-y");
+			auto *label = dialog->findChild<QLineEdit *>("macro-xy-label");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			if (!x || !y || !label || !buttons) {
+				dialog->reject();
+				return;
+			}
+			auto choose = [&](QPushButton *button, QString targetName, QString propertyName) {
+				bool selected = false;
+				QTimer::singleShot(0, dialog, [&] {
+					auto *picker = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+					if (!picker || picker == dialog)
+						return;
+					auto *target = picker->findChild<QComboBox *>("macro-parameter-target");
+					auto *property = picker->findChild<QComboBox *>("macro-parameter-property");
+					auto *ok = picker->findChild<QDialogButtonBox *>();
+					if (target && property && ok) {
+						target->setCurrentIndex(target->findText(targetName));
+						property->setCurrentIndex(property->findText(propertyName));
+						selected = property->findText("Enabled") < 0 &&
+							   property->findText("Text") < 0 &&
+							   ok->button(QDialogButtonBox::Ok)->isEnabled();
+					}
+					if (selected)
+						picker->accept();
+					else
+						picker->reject();
+				});
+				button->click();
+				return selected;
+			};
+			auto *ok = buttons->button(QDialogButtonBox::Ok);
+			configured = !ok->isEnabled() && choose(x, "XY editor target", "Controls / Gain") &&
+				     choose(y, "XY editor target", "Controls / Gain") && !ok->isEnabled() &&
+				     choose(y, "XY other target", "Controls / Count") && ok->isEnabled();
+			label->setText("Motion");
+			if (configured)
+				dialog->accept();
+			else
+				dialog->reject();
+		});
+		const auto selected = editMacroParameter(&host, initial);
+		QVERIFY(configured && selected);
+		QCOMPARE(selected->label, QString("Motion"));
+		QCOMPARE(selected->binding.sourceUuid, QString::fromUtf8(obs_source_get_uuid(source)));
+		QCOMPARE(selected->bindingY.sourceUuid, QString::fromUtf8(obs_source_get_uuid(other)));
+		QCOMPARE(MacroParameter::read(selected->binding).value(), 0.25);
+		QCOMPARE(MacroParameter::read(selected->bindingY).value(), 4.0);
+		QVERIFY(MacroParameter::writePair(selected->binding, 0.5, selected->bindingY, 8));
+		QCOMPARE(MacroParameter::read(selected->binding).value(), 0.5);
+		QCOMPARE(MacroParameter::read(selected->bindingY).value(), 8.0);
+	}
+
+	void testMacroXYPadPairBindingsAndGeometry()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "XY target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton xy;
+		xy.kind = MacroControlKind::XY;
+		xy.label = "Position";
+		xy.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		xy.bindingY = {xy.binding.sourceUuid, {}, "count", MacroParameterType::Integer};
+		MacroButtonModel model, restored;
+		model.addButton(xy);
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(model)),
+							     restored));
+		QCOMPARE(restored.buttons().first().kind, MacroControlKind::XY);
+		QCOMPARE(restored.buttons().first().bindingY.key, QString("count"));
+		auto duplicate = xy;
+		duplicate.bindingY = duplicate.binding;
+		MacroButtonModel invalid;
+		invalid.addButton(duplicate);
+		QVERIFY(!MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(invalid)),
+							      restored));
+		QCOMPARE(restored.buttons().size(), 1);
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		dock.buttonModel()->addButton(xy);
+		MacroButton action;
+		action.label = "Next";
+		dock.buttonModel()->addButton(action);
+		dock.resize(600, dock.minimumHeight());
+		dock.show();
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QCoreApplication::processEvents();
+		auto *pad = dock.findChild<QWidget *>("macro-parameter-xy");
+		auto *caption = dock.findChild<QLabel *>("macro-parameter-caption");
+		auto *next = dock.findChild<MacroButtonWidget *>();
+		QVERIFY(pad && caption && next && pad->isEnabled());
+		QCOMPARE(pad->size(), QSize(64, 64));
+		QVERIFY(pad->parentWidget()->rect().contains(pad->geometry()));
+		QCOMPARE(MacroParameter::read(xy.binding).value(), 0.25);
+		QCOMPARE(MacroParameter::read(xy.bindingY).value(), 4.0);
+		const QRect initial(next->mapTo(&dock, QPoint()), next->size());
+		QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(59, 4));
+		QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(59, 4));
+		QTRY_COMPARE(MacroParameter::read(xy.binding).value(), 1.0);
+		QTRY_COMPARE(MacroParameter::read(xy.bindingY).value(), 10.0);
+		QVERIFY(MacroParameter::writePair(xy.binding, -1.0, xy.bindingY, 2.0));
+		QTRY_VERIFY(caption->text().contains("-1") && caption->text().contains("2"));
+		QCOMPARE(QRect(next->mapTo(&dock, QPoint()), next->size()), initial);
+		QApplication::setActiveWindow(&dock);
+		pad->setFocus();
+		QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
+		QCoreApplication::sendEvent(pad, &right);
+		QTRY_VERIFY(qAbs(MacroParameter::read(xy.binding).value() + 0.95) < 1e-9);
+		QCOMPARE(MacroParameter::read(xy.bindingY).value(), 2.0);
+		auto missing = xy.bindingY;
+		missing.key = "missing";
+		QVERIFY(!MacroParameter::writePair(xy.binding, 1.0, missing, 10.0));
+		QVERIFY(qAbs(MacroParameter::read(xy.binding).value() + 0.95) < 1e-9);
+		QVERIFY(MacroParameter::write({xy.binding.sourceUuid, {}, "enabled", MacroParameterType::Boolean}, 0));
+		QTRY_VERIFY_WITH_TIMEOUT(!pad->isEnabled(), 3000);
+		QCOMPARE(QRect(next->mapTo(&dock, QPoint()), next->size()), initial);
+	}
+
 	void testMacroArcKnobAndStableCaptionGeometry()
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Stable caption target", nullptr, nullptr);

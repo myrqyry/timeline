@@ -7,6 +7,39 @@
 #include <QUuid>
 #include "theme-helpers.h"
 
+namespace {
+QJsonObject encodeBinding(const MacroParameterBinding &b)
+{
+	return {{"sourceUuid", b.sourceUuid},
+		{"filterUuid", b.filterUuid},
+		{"key", b.key},
+		{"domain", b.domain},
+		{"type", b.type == MacroParameterType::Integer   ? "int"
+			 : b.type == MacroParameterType::Float   ? "float"
+			 : b.type == MacroParameterType::Boolean ? "bool"
+								 : "text"}};
+}
+std::optional<MacroParameterBinding> decodeBinding(const QJsonValue &value)
+{
+	if (!value.isObject())
+		return std::nullopt;
+	const auto b = value.toObject();
+	const QString domain = b["domain"].toString();
+	const QString type = b["type"].toString();
+	if ((b.contains("domain") && (!b["domain"].isString() || (!domain.isEmpty() && domain != "mixer"))) ||
+	    (b.contains("filterUuid") && !b["filterUuid"].isString()) || b["sourceUuid"].toString().isEmpty() ||
+	    b["key"].toString().isEmpty() || (type != "int" && type != "float" && type != "bool" && type != "text") ||
+	    (type == "text" && !domain.isEmpty()))
+		return std::nullopt;
+	return MacroParameterBinding{b["sourceUuid"].toString(), b["filterUuid"].toString(), b["key"].toString(),
+				     type == "int"     ? MacroParameterType::Integer
+				     : type == "float" ? MacroParameterType::Float
+				     : type == "bool"  ? MacroParameterType::Boolean
+						       : MacroParameterType::Text,
+				     domain};
+}
+} // namespace
+
 QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 {
 	QJsonArray array;
@@ -22,16 +55,11 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 			obj["control"] = b.kind == MacroControlKind::Slider   ? "slider"
 					 : b.kind == MacroControlKind::Knob   ? "knob"
 					 : b.kind == MacroControlKind::Toggle ? "toggle"
+					 : b.kind == MacroControlKind::XY     ? "xy"
 									      : "text";
-			obj["binding"] =
-				QJsonObject{{"sourceUuid", b.binding.sourceUuid},
-					    {"filterUuid", b.binding.filterUuid},
-					    {"key", b.binding.key},
-					    {"domain", b.binding.domain},
-					    {"type", b.binding.type == MacroParameterType::Integer   ? "int"
-						     : b.binding.type == MacroParameterType::Float   ? "float"
-						     : b.binding.type == MacroParameterType::Boolean ? "bool"
-												     : "text"}};
+			obj["binding"] = encodeBinding(b.binding);
+			if (b.kind == MacroControlKind::XY)
+				obj["bindingY"] = encodeBinding(b.bindingY);
 		}
 		obj["source"] = b.sourceName;
 		if (!b.filterName.isEmpty())
@@ -76,16 +104,14 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 		const int typeInt = obj["type"].toInt(-1);
 		if (obj.contains("control")) {
 			const QString kind = obj["control"].toString();
-			const auto binding = obj["binding"].toObject();
-			const QString type = binding["type"].toString();
-			const QString domain = binding["domain"].toString();
-			if ((binding.contains("domain") &&
-			     (!binding["domain"].isString() || (!domain.isEmpty() && domain != "mixer"))) ||
-			    (kind != "slider" && kind != "knob" && kind != "toggle" && kind != "text") ||
-			    (type != "int" && type != "float" && type != "bool" && type != "text") ||
-			    ((kind == "toggle") != (type == "bool")) || ((kind == "text") != (type == "text")) ||
-			    (type == "text" && !domain.isEmpty()) || binding["sourceUuid"].toString().isEmpty() ||
-			    binding["key"].toString().isEmpty()) {
+			const auto binding = decodeBinding(obj["binding"]);
+			const auto y = kind == "xy" ? decodeBinding(obj["bindingY"]) : std::nullopt;
+			if (!binding ||
+			    (kind != "slider" && kind != "knob" && kind != "toggle" && kind != "text" &&
+			     kind != "xy") ||
+			    ((kind == "toggle") != (binding->type == MacroParameterType::Boolean)) ||
+			    ((kind == "text") != (binding->type == MacroParameterType::Text)) ||
+			    (kind == "xy" && (!y || !MacroParameter::numericPair(*binding, *y)))) {
 				if (errorMessage)
 					*errorMessage = "Invalid or unsupported macro parameter binding";
 				return false;
@@ -93,14 +119,11 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 			b.kind = kind == "slider"   ? MacroControlKind::Slider
 				 : kind == "knob"   ? MacroControlKind::Knob
 				 : kind == "toggle" ? MacroControlKind::Toggle
+				 : kind == "xy"     ? MacroControlKind::XY
 						    : MacroControlKind::Text;
-			b.binding = {binding["sourceUuid"].toString(), binding["filterUuid"].toString(),
-				     binding["key"].toString(),
-				     type == "int"     ? MacroParameterType::Integer
-				     : type == "float" ? MacroParameterType::Float
-				     : type == "bool"  ? MacroParameterType::Boolean
-						       : MacroParameterType::Text,
-				     domain};
+			b.binding = *binding;
+			if (y)
+				b.bindingY = *y;
 		} else {
 			if (typeInt < 0 || typeInt > maxTypeValue)
 				continue;

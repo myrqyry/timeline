@@ -95,6 +95,7 @@ parameter control.
 | Knob | Adjust shader speed or intensity. |
 | Toggle | Mute an audio source or turn a boolean setting on or off. |
 | Text entry | Edit a source caption or another exposed string property. |
+| XY controller | Adjust two numeric properties with a single two-axis gesture. |
 
 ### Assign a live control
 
@@ -111,6 +112,10 @@ Timeline cues. Saved bindings follow source/filter identities through renames.
 Knobs use a compact, themed progress arc and vertical dragging, with no
 value jump on click. Captions reserve fixed space, so live values never
 shift neighboring controls. Hold **Shift** for 10× finer movement, or focus a knob and use the wheel or arrow keys.
+
+Use **+ → XY controller** to assign two separate numeric properties to
+a compact crosshair pad. Both values follow OBS readback, and each axis
+uses its own range and step.
 
 Audio sources also expose **Mixer / Volume** and **Mixer / Mute**. Volume
 uses OBS’s logarithmic fader curve with a dB readout; both can be scheduled
@@ -187,7 +192,10 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- Source checkpoint `9773946` (November 19, 2026): **96/96 tests
+- Current local source includes XY controls and passes **98/98 strict
+  Qt/libobs tests**. The XY addition has not yet been installed or
+  interactively tested in OBS.
+- Installed source checkpoint `9773946` (November 19, 2026): **96/96 tests
   passed** with native Qt/libobs and strict runtime initialization.
   Frontend interactions in the harness use test doubles.
 - The same build was installed in native OBS 32.2.0 on Linux; both docks
