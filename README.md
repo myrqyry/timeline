@@ -42,6 +42,7 @@ Build reusable sequences without leaving OBS.
 | Set Parameter Value | Set a numeric, boolean or text source/filter property to a defined value. |
 | Hotkey Trigger | Run an OBS or third-party plugin hotkey. |
 | Trigger Timeline | Play another saved timeline. |
+| Freeze Time | Hold the timeline clock without adding empty ruler space. |
 | Downstream Keyer Scene | Select or hide an overlay scene in a named keyer (optional integration). |
 
 Visibility, filter and compatible media actions can have a duration, with
@@ -176,7 +177,7 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **89/89 tests passing** in the local native OBS32 build, including
+- **93/93 tests passing** in the local native OBS32 build, including
   owner-aware hotkeys, native mixer bindings, text controls and theme refresh
   (November 18, 2026). Qt widgets and libobs are real; frontend
   interactions in the harness use test doubles.

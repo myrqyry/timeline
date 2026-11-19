@@ -13,10 +13,19 @@ public:
 
 	void setTimeMs(double timeMs);
 	void setPlaying(bool playing);
+	void setFrozen(bool frozen);
 	void setCompactMode(bool compact);
 	void setStatusColor(const QColor &color);
-	void setYellowColor(const QColor &color) { mYellowColor = color; update(); }
-	void setRedColor(const QColor &color) { mRedColor = color; update(); }
+	void setYellowColor(const QColor &color)
+	{
+		mYellowColor = color;
+		update();
+	}
+	void setRedColor(const QColor &color)
+	{
+		mRedColor = color;
+		update();
+	}
 
 	QColor greenColor() const { return mStatusColor; }
 	QColor yellowColor() const { return mYellowColor; }
@@ -31,6 +40,7 @@ protected:
 private:
 	double mTimeMs = 0.0;
 	bool mPlaying = false;
+	bool mFrozen = false;
 	bool mCompact = false;
 	QColor mStatusColor = QColor(72, 210, 100);
 	QColor mYellowColor = QColor(210, 210, 72);

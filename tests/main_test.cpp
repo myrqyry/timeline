@@ -1,5 +1,6 @@
 #include <QGraphicsScene>
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QScopeGuard>
 #include <QDoubleSpinBox>
 #include <QGraphicsSceneMouseEvent>
@@ -795,7 +796,7 @@ private slots:
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::MediaStop)), -1);
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::FilterDisable)), -1);
 		QCOMPARE(types->count(),
-			 7 + (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene)
+			 8 + (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene)
 				      ? 1
 				      : 0));
 		struct Case {
@@ -2006,6 +2007,191 @@ private slots:
 		QCOMPARE(startedSpy.count(), 2);
 	}
 
+	void testFreezeTimeDefersLaterCuesEvenOnLateTick()
+	{
+		TimelineModel model;
+		TimelineEvent span, hold, same, later;
+		span.hasDuration = true;
+		span.durationMs = 60;
+		hold.type = TimelineEventType::FreezeTime;
+		hold.timeMs = same.timeMs = 20;
+		hold.data = 100.0; // wall-clock milliseconds, not a timeline span
+		later.timeMs = 80;
+		model.addEvents({span, hold, same, later});
+		TimelineScheduler scheduler(&model);
+		scheduler.setEndTime(80);
+		QStringList trace;
+		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler,
+			[&](const TimelineEvent &e) { trace << e.id; });
+		connect(&scheduler, &TimelineScheduler::eventEnded, &scheduler,
+			[&](const TimelineEvent &e) { trace << e.id + ":end"; });
+		QSignalSpy finished(&scheduler, &TimelineScheduler::finished);
+		QSignalSpy ticks(&scheduler, &TimelineScheduler::tick);
+		scheduler.start();
+		QTest::qSleep(95); // even an overdue end marker must not bypass a freeze
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(trace, (QStringList{span.id, hold.id, same.id}));
+		QVERIFY(scheduler.isPlaying());
+		QCOMPARE(scheduler.getCurrentTime(), 20.0);
+		QCOMPARE(ticks.last().at(0).toDouble(), 20.0);
+		QCOMPARE(finished.count(), 0);
+		QTest::qWait(30);
+		QCOMPARE(scheduler.getCurrentTime(), 20.0);
+		QCOMPARE(trace.size(), 3);
+		scheduler.pause();
+		QVERIFY(!scheduler.isPlaying());
+		QTest::qWait(120);
+		QCOMPARE(scheduler.getCurrentTime(), 20.0);
+		scheduler.start();
+		QTest::qWait(15);
+		QCOMPARE(scheduler.getCurrentTime(), 20.0);
+		QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 1500);
+		QCOMPARE(trace, (QStringList{span.id, hold.id, same.id, span.id + ":end", later.id}));
+		QCOMPARE(scheduler.getCurrentTime(), 80.0);
+	}
+
+	void testFreezeTimeSeekRestartAndLoopBoundary()
+	{
+		TimelineModel model;
+		TimelineEvent hold;
+		hold.type = TimelineEventType::FreezeTime;
+		hold.timeMs = 15;
+		hold.data = 80.0;
+		model.addEvent(hold);
+		TimelineScheduler scheduler(&model);
+		scheduler.setEndTime(15);
+		scheduler.setLooping(true);
+		QSignalSpy starts(&scheduler, &TimelineScheduler::eventStarted);
+		QSignalSpy loops(&scheduler, &TimelineScheduler::looped);
+		scheduler.start();
+		QTest::qSleep(25);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(starts.count(), 1);
+		QCOMPARE(loops.count(), 0);
+		QCOMPARE(scheduler.getCurrentTime(), 15.0);
+		QTRY_COMPARE_WITH_TIMEOUT(loops.count(), 1, 1000);
+		QTRY_COMPARE_WITH_TIMEOUT(starts.count(), 2, 1000);
+		QCOMPARE(loops.count(), 1);
+		scheduler.restart();
+		QCOMPARE(scheduler.getCurrentTime(), 0.0);
+		QVERIFY(!scheduler.isPlaying());
+		scheduler.setLooping(false);
+		scheduler.setEndTime(100);
+		scheduler.start();
+		QTRY_COMPARE_WITH_TIMEOUT(starts.count(), 3, 1000);
+		scheduler.seek(50);
+		QVERIFY(scheduler.getCurrentTime() >= 50);
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 1000);
+		QCOMPARE(starts.count(), 3);
+	}
+
+	void testFreezeTimeComposesAndDoesNotExtendVisualDuration()
+	{
+		TimelineModel model;
+		TimelineEvent first, second, third, after, invalid;
+		first.type = second.type = third.type = invalid.type = TimelineEventType::FreezeTime;
+		first.data = second.data = 60.0;
+		third.timeMs = 20;
+		third.data = 80.0;
+		invalid.timeMs = 1;
+		invalid.data = -100.0;
+		after.timeMs = 30;
+		model.addEvents({first, second, invalid, third, after});
+		TimelineScheduler scheduler(&model);
+		scheduler.setEndTime(30);
+		QStringList trace;
+		connect(&scheduler, &TimelineScheduler::eventStarted, &scheduler,
+			[&](const TimelineEvent &e) { trace << e.id; });
+		QElapsedTimer elapsed;
+		elapsed.start();
+		scheduler.start();
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(trace, (QStringList{first.id, second.id}));
+		QVERIFY(scheduler.isFrozen());
+		QCOMPARE(scheduler.getCurrentTime(), 0.0);
+		QVERIFY(scheduler.freezeRemainingMs() > 60);
+		QTRY_VERIFY_WITH_TIMEOUT(trace.contains(third.id), 1500);
+		QVERIFY(scheduler.isPlaying());
+		QCOMPARE(scheduler.getCurrentTime(), 20.0);
+		QVERIFY(!trace.contains(after.id));
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 1500);
+		QVERIFY(elapsed.elapsed() >= 230);
+		QCOMPARE(trace, (QStringList{first.id, second.id, invalid.id, third.id, after.id}));
+
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const QString path = dir.filePath("hold.json");
+		TimelineModel nestedModel;
+		first.data = 160.0;
+		nestedModel.addEvent(first);
+		after.timeMs = 20;
+		nestedModel.addEvent(after);
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		QVERIFY(file.write(QJsonDocument(nestedModel.toJson()).toJson()) > 0);
+		file.close();
+		HeadlessTimeline nested;
+		QVERIFY(nested.loadFromFile(path));
+		auto *nestedScheduler = nested.findChild<TimelineScheduler *>();
+		QVERIFY(nestedScheduler);
+		QCOMPARE(nestedScheduler->getEndTime(), 120.0);
+		QSignalSpy finished(&nested, &HeadlessTimeline::finished);
+		nested.start();
+		QTRY_VERIFY_WITH_TIMEOUT(nestedScheduler->isFrozen(), 1000);
+		QTest::qWait(40);
+		QCOMPARE(finished.count(), 0);
+		QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 1500);
+	}
+
+	void testFreezeTimeEditorAndRoundTrip()
+	{
+		EventEditor editor(1000.0);
+		auto *types = editor.findChild<QComboBox *>("eventTypeCombo");
+		auto *duration = editor.findChild<QDoubleSpinBox *>("freezeDurationSpin");
+		QVERIFY(types && duration);
+		const int index = types->findData(static_cast<int>(TimelineEventType::FreezeTime));
+		QVERIFY(index >= 0);
+		types->setCurrentIndex(index);
+		duration->setValue(2.75);
+		TimelineEvent hold;
+		editor.getUpdatedEvent(hold);
+		QCOMPARE(hold.type, TimelineEventType::FreezeTime);
+		QCOMPARE(hold.data.toDouble(), 2750.0);
+		QVERIFY(!hold.hasDuration);
+		TimelineModel model, restored;
+		model.addEvent(hold);
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().size(), size_t(1));
+		QCOMPARE(restored.getEvents().front().data.toDouble(), 2750.0);
+		EventEditor reopened(restored.getEvents().front());
+		QCOMPARE(reopened.findChild<QDoubleSpinBox *>("freezeDurationSpin")->value(), 2.75);
+		EventEditor macroEditor(0.0, nullptr, false);
+		QCOMPARE(macroEditor.findChild<QComboBox *>("eventTypeCombo")
+				 ->findData(static_cast<int>(TimelineEventType::FreezeTime)),
+			 -1);
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineDock dock(nullptr, dir.filePath("timeline.json"));
+		dock.resize(900, 180);
+		dock.show();
+		auto *dockModel = dock.findChild<TimelineModel *>();
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(dockModel && view);
+		hold.data = 3600000.0;
+		dockModel->addEvent(hold);
+		QCoreApplication::processEvents();
+		auto findMarker = [&]() -> TimelineEventItem * {
+			for (auto *graphics : view->scene()->items())
+				if (auto *marker = dynamic_cast<TimelineEventItem *>(graphics);
+				    marker && marker->getEventId() == hold.id)
+					return marker;
+			return nullptr;
+		};
+		QTRY_VERIFY(findMarker());
+		QVERIFY(findMarker()->toolTip().contains("3600"));
+		QVERIFY(findMarker()->sceneBoundingRect().width() < 180);
+	}
+
 	void testSchedulerDrainsFinalCuesBeforeFinish()
 	{
 		TimelineModel model;
@@ -2238,17 +2424,20 @@ private slots:
 		QSignalSpy tickSpy(&scheduler, &TimelineScheduler::tick);
 
 		scheduler.seek(1500.0);
+		scheduler.start();
 		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
 		QCOMPARE(finishedSpy.count(), 1);
 
 		scheduler.setLooping(true);
 		scheduler.seek(1500.0);
+		scheduler.start();
 		tickSpy.clear();
 		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
 		QCOMPARE(loopedSpy.count(), 1);
 		QCOMPARE(tickSpy.count(), 1);
 		QCOMPARE(tickSpy.takeFirst().at(0).toDouble(), 0.0);
-		QCOMPARE(scheduler.getCurrentTime(), 0.0);
+		QVERIFY(scheduler.getCurrentTime() < 100.0);
+		scheduler.stop();
 	}
 
 	void testEventItemClickReleaseDoesNotEmitMove()

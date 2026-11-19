@@ -192,7 +192,7 @@ generated during default construction.
 | `hasDuration` | Whether the scheduler emits an end event |
 | `durationMs` | Duration in milliseconds |
 
-The enum contains fifteen values, with IDs preserved and new operations
+The enum contains sixteen values, with IDs preserved and new operations
 appended. Historical `MediaSeek` (ID 3) is reserved; the shared editor
 groups the five current media actions under Media Playback.
 
@@ -210,6 +210,7 @@ The executor interprets duration and instant events differently:
 | `MediaResume` | Resume media | Pause media |
 | `MediaSeekTo` | Seek to absolute media position | No end action |
 | `SetParameterValue` | Set a typed source/filter property to a defined value | No end action |
+| `FreezeTime` | Scheduler holds logical time | No end action |
 | `FilterEnable` | Enable filter | Disable filter |
 | `FilterDisable` | Disable filter | Enable filter |
 | `SceneSwitch` | Switch scene | No end action |
@@ -362,6 +363,16 @@ elapsed monotonic time, independently of wall-clock adjustments.
 This design means pause and resume preserve the playhead without accumulating
 timer drift. `stop()` preserves the current position; `restart()` stops the
 timer and seeks to zero (`src/timeline-scheduler.cpp:54-78`).
+
+FreezeTime (ID 15) stores a bounded positive real-time wait in event
+data (milliseconds), not a duration span. Before dispatching due cues,
+the scheduler clamps the tick to the earliest unfired hold, sums waits
+at that timestamp and starts a monotonic countdown. The start cursor and
+end scan cannot run beyond that timestamp until the wait expires. Manual
+pause retains the remaining wait; seeking resets it. A late tick begins
+the full wait when the marker is actually processed. Loop/end completion
+waits for the hold at the boundary. The executor does not alter OBS state
+for this cue. Macro Strip excludes the scheduler-only type.
 
 ### Start and end detection
 

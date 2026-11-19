@@ -19,12 +19,14 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 			QSet<QString> newEndFired;
 
 			for (const auto &evt : evts) {
-				if (evt.timeMs < t) {
+				if (evt.timeMs < t ||
+				    (isFrozen() && evt.timeMs == t && eventStartFired.contains(evt.id))) {
 					newStartFired.insert(evt.id);
 				}
-				if (evt.hasDuration && evt.durationMs > 0) {
+				if (evt.type != TimelineEventType::FreezeTime && evt.hasDuration &&
+				    evt.durationMs > 0) {
 					const double endMs = evt.timeMs + evt.durationMs;
-					if (endMs < t) {
+					if (endMs < t || (isFrozen() && endMs == t && eventEndFired.contains(evt.id))) {
 						newEndFired.insert(evt.id);
 					}
 				}
@@ -46,6 +48,7 @@ void TimelineScheduler::start()
 	if (playing)
 		return;
 
+	++clockRevision;
 	playing = true;
 	// Reset start time to now, preserving currentOffsetMs
 	startTime = std::chrono::steady_clock::now();
@@ -58,6 +61,9 @@ void TimelineScheduler::stop()
 	if (!playing)
 		return;
 	currentOffsetMs = getCurrentTime(); // Preserve position
+	freezeMs = freezeRemainingMs();
+	nextStartIndex = 0;
+	++clockRevision;
 	playing = false;
 	timer->stop();
 	blog(LOG_INFO, "[Timeline] Playback stopped at %.1f ms", currentOffsetMs);
@@ -78,6 +84,9 @@ void TimelineScheduler::pause()
 
 	// Capture current playback position
 	currentOffsetMs = getCurrentTime();
+	freezeMs = freezeRemainingMs();
+	nextStartIndex = 0;
+	++clockRevision;
 
 	playing = false;
 	timer->stop();
@@ -86,6 +95,8 @@ void TimelineScheduler::pause()
 
 void TimelineScheduler::seek(double timeMs)
 {
+	++clockRevision;
+	freezeMs = 0.0;
 	currentOffsetMs = timeMs;
 	if (playing) {
 		startTime = std::chrono::steady_clock::now();
@@ -103,7 +114,7 @@ void TimelineScheduler::seek(double timeMs)
 			}
 			// Only duration events have an "end" to track —
 			// instant events never emit eventEnded.
-			if (evt.hasDuration && evt.durationMs > 0) {
+			if (evt.type != TimelineEventType::FreezeTime && evt.hasDuration && evt.durationMs > 0) {
 				const double endMs = evt.timeMs + evt.durationMs;
 				if (endMs < timeMs) {
 					eventEndFired.insert(evt.id);
@@ -119,7 +130,7 @@ void TimelineScheduler::seek(double timeMs)
 
 double TimelineScheduler::getCurrentTime() const
 {
-	if (!playing)
+	if (!playing || isFrozen())
 		return currentOffsetMs;
 
 	auto now = std::chrono::steady_clock::now();
@@ -139,38 +150,96 @@ void TimelineScheduler::setLooping(bool loop)
 	blog(LOG_INFO, "[Timeline] Looping: %s", looping ? "enabled" : "disabled");
 }
 
+double TimelineScheduler::freezeRemainingMs() const
+{
+	if (!isFrozen() || !playing)
+		return freezeMs;
+	const auto elapsed =
+		std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startTime).count();
+	return std::max(0.0, freezeMs - elapsed);
+}
+
+void TimelineScheduler::beginDueFreeze(double &timeMs)
+{
+	if (!model)
+		return;
+	// Identify the earliest due hold before publishing a tick or advancing
+	// the start cursor. Same-time holds add together; all other cues at
+	// this timestamp still dispatch in the normal chronological order.
+	const auto &events = model->getEvents();
+	double wait = 0.0;
+	for (size_t i = nextStartIndex; i < events.size() && events[i].timeMs <= timeMs; ++i) {
+		const auto &evt = events[i];
+		if (eventStartFired.contains(evt.id))
+			continue;
+		const double duration = freezeDurationMs(evt);
+		if (duration <= 0.0)
+			continue;
+		if (wait == 0.0)
+			timeMs = evt.timeMs;
+		wait += duration;
+	}
+	if (wait <= 0.0)
+		return;
+	currentOffsetMs = timeMs;
+	startTime = std::chrono::steady_clock::now();
+	freezeMs = wait;
+}
+
 void TimelineScheduler::onTimerTick()
 {
-	const double currentTime = getCurrentTime();
+	if (!playing)
+		return;
+	const auto revision = clockRevision;
+	if (isFrozen()) {
+		if (freezeRemainingMs() > 0.0) {
+			emit tick(currentOffsetMs);
+			return;
+		}
+		// Advance the wall-clock origin by precisely the hold duration.
+		// A late wake-up after the wait retains the post-hold elapsed time.
+		startTime += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+			std::chrono::duration<double, std::milli>(freezeMs));
+		freezeMs = 0.0;
+	}
+	double currentTime = getCurrentTime();
+	if (endTimeMs > 0)
+		currentTime = std::min(currentTime, endTimeMs);
+	beginDueFreeze(currentTime);
+	// A looping boundary publishes only the next cycle's zero tick,
+	// unless this cycle must visibly hold at the boundary first.
+	if (isFrozen() || !looping || endTimeMs <= 0 || currentTime < endTimeMs)
+		emit tick(currentTime);
+	if (!playing || clockRevision != revision)
+		return;
+	dispatchDueCues(currentTime);
+	if (!playing || clockRevision != revision || isFrozen())
+		return;
 	if (endTimeMs > 0 && currentTime >= endTimeMs) {
-		const double boundary = endTimeMs;
-		// Drain the outgoing cycle, including cues exactly on the end marker.
-		// A late Qt timer tick must not drop these or run cues past the marker.
-		dispatchDueCues(boundary);
 		if (!looping) {
 			playing = false;
 			timer->stop();
-			currentOffsetMs = boundary;
-			emit tick(boundary);
+			currentOffsetMs = endTimeMs;
 			emit finished();
 			blog(LOG_INFO, "[Timeline] End time reached - playback finished");
 			return;
 		}
-
 		currentOffsetMs = 0.0;
 		startTime = std::chrono::steady_clock::now();
 		eventStartFired.clear();
 		eventEndFired.clear();
 		nextStartIndex = 0;
-		emit tick(0.0);
+		double start = 0.0;
+		beginDueFreeze(start);
+		emit tick(start);
+		if (!playing || clockRevision != revision)
+			return;
 		emit looped();
-		dispatchDueCues(0.0);
+		if (!playing || clockRevision != revision)
+			return;
+		dispatchDueCues(start);
 		blog(LOG_DEBUG, "[Timeline] Looped back to start");
-		return;
 	}
-
-	emit tick(currentTime);
-	dispatchDueCues(currentTime);
 }
 
 void TimelineScheduler::dispatchDueCues(double timeMs)
@@ -194,7 +263,7 @@ void TimelineScheduler::dispatchDueCues(double timeMs)
 			due.push_back({evt.timeMs, false, evt});
 	}
 	for (const auto &evt : events) {
-		if (!evt.hasDuration || evt.durationMs <= 0.0)
+		if (evt.type == TimelineEventType::FreezeTime || !evt.hasDuration || evt.durationMs <= 0.0)
 			continue;
 		const double end = evt.timeMs + evt.durationMs;
 		if (end <= timeMs && !eventEndFired.contains(evt.id))
@@ -209,7 +278,10 @@ void TimelineScheduler::dispatchDueCues(double timeMs)
 			return a.time < b.time;
 		return a.isEnd && !b.isEnd;
 	});
+	const auto revision = clockRevision;
 	for (const auto &cue : due) {
+		if (!playing || clockRevision != revision)
+			break;
 		auto &fired = cue.isEnd ? eventEndFired : eventStartFired;
 		if (fired.contains(cue.event.id))
 			continue;

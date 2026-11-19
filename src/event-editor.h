@@ -16,8 +16,8 @@ class EventEditor : public QDialog {
 	Q_OBJECT
 
 public:
-	explicit EventEditor(const TimelineEvent &evt, QWidget *parent = nullptr);
-	explicit EventEditor(double timeMs, QWidget *parent = nullptr);
+	explicit EventEditor(const TimelineEvent &evt, QWidget *parent = nullptr, bool allowFreeze = true);
+	explicit EventEditor(double timeMs, QWidget *parent = nullptr, bool allowFreeze = true);
 
 	void getUpdatedEvent(TimelineEvent &evt) const;
 
@@ -44,6 +44,8 @@ private:
 	QLabel *parameterSummary = nullptr;
 	QString parameterPayload;
 	QString parameterTarget;
+	QWidget *freezeWidget = nullptr;
+	QDoubleSpinBox *freezeDurationSpin = nullptr;
 	QWidget *mediaSeekWidget = nullptr;
 	QDoubleSpinBox *mediaSeekSpin = nullptr;
 	QLabel *targetLabel = nullptr;
@@ -74,4 +76,5 @@ private:
 	double eventTimeMs = 0.0;
 	double initialDisplayedTimeSeconds = 0.0;
 	bool isNewMode = false;
+	bool allowFreeze = true;
 };

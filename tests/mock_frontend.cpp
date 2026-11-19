@@ -144,9 +144,14 @@ obs_module_t *obs_current_module(void)
 	return nullptr;
 }
 
-// Mock obs_module_text for test builds (returns the key as-is)
+// Most strings use their key; format strings retain their placeholders so
+// tests can exercise the actual value substitution in the widgets.
 const char *obs_module_text(const char *text)
 {
+	if (strcmp(text, "TimelineDock.FreezeLabel") == 0)
+		return "Hold %1s";
+	if (strcmp(text, "TimelineDock.FreezeRemaining") == 0)
+		return "Freeze Time: %1 s remaining";
 	return text;
 }
 

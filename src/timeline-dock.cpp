@@ -1844,6 +1844,13 @@ void TimelineDock::onTick(double currentTimeMs)
 
 	if (timecodeDisplay) {
 		timecodeDisplay->setTimeMs(currentTimeMs);
+		timecodeDisplay->setFrozen(scheduler->isFrozen());
+		const QString tip = scheduler->isFrozen()
+					    ? QString::fromUtf8(obs_module_text("TimelineDock.FreezeRemaining"))
+						      .arg(scheduler->freezeRemainingMs() / 1000.0, 0, 'f', 1)
+					    : QStringLiteral("Current timeline position");
+		if (timecodeDisplay->toolTip() != tip)
+			timecodeDisplay->setToolTip(tip);
 	}
 }
 
@@ -2076,7 +2083,7 @@ void TimelineDock::rebuildEventItems()
 		}
 		item->setStackOffset(stackIndex);
 
-		item->setHasDuration(evt.hasDuration);
+		item->setHasDuration(evt.hasDuration && evt.type != TimelineEventType::FreezeTime);
 		item->setDuration(evt.durationMs);
 		item->setSnapEnabled(snapEnabled);
 		item->setSnapInterval(getSnapIntervalMs());
@@ -2105,6 +2112,9 @@ void TimelineDock::rebuildEventItems()
 		case TimelineEventType::MediaResume:
 			typeStr = obs_module_text("EventType.MediaResume");
 			break;
+		case TimelineEventType::FreezeTime:
+			typeStr = obs_module_text("EventType.FreezeTime");
+			break;
 		case TimelineEventType::SetParameterValue:
 			typeStr = obs_module_text("EventType.SetParameterValue");
 			break;
@@ -2131,7 +2141,10 @@ void TimelineDock::rebuildEventItems()
 		int minutes = static_cast<int>(timeSec) / 60;
 		int seconds = static_cast<int>(timeSec) % 60;
 		int ms = static_cast<int>(evt.timeMs) % 1000;
-		QString targetDisplay = evt.sourceName;
+		QString targetDisplay = evt.type == TimelineEventType::FreezeTime
+						? QString::fromUtf8(obs_module_text("TimelineDock.FreezeLabel"))
+							  .arg(freezeDurationMs(evt) / 1000.0, 0, 'g', 8)
+						: evt.sourceName;
 		if (!evt.filterName.isEmpty()) {
 			targetDisplay += "::" + evt.filterName;
 		}
@@ -2153,8 +2166,11 @@ void TimelineDock::rebuildEventItems()
 				.arg(seconds, 2, 10, QChar('0'))
 				.arg(ms / 10, 2, 10, QChar('0'));
 		item->setToolTip(tooltip);
-		item->setEventLabel(evt.label.isEmpty() ? evt.sourceName : evt.label);
-		item->setShowLabel(evt.showLabel);
+		if (evt.type == TimelineEventType::FreezeTime)
+			item->setEventLabel(evt.showLabel && !evt.label.isEmpty() ? evt.label : targetDisplay);
+		else
+			item->setEventLabel(evt.label.isEmpty() ? evt.sourceName : evt.label);
+		item->setShowLabel(evt.showLabel || evt.type == TimelineEventType::FreezeTime);
 	}
 
 	auto it = eventItemMap.begin();
@@ -2267,6 +2283,7 @@ void TimelineDock::updatePlayButtonIcon()
 			     QString(), 6);
 	if (timecodeDisplay) {
 		timecodeDisplay->setPlaying(scheduler->isPlaying());
+		timecodeDisplay->setFrozen(scheduler->isFrozen());
 		timecodeDisplay->setCompactMode(compactMode);
 	}
 }

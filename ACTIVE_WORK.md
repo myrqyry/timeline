@@ -1,6 +1,10 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Freeze Time — 2026-11-19
+- User requested a timed clock hold to compress long gaps visually. Appended event ID 15, separate real-time wait payload 0–24h (positive for valid cue), single labeled clock marker, native theme highlight for frozen clock and remaining tooltip. Same-time cues dispatch together; holds accumulate; later starts and ends shift; pause preserves remaining, seek/restart cancel, loop/end and headless clocks respect holds. OBS sources and independently running children continue. Active hold progress not persisted. Full wait starts at actual dispatch, including late wakeups.
+- RED absent event type; focused scheduler/roundtrip/long-marker tests green. Full suite initially caught old picker-count assertion and test invoking inactive timer; updated test to start playback and retained original loop tick semantics. Native strict 93 passed, 0 failed/skipped. Logs /tmp/timeline-freeze-full2.log. Formatter check before commit. No install/push.
+
 ### Move undo/redo to menu — 2026-11-19
 - User reported that the joined history buttons still did not visually match zoom and requested moving them to the menu. Removed both toolbar buttons and their container. Native menu actions at the top of the existing Timeline menu show localized labels and platform shortcut hints. Retained existing dock-scoped QShortcuts, history enable/disable checks, playback/drag guards and history model. Zoom styling and sizes unchanged.
 - RED: updated existing dock tests failed for missing menu actions and unwanted toolbar history buttons. GREEN: tests click actual menu actions, verify shortcut behavior, history lockout and persistence, plus compact zoom geometry. Native OBS32 rebuild and full strict suite: 89 passed, 0 failed/skipped; exact clang-format 19.1.1 passed. Logs /tmp/timeline-history-menu-red.log, /tmp/timeline-history-menu-green.log and /tmp/timeline-history-menu-full.log.

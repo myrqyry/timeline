@@ -71,7 +71,9 @@ bool HeadlessTimeline::loadFromFile(const QString &filePath)
 	if (scheduler->getEndTime() <= 0.0) {
 		double maxTimeMs = 0.0;
 		for (const auto &evt : model->getEvents()) {
-			double evtEnd = evt.timeMs + (evt.hasDuration ? evt.durationMs : 0.0);
+			double evtEnd =
+				evt.timeMs +
+				(evt.hasDuration && evt.type != TimelineEventType::FreezeTime ? evt.durationMs : 0.0);
 			if (evtEnd > maxTimeMs)
 				maxTimeMs = evtEnd;
 		}

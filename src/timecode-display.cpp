@@ -78,6 +78,14 @@ void TimecodeDisplay::setPlaying(bool playing)
 	update();
 }
 
+void TimecodeDisplay::setFrozen(bool frozen)
+{
+	if (mFrozen == frozen)
+		return;
+	mFrozen = frozen;
+	update();
+}
+
 void TimecodeDisplay::setStatusColor(const QColor &color)
 {
 	if (mStatusColor == color)
@@ -109,7 +117,7 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 	p.drawRoundedRect(r, 6.0, 6.0);
 
 	// Indicate playing status via the thematic status color (e.g. meter green) or standard mid border
-	QColor border = mPlaying ? mStatusColor : mid;
+	QColor border = mFrozen ? palette().color(QPalette::Highlight) : (mPlaying ? mStatusColor : mid);
 	if (mPlaying) {
 		// Add a subtle glow for the status border
 		QColor glow = border;
@@ -167,7 +175,8 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 		if (i == 1 || i == 3) {
 			// Draw a nice small vertical colon or dot separator in accent/dim color
 			// If playing, we can also make the separators thematic for high visibility
-			QColor sepColor = mPlaying ? mStatusColor : (i == 1 ? textColor : accent);
+			QColor sepColor = mFrozen ? palette().color(QPalette::Highlight)
+						  : (mPlaying ? mStatusColor : (i == 1 ? textColor : accent));
 			p.setPen(QPen(sepColor, 2.0, Qt::SolidLine, Qt::RoundCap));
 			double cy = r.center().y();
 			if (i == 1) {

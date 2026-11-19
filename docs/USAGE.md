@@ -66,6 +66,19 @@ A value remains set until another action or manual adjustment changes it.
 A Macro Strip action button can use the same event type as an immediate
 preset. Live controls bound to that property reflect its changed value.
 
+### Freeze Time
+
+Add a Freeze Time cue and set its wait in seconds (up to 24 hours). The
+playhead holds at the marker while OBS continues running normally. The
+clock resumes automatically; later cues and timeline-duration endings
+are delayed without changing their saved timestamps. Cues on the same
+marker timestamp still execute together, and coincident holds accumulate.
+The clock border highlights while waiting; hover for remaining time.
+Manual pause preserves remaining wait; seek cancels the active wait and
+restart clears it. A new pass through the marker waits again. Nested
+timelines use their own clock. Other OBS media and independent timers
+are not paused. Active wait progress is not persisted across sessions.
+
 ### Finding hotkeys
 
 Select **Hotkey Trigger** in either editor. Search by description, registered

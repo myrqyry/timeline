@@ -44,21 +44,23 @@ static TimelineEventType actionCategory(TimelineEventType type)
 	}
 }
 
-EventEditor::EventEditor(const TimelineEvent &evt, QWidget *parent)
+EventEditor::EventEditor(const TimelineEvent &evt, QWidget *parent, bool allowFreeze)
 	: QDialog(parent),
 	  selectedColor(evt.color),
 	  eventTimeMs(evt.timeMs),
-	  isNewMode(false)
+	  isNewMode(false),
+	  allowFreeze(allowFreeze)
 {
 	buildUi();
 	preSelectFromEvent(evt);
 }
 
-EventEditor::EventEditor(double timeMs, QWidget *parent)
+EventEditor::EventEditor(double timeMs, QWidget *parent, bool allowFreeze)
 	: QDialog(parent),
 	  selectedColor(ThemeIcons::getDefaultColor(TimelineEventType::SceneSwitch)),
 	  eventTimeMs(timeMs),
-	  isNewMode(true)
+	  isNewMode(true),
+	  allowFreeze(allowFreeze)
 {
 	buildUi();
 	populateTargets(TimelineEventType::SceneSwitch);
@@ -87,6 +89,9 @@ void EventEditor::buildUi()
 				   static_cast<int>(TimelineEventType::DownstreamKeyerScene));
 	typeCombo->addItem(obs_module_text("EventType.SetParameterValue"),
 			   static_cast<int>(TimelineEventType::SetParameterValue));
+	if (allowFreeze)
+		typeCombo->addItem(obs_module_text("EventType.FreezeTime"),
+				   static_cast<int>(TimelineEventType::FreezeTime));
 	layout->addRow(obs_module_text("EventEditor.EventType"), typeCombo);
 
 	actionLabel = new QLabel(obs_module_text("EventEditor.Action"), this);
@@ -216,6 +221,21 @@ void EventEditor::buildUi()
 	colorIconLayout->addWidget(browseIconBtn);
 	colorIconLayout->addStretch();
 	layout->addRow(colorIconLayout);
+
+	freezeWidget = new QWidget(this);
+	auto *freezeRow = new QHBoxLayout(freezeWidget);
+	freezeRow->setContentsMargins(0, 0, 0, 0);
+	freezeRow->addWidget(new QLabel(obs_module_text("EventEditor.FreezeDuration"), freezeWidget));
+	freezeDurationSpin = new QDoubleSpinBox(freezeWidget);
+	freezeDurationSpin->setObjectName("freezeDurationSpin");
+	freezeDurationSpin->setDecimals(3);
+	freezeDurationSpin->setRange(0.0, kMaxFreezeMs / 1000.0);
+	freezeDurationSpin->setSuffix(" s");
+	freezeDurationSpin->setValue(5.0);
+	freezeRow->addWidget(freezeDurationSpin);
+	freezeWidget->setToolTip(obs_module_text("EventEditor.FreezeTooltip"));
+	layout->addRow(freezeWidget);
+	freezeWidget->hide();
 
 	// Duration controls
 	durationCheck = new QCheckBox(obs_module_text("EventEditor.HasDuration"), this);
@@ -351,7 +371,8 @@ void EventEditor::populateTargets(TimelineEventType evtType)
 	targetCombo->setEnabled(true);
 	dskWidget->setVisible(evtType == TimelineEventType::DownstreamKeyerScene);
 	parameterWidget->setVisible(evtType == TimelineEventType::SetParameterValue);
-	if (evtType == TimelineEventType::SetParameterValue) {
+	freezeWidget->setVisible(evtType == TimelineEventType::FreezeTime);
+	if (evtType == TimelineEventType::SetParameterValue || evtType == TimelineEventType::FreezeTime) {
 		targetLabel->hide();
 		targetCombo->hide();
 		fileWidget->hide();
@@ -596,7 +617,9 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 	populateActionChoices(category, evt.type);
 	populateTargets(category);
 
-	if (evt.type == TimelineEventType::SetParameterValue) {
+	if (evt.type == TimelineEventType::FreezeTime) {
+		freezeDurationSpin->setValue(freezeDurationMs(evt) / 1000.0);
+	} else if (evt.type == TimelineEventType::SetParameterValue) {
 		parameterPayload = evt.data.toString();
 		parameterTarget = evt.sourceName;
 		updateDefinedParameterLabel();
@@ -723,7 +746,12 @@ void EventEditor::validateAndAccept()
 		QMessageBox::warning(this, obs_module_text("EventEditor.InvalidEvent"), message);
 	};
 
-	if (type == TimelineEventType::SetParameterValue) {
+	if (type == TimelineEventType::FreezeTime) {
+		if (!allowFreeze || freezeDurationSpin->value() <= 0) {
+			warn(obs_module_text("EventEditor.WarnDuration"));
+			return;
+		}
+	} else if (type == TimelineEventType::SetParameterValue) {
 		// Allow an existing missing binding to be preserved, but require a
 		// well-formed explicit payload. The executor revalidates at playback.
 		if (!MacroParameter::decodeValue(parameterPayload)) {
@@ -794,7 +822,10 @@ void EventEditor::onActionChanged(int index)
 {
 	Q_UNUSED(index);
 	const bool seek = selectedActionType() == TimelineEventType::MediaSeekTo;
-	const bool instantaneous = seek || selectedActionType() == TimelineEventType::SetParameterValue;
+	const bool freeze = selectedActionType() == TimelineEventType::FreezeTime;
+	const bool instantaneous = seek || freeze || selectedActionType() == TimelineEventType::SetParameterValue;
+	durationCheck->setVisible(!freeze);
+	durationSpin->setVisible(!freeze);
 	mediaSeekWidget->setVisible(seek);
 	durationCheck->setText(obs_module_text(
 		selectedActionType() == TimelineEventType::MediaPause    ? "EventEditor.ResumeAfterDuration"
@@ -856,12 +887,16 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 	if ((evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) &&
 	    SceneItemTarget::isExplicit(evt.data.toString()))
 		evt.data = QVariant();
-	if (isMediaAction(evt.type) || evt.type == TimelineEventType::SetParameterValue ||
-	    evt.type == TimelineEventType::HotkeyTrigger)
+	if (isMediaAction(evt.type) || evt.type == TimelineEventType::FreezeTime ||
+	    evt.type == TimelineEventType::SetParameterValue || evt.type == TimelineEventType::HotkeyTrigger)
 		evt.data = QVariant();
 	evt.type = selectedActionType();
 
-	if (evt.type == TimelineEventType::SetParameterValue) {
+	if (evt.type == TimelineEventType::FreezeTime) {
+		evt.sourceName.clear();
+		evt.filterName.clear();
+		evt.data = freezeDurationSpin->value() * 1000.0;
+	} else if (evt.type == TimelineEventType::SetParameterValue) {
 		evt.sourceName = parameterTarget;
 		evt.filterName.clear();
 		evt.data = parameterPayload;
@@ -925,6 +960,7 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 	evt.showLabel = showLabelCheck->isChecked();
 	evt.label = labelEdit->text().trimmed();
 	evt.hasDuration = evt.type != TimelineEventType::MediaSeekTo &&
-			  evt.type != TimelineEventType::SetParameterValue && durationCheck->isChecked();
-	evt.durationMs = durationSpin->value() * 1000.0;
+			  evt.type != TimelineEventType::SetParameterValue &&
+			  evt.type != TimelineEventType::FreezeTime && durationCheck->isChecked();
+	evt.durationMs = evt.type == TimelineEventType::FreezeTime ? 0.0 : durationSpin->value() * 1000.0;
 }

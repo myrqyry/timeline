@@ -127,6 +127,9 @@ void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 void ObsExecutor::performAction(const TimelineEvent &evt, bool isStartAction)
 {
 	switch (evt.type) {
+	case TimelineEventType::FreezeTime:
+		// Scheduler-owned clock control; no OBS source operation.
+		break;
 	case TimelineEventType::SetParameterValue: {
 		if (isStartAction) {
 			const auto cue = MacroParameter::decodeValue(evt.data.toString());

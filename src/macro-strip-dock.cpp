@@ -201,7 +201,7 @@ void MacroStripDock::addButtonAtEnd()
 
 void MacroStripDock::showAddEditor()
 {
-	EventEditor editor(0.0, this);
+	EventEditor editor(0.0, this, false);
 	if (editor.exec() != QDialog::Accepted)
 		return;
 
@@ -246,7 +246,7 @@ void MacroStripDock::showEditEditor(const QString &id)
 	evt.color = existing->color;
 	evt.label = existing->label;
 	evt.data = existing->data;
-	EventEditor editor(evt, this);
+	EventEditor editor(evt, this, false);
 	if (editor.exec() != QDialog::Accepted)
 		return;
 

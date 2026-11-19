@@ -15,6 +15,8 @@ public:
 
 	bool isPlaying() const { return playing; }
 	double getCurrentTime() const;
+	double freezeRemainingMs() const;
+	bool isFrozen() const { return freezeMs > 0.0; }
 
 public slots:
 	void start();
@@ -41,11 +43,14 @@ private slots:
 
 private:
 	void dispatchDueCues(double timeMs);
+	void beginDueFreeze(double &timeMs);
 	TimelineModel *model = nullptr;
 	QTimer *timer = nullptr;
 
 	// Time tracking
 	std::chrono::steady_clock::time_point startTime;
+	double freezeMs = 0.0; // remaining wall-clock wait, measured from startTime when playing
+	quint64 clockRevision = 0;
 	double currentOffsetMs = 0.0; // Where we are in the timeline relative to 0
 	double endTimeMs = 0.0;       // 0 = no end time (infinite)
 

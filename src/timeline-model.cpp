@@ -226,7 +226,7 @@ void TimelineModel::fromJson(const QJsonArray &json)
 		}
 		evt.timeMs = obj["time"].toDouble();
 		int typeInt = obj["type"].toInt(-1);
-		constexpr int maxTypeValue = static_cast<int>(TimelineEventType::SetParameterValue);
+		constexpr int maxTypeValue = static_cast<int>(TimelineEventType::FreezeTime);
 		if (typeInt < 0 || typeInt > maxTypeValue) {
 			blog(LOG_WARNING, "[Timeline] ┌─ Unknown event type skipped");
 			blog(LOG_WARNING, "[Timeline] └─ Type : %d", typeInt);
@@ -268,7 +268,8 @@ void TimelineModel::fromJson(const QJsonArray &json)
 		}
 		evt.showLabel = obj["showLabel"].toBool(false);
 
-		if (evt.type != TimelineEventType::SetParameterValue && obj.contains("hasDuration")) {
+		if (evt.type != TimelineEventType::SetParameterValue && evt.type != TimelineEventType::FreezeTime &&
+		    obj.contains("hasDuration")) {
 			evt.hasDuration = obj["hasDuration"].toBool();
 			evt.durationMs = obj["duration"].toDouble();
 		}
