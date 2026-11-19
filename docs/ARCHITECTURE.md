@@ -287,7 +287,10 @@ The same binding catalog and typed write path are used by the
 `SetParameterValue` timeline event (appended enum ID 14). Its string data
 contains a versioned JSON object with source/filter UUID, key, scalar type,
 and typed value (numeric, boolean as 0/1, or string for text). The event editor reuses the dynamic
-binding dialog, replacing control kind with a numeric, On/Off or text value editor.
+binding dialog, replacing control kind with a numeric, On/Off or text value editor. The
+live scalar editor offers control kind first and filters the live property
+catalog to compatible scalar types, preserving exact compatible selections.
+The defined-value and XY axis pickers retain their dedicated flows.
 The executor validates the payload and live property and applies it at event
 start for version-1 instant cues. Version-2 numeric payloads add endValue
 and easing; duration is stored on the event. No writes occur on editor

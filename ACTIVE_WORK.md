@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Type-first macro binding — 2026-11-19
+
+- User requested choosing the control type before the variable. Scalar assignment dialog now presents Slider/Knob/Toggle/Text entry first, then the source/filter and compatible property. Changing control kind preserves an exact compatible binding, clears incompatible selection, never auto-retargets, and keeps the live catalog refresh. XY retains its two-axis numeric picker; scheduled defined-value editor unchanged. No saved-format changes.
+- RED: new UI test failed because no control types were offered before selecting a property. GREEN: type-first order, all four kinds, filtering, compatible binding preservation and incompatible clearing; other catalog, text, mixer, XY and defined-value tests passed. Full strict native suite 99 passed, zero failures/skips. Exact clang-format passed. Logs /tmp/timeline-kind-first-red.log, /tmp/timeline-kind-first-green.log, /tmp/timeline-kind-first-full.log.
+- Native installed checkpoint remains 147f978 (includes XY); this local change has not been installed or pushed. Interactive acceptance pending.
+
+
 ### Newer Qt CI compatibility — 2026-11-19
 
 - OBS33 Linux CI compiled the plugin but rejected two test calls to QApplication::setActiveWindow under -Werror=deprecated-declarations. Current local XY work contained one additional call. Replaced all three with QWidget::activateWindow and explicit waits for active-window state; retained focus and keyboard assertions, added an XY focus assertion. No production or compiler flag changes.

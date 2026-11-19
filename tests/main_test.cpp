@@ -3236,7 +3236,8 @@ private slots:
 		QCOMPARE(restored.buttons().first().binding.type, MacroParameterType::Text);
 		// Discover both control types through the actual assignment UI.
 		QWidget editorHost;
-		auto choose = [&](const QString &propertyName) -> std::optional<MacroButton> {
+		auto choose = [&](const QString &propertyName,
+				  MacroControlKind controlKind) -> std::optional<MacroButton> {
 			QTimer::singleShot(0, &editorHost, [&, propertyName] {
 				auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
 				if (!dialog)
@@ -3254,13 +3255,15 @@ private slots:
 				}
 				dialog->reject();
 			});
-			return editMacroParameter(&editorHost, MacroButton{});
+			MacroButton initial;
+			initial.kind = controlKind;
+			return editMacroParameter(&editorHost, initial);
 		};
-		const auto textChoice = choose("Text");
+		const auto textChoice = choose("Text", MacroControlKind::Text);
 		QVERIFY(textChoice);
 		QCOMPARE(textChoice->kind, MacroControlKind::Text);
 		QCOMPARE(textChoice->binding.key, text.key);
-		const auto boolChoice = choose("Enabled");
+		const auto boolChoice = choose("Enabled", MacroControlKind::Toggle);
 		QVERIFY(boolChoice);
 		QCOMPARE(boolChoice->kind, MacroControlKind::Toggle);
 		QCOMPARE(boolChoice->binding.type, MacroParameterType::Boolean);
@@ -3651,6 +3654,65 @@ private slots:
 		});
 		QVERIFY(!editMacroParameter(&dock, initial));
 		QVERIFY(done);
+	}
+
+	void testMacroControlTypePrecedesAndFiltersProperties()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Type first target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		QWidget host;
+		bool configured = false;
+		QTimer::singleShot(0, &host, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			QVERIFY(dialog);
+			auto close = qScopeGuard([&] {
+				if (!configured)
+					dialog->reject();
+			});
+			auto *kind = dialog->findChild<QComboBox *>("macro-parameter-kind");
+			auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			QVERIFY(kind && target && property && buttons);
+			QCOMPARE(kind->count(), 4);
+			QVERIFY(kind->geometry().top() < property->geometry().top());
+			auto select = [&](MacroControlKind k) {
+				kind->setCurrentIndex(kind->findData(static_cast<int>(k)));
+			};
+			select(MacroControlKind::Toggle);
+			target->setCurrentIndex(target->findText("Type first target"));
+			QVERIFY(property->findText("Enabled") >= 0);
+			QCOMPARE(property->findText("Controls / Gain"), -1);
+			QCOMPARE(property->findText("Text"), -1);
+			property->setCurrentIndex(property->findText("Enabled"));
+			QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			select(MacroControlKind::Knob);
+			QCOMPARE(property->currentIndex(), -1);
+			QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			QVERIFY(property->findText("Controls / Gain") >= 0);
+			QCOMPARE(property->findText("Enabled"), -1);
+			property->setCurrentIndex(property->findText("Controls / Gain"));
+			select(MacroControlKind::Slider);
+			QCOMPARE(property->currentText(), QString("Controls / Gain"));
+			select(MacroControlKind::Text);
+			QCOMPARE(property->currentIndex(), -1);
+			QVERIFY(property->findText("Text") >= 0);
+			QCOMPARE(property->findText("Controls / Gain"), -1);
+			property->setCurrentIndex(property->findText("Text"));
+			QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			configured = true;
+			dialog->accept();
+		});
+		MacroButton initial;
+		initial.kind = MacroControlKind::Slider;
+		const auto edited = editMacroParameter(&host, initial);
+		QVERIFY(configured && edited);
+		QCOMPARE(edited->kind, MacroControlKind::Text);
+		QCOMPARE(edited->binding.key, QString("untouched"));
 	}
 
 	void testMacroParameterEditorSelectsAndPreservesBinding()

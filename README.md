@@ -100,8 +100,8 @@ parameter control.
 ### Assign a live control
 
 1. Click **+ → Parameter control**.
-2. Select a source or filter, then one of its available parameters.
-3. Choose a compatible control and give it a label.
+2. Choose Slider, Knob, Toggle or Text entry.
+3. Select a source or filter, then a compatible parameter and give it a label.
 4. Adjust it directly in the dock. Right-click to edit, reorder or remove it.
 
 The parameter picker discovers compatible OBS properties dynamically, including
@@ -192,9 +192,9 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- Current local source includes XY controls and passes **98/98 strict
-  Qt/libobs tests**. The XY addition has not yet been installed or
-  interactively tested in OBS.
+- Current local source includes XY controls and type-first binding and passes **99/99 strict
+  Qt/libobs tests**. XY is installed on the local OBS32 test machine; the new type-first
+  binding dialog has not yet been installed or interactively tested.
 - Installed source checkpoint `9773946` (November 19, 2026): **96/96 tests
   passed** with native Qt/libobs and strict runtime initialization.
   Frontend interactions in the harness use test doubles.

@@ -187,6 +187,13 @@ boolean toggles and editable text controls. The shared parameter catalog walks s
 groups, standalone sources, attached filters and exposed property groups.
 It reads the property's current type, range, increment and unit suffix.
 
+Choose the control type before selecting a source/filter and parameter.
+Sliders and knobs list numeric properties only, toggles list booleans only,
+and text entries list editable strings only. Changing between compatible
+control types retains the selected binding; an incompatible property
+selection clears and must be chosen again. XY axis pickers remain numeric;
+the timeline defined-value picker still accepts all supported scalar types.
+
 Bindings store source UUID, optional filter UUID, property key and scalar
 type. Renames retain identity. Added/removed targets and changed property
 definitions are reflected in the open assignment dialog, refreshed about
@@ -237,8 +244,8 @@ before downgrading.
 
 ### Boolean and text controls
 
-Boolean properties automatically offer a Toggle; the checked state tracks
-the current OBS value. Text properties offer Text entry. Single-line fields
+Choose Toggle to expose boolean properties or Text entry to expose
+editable text properties. The checked state tracks the current OBS value. Single-line fields
 use an inline entry and an explicit **Apply** button, keeping unsubmitted
 edits separate from the live value. External updates refresh clean entries
 without replacing a draft. Multiline properties open an editable text

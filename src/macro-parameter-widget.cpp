@@ -862,6 +862,16 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	auto *info = new QLabel(&dialog);
 	info->setWordWrap(true);
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	const bool chooseControl = !definedValue && axis.isEmpty();
+	if (chooseControl) {
+		kindCombo->addItem(QObject::tr("Slider"), static_cast<int>(MacroControlKind::Slider));
+		kindCombo->addItem(QObject::tr("Knob"), static_cast<int>(MacroControlKind::Knob));
+		kindCombo->addItem(QObject::tr("Toggle"), static_cast<int>(MacroControlKind::Toggle));
+		kindCombo->addItem(QObject::tr("Text entry"), static_cast<int>(MacroControlKind::Text));
+		const int index = kindCombo->findData(static_cast<int>(initial.kind));
+		kindCombo->setCurrentIndex(index >= 0 ? index : 0);
+		form->addRow(QObject::tr("Control"), kindCombo);
+	}
 	form->addRow(QObject::tr("Source / filter"), targetCombo);
 	form->addRow(QObject::tr("Parameter"), propertyCombo);
 	if (definedValue) {
@@ -870,7 +880,6 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		label->hide();
 	} else {
 		if (axis.isEmpty()) {
-			form->addRow(QObject::tr("Control"), kindCombo);
 			form->addRow(QObject::tr("Label"), label);
 		} else {
 			kindCombo->hide();
@@ -885,7 +894,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	QList<MacroParameter::Target> targets;
 	QList<MacroParameter::Spec> specs;
 	targetCombo->addItem(QObject::tr("Choose a source or filter"), -1);
-	MacroControlKind preferred = initial.kind;
+	MacroControlKind preferred = chooseControl ? static_cast<MacroControlKind>(kindCombo->currentData().toInt())
+						   : initial.kind;
 	auto selectedBinding = [&] {
 		MacroParameterBinding result;
 		const int targetIndex = targetCombo->currentData().toInt();
@@ -922,13 +932,16 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	auto updateKind = [&] {
 		const int index = propertyCombo->currentIndex();
 		const QSignalBlocker block(kindCombo);
-		kindCombo->clear();
+		if (!chooseControl)
+			kindCombo->clear();
 		const bool valid = index >= 0 && index < specs.size();
 		buttons->button(QDialogButtonBox::Ok)->setEnabled(valid);
 		if (!valid) {
 			if (definedValue)
 				valueRow->setEnabled(false);
-			info->setText(QObject::tr("Choose an exposed numeric, boolean or text property."));
+			info->setText(chooseControl
+					      ? QObject::tr("Choose a compatible property.")
+					      : QObject::tr("Choose an exposed numeric, boolean or text property."));
 			return;
 		}
 		const auto &spec = specs[index];
@@ -974,17 +987,19 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 				previousValue = valueSpin->value();
 			}
 		}
-		if (spec.type == MacroParameterType::Text)
-			kindCombo->addItem(QObject::tr("Text entry"), static_cast<int>(MacroControlKind::Text));
-		else if (spec.type == MacroParameterType::Boolean)
-			kindCombo->addItem(QObject::tr("Toggle"), static_cast<int>(MacroControlKind::Toggle));
-		else {
-			kindCombo->addItem(QObject::tr("Slider"), static_cast<int>(MacroControlKind::Slider));
-			kindCombo->addItem(QObject::tr("Knob"), static_cast<int>(MacroControlKind::Knob));
+		if (!chooseControl) {
+			if (spec.type == MacroParameterType::Text)
+				kindCombo->addItem(QObject::tr("Text entry"), static_cast<int>(MacroControlKind::Text));
+			else if (spec.type == MacroParameterType::Boolean)
+				kindCombo->addItem(QObject::tr("Toggle"), static_cast<int>(MacroControlKind::Toggle));
+			else {
+				kindCombo->addItem(QObject::tr("Slider"), static_cast<int>(MacroControlKind::Slider));
+				kindCombo->addItem(QObject::tr("Knob"), static_cast<int>(MacroControlKind::Knob));
+			}
+			const int kindIndex = kindCombo->findData(static_cast<int>(preferred));
+			if (kindIndex >= 0)
+				kindCombo->setCurrentIndex(kindIndex);
 		}
-		const int kindIndex = kindCombo->findData(static_cast<int>(preferred));
-		if (kindIndex >= 0)
-			kindCombo->setCurrentIndex(kindIndex);
 		info->setText((spec.type == MacroParameterType::Boolean || spec.type == MacroParameterType::Text)
 				      ? spec.key
 				      : QObject::tr("%1 · %2 to %3 · step %4")
@@ -996,13 +1011,18 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	auto updateProperties = [&](const MacroParameterBinding &selection, bool force) {
 		auto fresh = selection.sourceUuid.isEmpty() ? QList<MacroParameter::Spec>{}
 							    : MacroParameter::properties(selection);
-		if (!axis.isEmpty())
+		if (!axis.isEmpty() || chooseControl) {
 			fresh.erase(std::remove_if(fresh.begin(), fresh.end(),
-						   [](const auto &spec) {
+						   [&](const auto &spec) {
+							   if (chooseControl && preferred == MacroControlKind::Toggle)
+								   return spec.type != MacroParameterType::Boolean;
+							   if (chooseControl && preferred == MacroControlKind::Text)
+								   return spec.type != MacroParameterType::Text;
 							   return spec.type != MacroParameterType::Integer &&
 								  spec.type != MacroParameterType::Float;
 						   }),
 				    fresh.end());
+		}
 		if (!force && fresh == specs)
 			return;
 		const QSignalBlocker block(propertyCombo);
@@ -1050,8 +1070,11 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	QObject::connect(propertyCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog,
 			 [&](int) { updateKind(); });
 	QObject::connect(kindCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int index) {
-		if (index >= 0)
+		if (chooseControl && index >= 0) {
+			const auto selection = selectedBinding();
 			preferred = static_cast<MacroControlKind>(kindCombo->currentData().toInt());
+			updateProperties(selection, true);
+		}
 	});
 	refreshCatalog(initial.binding, true);
 	QTimer catalogTimer(&dialog);
