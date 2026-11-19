@@ -268,7 +268,10 @@ private:
 		const QString display = spec->type == MacroParameterType::Boolean
 						? (value != 0 ? tr("On") : tr("Off"))
 						: QString::number(value, 'g', 7) + spec->suffix;
-		label->setText(title + " · " + display);
+		label->setText(title + " · " +
+			       (binding.domain == "mixer" && binding.type == MacroParameterType::Float
+					? MacroParameter::mixerVolumeLabel(value)
+					: display));
 	}
 	void refresh(bool schema)
 	{
@@ -396,6 +399,7 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		if (propertyIndex >= 0 && propertyIndex < specs.size()) {
 			result.key = specs[propertyIndex].key;
 			result.type = specs[propertyIndex].type;
+			result.domain = specs[propertyIndex].domain;
 		}
 		return result;
 	};
@@ -403,7 +407,7 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	std::optional<double> previousValue = definedValue ? *definedValue : std::nullopt;
 	auto sameBinding = [](const MacroParameterBinding &a, const MacroParameterBinding &b) {
 		return a.sourceUuid == b.sourceUuid && a.filterUuid == b.filterUuid && a.key == b.key &&
-		       a.type == b.type;
+		       a.type == b.type && a.domain == b.domain;
 	};
 	// Preserve a manually chosen value across catalog refreshes, including
 	// changes in the selected property's declared range.
@@ -488,7 +492,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		int selected = -1;
 		for (int i = 0; i < specs.size(); ++i) {
 			propertyCombo->addItem(specs[i].label);
-			if (specs[i].key == selection.key && specs[i].type == selection.type)
+			if (specs[i].key == selection.key && specs[i].type == selection.type &&
+			    specs[i].domain == selection.domain)
 				selected = i;
 		}
 		// Missing properties never silently bind to an adjacent list entry.
@@ -515,6 +520,7 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		auto current = selectedBinding();
 		current.key = selection.key;
 		current.type = selection.type;
+		current.domain = selection.domain;
 		updateProperties(current, force);
 	};
 	QObject::connect(targetCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int) {
@@ -550,7 +556,7 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	const auto &spec = specs[propertyIndex];
 	MacroButton result = initial;
 	result.kind = static_cast<MacroControlKind>(kindCombo->currentData().toInt());
-	result.binding = {target.sourceUuid, target.filterUuid, spec.key, spec.type};
+	result.binding = {target.sourceUuid, target.filterUuid, spec.key, spec.type, spec.domain};
 	result.sourceName = target.label;
 	result.label = label->text().trimmed().isEmpty() ? spec.label.section(" / ", -1) : label->text().trimmed();
 	const auto current = MacroParameter::describe(result.binding);

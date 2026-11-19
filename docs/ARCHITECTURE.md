@@ -305,6 +305,25 @@ Unavailable targets disable interaction. Schema refresh and update callbacks
 run on the dock thread; performance depends on the target plugin's property
 and update implementation.
 
+### Native mixer binding domain
+
+The optional binding domain distinguishes OBS settings properties (absent
+or empty) from native mixer controls (`mixer`). Native keys are
+`timeline:mixer:volume` and `timeline:mixer:mute`. The catalog adds these
+only to audio-capable non-filter sources. Both saved controls and defined
+value payloads retain the domain. The resolver validates the source UUID,
+domain, key, scalar type and audio capability; mixer operations do not
+enumerate the source's plugin-property schema.
+
+Volume converts normalized fader position (0–100%, step 0.1%) through
+a scoped libobs `OBS_FADER_LOG` conversion object and uses
+`obs_source_get_volume` / `obs_source_set_volume` for read/write.
+Mute calls the native mute APIs independently. No attached fader or extra
+source reference persists after the operation. Existing coalescing and
+readback apply to these bindings; labels display the corresponding dB.
+The range ends at unity and does not represent above-unity gain.
+Older builds do not understand this domain; keep backups before downgrade.
+
 ## Scheduler architecture
 
 The scheduler owns playback time, not OBS behavior. It uses a Qt timer with an

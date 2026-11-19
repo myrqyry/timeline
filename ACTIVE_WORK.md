@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Native audio mixer controls — 2026-11-18
+- User invoked Remote Desktop Commander following the Control Panel adaptation discussion. Continued the agreed native audio-control direction: shared parameter editor discovers source-level volume and mute when libobs exposes audio capability. Separate optional mixer domain prevents conflating native audio controls with arbitrary plugin settings. UUID binding, slider/knob/toggle readback and instantaneous scheduled value cues reuse the existing implementation. Independent implementation using libobs APIs; no upstream code imported.
+- Volume uses OBS_FADER_LOG conversion, normalized 0–100% fader travel in 0.1% increments, dB caption, silence to unity, no positive gain. Readback above unity saturates. Mute does not change volume. Native writes avoid property-schema enumeration. No meter, volume ramp, or action-button state feedback included.
+- RED: new binding-domain regression could not compile on previous API. GREEN: real registered audio-capable source, actual libobs fader comparison, editor discovery, macro and cue payload roundtrip, slider readback and write, scheduled volume/mute, removed-target failure. Full native OBS32 build and strict suite 86 passed, zero failures/skips; exact clang-format 19.1.1 check passed. Logs /tmp/timeline-mixer-red.log and /tmp/timeline-mixer-full.log. No rendered/audio-output or native mixer GUI acceptance test.
+- No install/push; active OBS left running at prior installed checkpoint 68ab09a.
+
+
 ### Owner-aware hotkey binding — 2026-11-18
 - Following review of Voidscape-Development/Control-Panel, independently implemented stable hotkey ownership in our existing HotkeyCatalog. No upstream code imported or license change. New selections save a versioned identity payload with registerer type, owner and internal name, keeping legacy names for display. Source UUIDs survive owner rename and re-registration; missing/duplicate complete identities skip execution. Catalog excludes ambiguous exact identities; search cannot silently change an explicitly selected owner.
 - Legacy actions retain name-only first match until explicitly retargeted. Older builds ignore the new payload; avoid executing new exact bindings on those builds. Output/encoder/service identity uses internal name (not UUID); frontend hotkeys have no exposed owner identity.

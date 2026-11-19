@@ -1,6 +1,7 @@
 #include "macro-parameter.h"
 #include "scene-item-target.h"
 #include <obs.h>
+#include <obs-audio-controls.h>
 #include <QSet>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -12,6 +13,24 @@ namespace {
 using Source = std::unique_ptr<obs_source_t, decltype(&obs_source_release)>;
 using Properties = std::unique_ptr<obs_properties_t, decltype(&obs_properties_destroy)>;
 using Data = std::unique_ptr<obs_data_t, decltype(&obs_data_release)>;
+
+using Fader = std::unique_ptr<obs_fader_t, decltype(&obs_fader_destroy)>;
+
+bool isMixerVolume(const MacroParameterBinding &b)
+{
+	return b.domain == "mixer" && b.key == "timeline:mixer:volume" && b.type == MacroParameterType::Float;
+}
+
+bool isMixerMute(const MacroParameterBinding &b)
+{
+	return b.domain == "mixer" && b.key == "timeline:mixer:mute" && b.type == MacroParameterType::Boolean;
+}
+
+bool supportsMixer(obs_source_t *source)
+{
+	return source && !obs_source_removed(source) && (obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) &&
+	       obs_source_get_type(source) != OBS_SOURCE_TYPE_FILTER;
+}
 
 QString uuid(obs_source_t *source)
 {
@@ -88,11 +107,22 @@ void collectProperties(obs_properties_t *props, obs_data_t *settings, const QStr
 	}
 }
 
-QList<MacroParameter::Spec> propertiesFor(obs_source_t *source)
+QList<MacroParameter::Spec> mixerProperties(obs_source_t *source)
+{
+	if (!supportsMixer(source))
+		return {};
+	return {{"timeline:mixer:volume", "Mixer / Volume (fader position)", " %", MacroParameterType::Float, 0, 100,
+		 0.1, "mixer"},
+		{"timeline:mixer:mute", "Mixer / Mute", {}, MacroParameterType::Boolean, 0, 1, 1, "mixer"}};
+}
+
+QList<MacroParameter::Spec> propertiesFor(obs_source_t *source, bool includeMixer)
 {
 	QList<MacroParameter::Spec> result;
 	if (!source)
 		return result;
+	if (includeMixer)
+		result = mixerProperties(source);
 	Properties props(obs_source_properties(source), obs_properties_destroy);
 	Data settings(obs_source_get_settings(source), obs_data_release);
 	if (props && settings)
@@ -102,8 +132,11 @@ QList<MacroParameter::Spec> propertiesFor(obs_source_t *source)
 
 std::optional<MacroParameter::Spec> describeFor(obs_source_t *source, const MacroParameterBinding &binding)
 {
-	for (const auto &spec : propertiesFor(source))
-		if (spec.key == binding.key && spec.type == binding.type)
+	const auto specs = binding.domain == "mixer" ? (binding.filterUuid.isEmpty() ? mixerProperties(source)
+										     : QList<MacroParameter::Spec>{})
+						     : propertiesFor(source, false);
+	for (const auto &spec : specs)
+		if (spec.key == binding.key && spec.type == binding.type && spec.domain == binding.domain)
 			return spec;
 	return std::nullopt;
 }
@@ -117,6 +150,7 @@ QString encodeValue(const DefinedValue &cue)
 							   {"sourceUuid", b.sourceUuid},
 							   {"filterUuid", b.filterUuid},
 							   {"key", b.key},
+							   {"domain", b.domain},
 							   {"type", b.type == MacroParameterType::Integer ? "int"
 								    : b.type == MacroParameterType::Float ? "float"
 													  : "bool"},
@@ -130,6 +164,9 @@ std::optional<DefinedValue> decodeValue(const QString &payload)
 		return std::nullopt;
 	const auto obj = doc.object();
 	const QString type = obj["type"].toString();
+	const QString domain = obj["domain"].toString();
+	if (obj.contains("domain") && (!obj["domain"].isString() || (!domain.isEmpty() && domain != "mixer")))
+		return std::nullopt;
 	if (obj["version"].toInt(-1) != 1 || !obj["sourceUuid"].isString() || obj["sourceUuid"].toString().isEmpty() ||
 	    !obj["filterUuid"].isString() || obj["key"].toString().isEmpty() || !obj["value"].isDouble() ||
 	    (type != "int" && type != "float" && type != "bool"))
@@ -141,11 +178,28 @@ std::optional<DefinedValue> decodeValue(const QString &payload)
 	return DefinedValue{{obj["sourceUuid"].toString(), obj["filterUuid"].toString(), obj["key"].toString(),
 			     type == "int"     ? MacroParameterType::Integer
 			     : type == "float" ? MacroParameterType::Float
-					       : MacroParameterType::Boolean},
+					       : MacroParameterType::Boolean,
+			     domain},
 			    value};
 }
+QString mixerVolumeLabel(double position)
+{
+	Fader fader(obs_fader_create(OBS_FADER_LOG), obs_fader_destroy);
+	if (!fader)
+		return QString::number(position, 'f', 1) + " %";
+	obs_fader_set_deflection(fader.get(), static_cast<float>(std::clamp(position, 0.0, 100.0) / 100.0));
+	const float db = obs_fader_get_db(fader.get());
+	return std::isinf(db) ? QStringLiteral("-inf dB") : QString::number(db, 'f', 1) + " dB";
+}
+
 QString displayValue(const DefinedValue &cue)
 {
+	if (isMixerVolume(cue.binding))
+		return "Mixer volume = " + QString::number(cue.value, 'g', 7) + "% (" + mixerVolumeLabel(cue.value) +
+		       ")";
+	if (isMixerMute(cue.binding))
+		return cue.value != 0 ? QStringLiteral("Mixer mute = On") : QStringLiteral("Mixer mute = Off");
+
 	return cue.binding.key + " = " +
 	       (cue.binding.type == MacroParameterType::Boolean
 			? (cue.value != 0 ? QStringLiteral("On") : QStringLiteral("Off"))
@@ -219,7 +273,7 @@ QList<Target> targets()
 QList<Spec> properties(const MacroParameterBinding &binding)
 {
 	auto source = resolve(binding);
-	return propertiesFor(source.get());
+	return propertiesFor(source.get(), binding.filterUuid.isEmpty());
 }
 std::optional<Spec> describe(const MacroParameterBinding &binding)
 {
@@ -231,6 +285,22 @@ std::optional<double> read(const MacroParameterBinding &binding)
 	auto source = resolve(binding);
 	if (!source || binding.key.isEmpty())
 		return std::nullopt;
+	if (!binding.domain.isEmpty()) {
+		if (!binding.filterUuid.isEmpty() || !supportsMixer(source.get()))
+			return std::nullopt;
+		if (isMixerMute(binding))
+			return obs_source_muted(source.get()) ? 1.0 : 0.0;
+		if (!isMixerVolume(binding))
+			return std::nullopt;
+		Fader fader(obs_fader_create(OBS_FADER_LOG), obs_fader_destroy);
+		if (!fader)
+			return std::nullopt;
+		const float volume = obs_source_get_volume(source.get());
+		if (!std::isfinite(volume))
+			return std::nullopt;
+		obs_fader_set_mul(fader.get(), volume);
+		return std::clamp(static_cast<double>(obs_fader_get_deflection(fader.get())) * 100.0, 0.0, 100.0);
+	}
 	Data settings(obs_source_get_settings(source.get()), obs_data_release);
 	if (!settings)
 		return std::nullopt;
@@ -273,6 +343,18 @@ bool write(const MacroParameterBinding &binding, double value)
 	if (!spec)
 		return false;
 	value = spec->valueAt(spec->indexOf(value));
+	if (isMixerMute(binding)) {
+		obs_source_set_muted(source.get(), value != 0);
+		return true;
+	}
+	if (isMixerVolume(binding)) {
+		Fader fader(obs_fader_create(OBS_FADER_LOG), obs_fader_destroy);
+		if (!fader)
+			return false;
+		obs_fader_set_deflection(fader.get(), static_cast<float>(value / 100.0));
+		obs_source_set_volume(source.get(), obs_fader_get_mul(fader.get()));
+		return true;
+	}
 	Data patch(obs_data_create(), obs_data_release);
 	const auto key = binding.key.toUtf8();
 	switch (binding.type) {

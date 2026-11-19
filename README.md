@@ -82,9 +82,9 @@ parameter control.
 | Control | Example use |
 | --- | --- |
 | Action button | Switch scenes, run a hotkey or apply a parameter preset. |
-| Slider | Adjust effect opacity or another numeric property. |
+| Slider | Adjust mixer volume, effect opacity or another numeric property. |
 | Knob | Adjust shader speed or intensity. |
-| Toggle | Turn a boolean filter setting on or off. |
+| Toggle | Mute an audio source or turn a boolean setting on or off. |
 
 ### Assign a live control
 
@@ -101,9 +101,12 @@ Timeline cues. Saved bindings follow source/filter identities through renames.
 Knobs use vertical dragging, with no value jump on click. Hold **Shift** for
 10× finer movement, or focus a knob and use the wheel or arrow keys.
 
+Audio sources also expose **Mixer / Volume** and **Mixer / Mute**. Volume
+uses OBS’s logarithmic fader curve with a dB readout; both can be scheduled
+with Set Parameter Value.
+
 Numeric and boolean properties are supported. Color, list and text controls,
-custom ranges, scene-item transforms and direct mixer volume are not yet
-supported. See [live control details](docs/USAGE.md#live-parameter-controls).
+custom ranges and scene-item transforms are not yet supported. See [live control details](docs/USAGE.md#live-parameter-controls).
 
 ## Installation
 
@@ -169,12 +172,12 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- **84/84 tests passing** in the local native OBS32 build after formatting
-  commit `e558d52` (November 18, 2026). Qt widgets and libobs are real; frontend
+- **86/86 tests passing** in the local native OBS32 build, including
+  owner-aware hotkeys and native mixer bindings (November 18, 2026). Qt widgets and libobs are real; frontend
   interactions in the harness use test doubles.
-- Earlier build `3681512` loaded both docks and the WebSocket vendor in an
-  isolated OBS 32.2.0 session. The latest layout and knob improvements still
-  require native visual testing.
+- Build `68ab09a` loaded both docks and the WebSocket vendor in an
+  isolated OBS 32.2.0 session. The new hotkey and mixer changes still
+  require native interactive testing.
 - HyperShaderFX effect opacity and a shader uniform have been verified through
   the real plugin's property interface; rendered output has not been verified.
 - Additional multi-selection editing, HTTP actions and release-grade

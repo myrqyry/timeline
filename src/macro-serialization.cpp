@@ -25,6 +25,7 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 			obj["binding"] = QJsonObject{{"sourceUuid", b.binding.sourceUuid},
 						     {"filterUuid", b.binding.filterUuid},
 						     {"key", b.binding.key},
+						     {"domain", b.binding.domain},
 						     {"type", b.binding.type == MacroParameterType::Integer ? "int"
 							      : b.binding.type == MacroParameterType::Float ? "float"
 													    : "bool"}};
@@ -74,7 +75,10 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 			const QString kind = obj["control"].toString();
 			const auto binding = obj["binding"].toObject();
 			const QString type = binding["type"].toString();
-			if ((kind != "slider" && kind != "knob" && kind != "toggle") ||
+			const QString domain = binding["domain"].toString();
+			if ((binding.contains("domain") &&
+			     (!binding["domain"].isString() || (!domain.isEmpty() && domain != "mixer"))) ||
+			    (kind != "slider" && kind != "knob" && kind != "toggle") ||
 			    (type != "int" && type != "float" && type != "bool") ||
 			    ((kind == "toggle") != (type == "bool")) || binding["sourceUuid"].toString().isEmpty() ||
 			    binding["key"].toString().isEmpty()) {
@@ -89,7 +93,8 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 				     binding["key"].toString(),
 				     type == "int"     ? MacroParameterType::Integer
 				     : type == "float" ? MacroParameterType::Float
-						       : MacroParameterType::Boolean};
+						       : MacroParameterType::Boolean,
+				     domain};
 		} else {
 			if (typeInt < 0 || typeInt > maxTypeValue)
 				continue;

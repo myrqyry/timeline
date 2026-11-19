@@ -47,6 +47,7 @@
 #include "macro-strip-dock.h"
 #include "event-editor.h"
 #include "hotkey-catalog.h"
+#include <obs-audio-controls.h>
 #include "plugin-integrations.h"
 #include <QMenu>
 #include <QComboBox>
@@ -310,6 +311,11 @@ private slots:
 		obs_register_source(&parameter);
 		parameter.id = "timeline_parameter_filter";
 		parameter.type = OBS_SOURCE_TYPE_FILTER;
+		obs_register_source(&parameter);
+
+		parameter.id = "timeline_audio_probe";
+		parameter.type = OBS_SOURCE_TYPE_INPUT;
+		parameter.output_flags = OBS_SOURCE_AUDIO;
 		obs_register_source(&parameter);
 
 		// Register dummy filter
@@ -2582,6 +2588,98 @@ private slots:
 			QVERIFY(input);
 			QVERIFY(qAbs(input->mapTo(&dock, QPoint(0, input->height() / 2)).y() - center) <= 1);
 		}
+	}
+
+	void testNativeMixerBindingsUseObsFaderCurve()
+	{
+		auto *source = obs_source_create("timeline_audio_probe", "Mixer test", nullptr, nullptr);
+		QVERIFY(source);
+		auto release = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		const QString uuid = QString::fromUtf8(obs_source_get_uuid(source));
+		MacroParameterBinding volume{uuid, {}, "timeline:mixer:volume", MacroParameterType::Float, "mixer"};
+		MacroParameterBinding mute{uuid, {}, "timeline:mixer:mute", MacroParameterType::Boolean, "mixer"};
+		QVERIFY(MacroParameter::describe(volume));
+		QVERIFY(MacroParameter::describe(mute));
+		QWidget editorHost;
+		bool selected = false;
+		QTimer::singleShot(0, &editorHost, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			if (target && property && buttons) {
+				target->setCurrentIndex(target->findText("Mixer test"));
+				property->setCurrentIndex(property->findText("Mixer / Volume (fader position)"));
+				selected = buttons->button(QDialogButtonBox::Ok)->isEnabled();
+			}
+			if (selected)
+				dialog->accept();
+			else
+				dialog->reject();
+		});
+		const auto edited = editMacroParameter(&editorHost, MacroButton{});
+		QVERIFY(selected && edited);
+		QCOMPARE(edited->binding.domain, QString("mixer"));
+		QCOMPARE(edited->binding.key, volume.key);
+
+		auto *fader = obs_fader_create(OBS_FADER_LOG);
+		QVERIFY(fader);
+		auto destroyFader = qScopeGuard([&] { obs_fader_destroy(fader); });
+		obs_fader_set_deflection(fader, 0.5f);
+		const float expected = obs_fader_get_mul(fader);
+		QVERIFY(MacroParameter::write(volume, 50));
+		QVERIFY(qAbs(obs_source_get_volume(source) - expected) < 1e-6);
+		QVERIFY(qAbs(MacroParameter::read(volume).value() - 50) < 1e-3);
+		QVERIFY(MacroParameter::write(mute, 1));
+		QVERIFY(obs_source_muted(source));
+		QVERIFY(qAbs(obs_source_get_volume(source) - expected) < 1e-6);
+		MacroButton slider;
+		slider.kind = MacroControlKind::Slider;
+		slider.binding = volume;
+		slider.label = "Mixer";
+		MacroButtonModel model;
+		model.addButton(slider);
+		MacroButtonModel restored;
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(model)),
+							     restored));
+		QCOMPARE(restored.buttons().first().binding.domain, QString("mixer"));
+		QWidget host;
+		auto *control = createMacroParameterWidget(slider, &host);
+		host.resize(200, 100);
+		control->resize(control->sizeHint());
+		host.show();
+		auto *input = control->findChild<QSlider *>("macro-parameter-slider");
+		QVERIFY(input && input->isEnabled());
+		QCOMPARE(input->value(), 500);
+		QVERIFY(control->findChild<QLabel *>("macro-parameter-caption")->text().contains("dB"));
+		obs_source_set_volume(source, 1.0f);
+		QTRY_COMPARE(input->value(), 1000);
+		input->setValue(500);
+		QTRY_VERIFY(qAbs(obs_source_get_volume(source) - expected) < 1e-6);
+		TimelineEvent cue;
+		cue.type = TimelineEventType::SetParameterValue;
+		cue.data = MacroParameter::encodeValue({volume, 0});
+		auto decoded = MacroParameter::decodeValue(cue.data.toString());
+		QVERIFY(decoded);
+		QCOMPARE(decoded->binding.domain, QString("mixer"));
+		ObsExecutor executor;
+		executor.executeEventStart(cue);
+		QCOMPARE(obs_source_get_volume(source), 0.0f);
+		QTRY_COMPARE(input->value(), 0);
+		cue.data = MacroParameter::encodeValue({mute, 0});
+		executor.executeEventStart(cue);
+		QVERIFY(!obs_source_muted(source));
+		auto wrong = volume;
+		wrong.domain.clear();
+		QVERIFY(!MacroParameter::write(wrong, 100));
+		obs_source_remove(source);
+		QVERIFY(!MacroParameter::write(volume, 100));
+		QTRY_VERIFY(!input->isEnabled());
 	}
 
 	void testMacroParameterBindingsAndDock()

@@ -160,7 +160,20 @@ immediately. Wheel and arrow keys adjust one step when focused.
 Only visible, enabled integer, float and boolean settings with supported
 ranges are discoverable (numeric controls are limited to one million
 increments). List/color/text/button properties, custom ranges, scene-item
-transforms, direct mixer volume and interpolation are not included.
+transforms and interpolation are not included.
+
+### Native mixer controls
+
+Audio-capable sources expose **Mixer / Volume (fader position)** and
+**Mixer / Mute** in the same parameter picker, even without corresponding
+OBS settings properties. Use a slider or knob for volume, or a toggle for
+mute. The volume uses the OBS logarithmic fader curve; 0–100% represents
+fader travel in 0.1% increments, not a linear audio multiplier. Its live
+caption shows the corresponding dB value. At zero it reads -inf dB and
+at 100% it reaches unity (0 dB). Positive gain above unity is outside
+this control's range; readback saturates at the maximum. Mute is independent
+of volume. External mixer adjustments are read back without resetting values.
+Both are available for instantaneous Set Parameter Value cues.
 
 Missing sources, filters or properties disable the control rather than
 redirecting it by name. The dock aligns its rows using the native theme's
