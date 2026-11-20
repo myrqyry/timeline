@@ -4,7 +4,7 @@ param(
     [string] $Target = 'x64',
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release', 'MinSizeRel')]
     [string] $Configuration = 'RelWithDebInfo',
-    [ValidateSet('obs31', 'obs32')]
+    [ValidateSet('obs31', 'obs32', 'obs33')]
     [string] $ObsCompatibility = 'obs32'
 )
 
@@ -49,7 +49,18 @@ function Build {
     Push-Location -Stack BuildTemp
     Ensure-Location $ProjectRoot
 
-    $CmakeArgs = @('--fresh', '--preset', "windows-ci-${Target}", "-DTIMELINE_OBS_COMPATIBILITY=${ObsCompatibility}", '-DTIMELINE_BUILD_TESTS=OFF', '-DOBS_PLUGIN_DESTINATION=timeline/bin/64bit', '-DOBS_DATA_DESTINATION=timeline/data')
+    $Preset = "windows-${Target}"
+    $ConfigurePreset = "windows-ci-${Target}"
+    $BuildDirectory = "build_${Target}"
+    $PluginDestination = 'timeline/bin/64bit'
+    if ($ObsCompatibility -eq 'obs33') {
+        $Preset = "windows-obs33-${Target}"
+        $ConfigurePreset = "windows-ci-obs33-${Target}"
+        $BuildDirectory = "build_obs33_${Target}"
+        $PluginDestination = 'timeline'
+    }
+
+    $CmakeArgs = @('--fresh', '--preset', $ConfigurePreset, "-DTIMELINE_OBS_COMPATIBILITY=${ObsCompatibility}", '-DTIMELINE_BUILD_TESTS=OFF', "-DOBS_PLUGIN_DESTINATION=${PluginDestination}", '-DOBS_DATA_DESTINATION=timeline/data')
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 
@@ -60,15 +71,15 @@ function Build {
     }
 
     $CmakeBuildArgs += @(
-        '--preset', "windows-${Target}"
+        '--preset', $Preset
         '--config', $Configuration
         '--parallel'
         '--', '/consoleLoggerParameters:Summary', '/noLogo'
     )
 
     $CmakeInstallArgs += @(
-        '--install', "build_${Target}"
-        '--prefix', "${ProjectRoot}/release/${Configuration}"
+        '--install', $BuildDirectory
+        '--prefix', "${ProjectRoot}/release/${ObsCompatibility}/${Configuration}"
         '--config', $Configuration
     )
 

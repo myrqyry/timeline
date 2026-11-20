@@ -146,7 +146,7 @@ Choose the build matching your OBS major version. Do not mix plugin variants.
 | --- | --- |
 | 31 | Linux, Windows and macOS builds (macOS 12+). |
 | 32 | Linux, Windows and macOS builds (macOS 13+). |
-| 33 | Linux x86_64 (Ubuntu 26.04 SDK); module load and scene-switch smoke verified in OBS33 Flatpak. Windows/macOS builds not yet available. |
+| 33 | Linux x86_64 (Ubuntu 26.04 SDK); module load and scene-switch smoke verified in OBS33 Flatpak. Windows x64 build configured (CI verification pending); macOS not yet supported. |
 
 Preview CI artifacts are available from [GitHub Actions](https://github.com/myrqyry/timeline/actions).
 Windows and macOS runtime installation and interactive testing remain outstanding.

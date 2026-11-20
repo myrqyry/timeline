@@ -60,6 +60,25 @@
       }
     },
     {
+      "name": "windows-obs33-x64",
+      "inherits": ["windows-x64"],
+      "displayName": "Windows OBS33 x64",
+      "binaryDir": "${sourceDir}/build_obs33_x64",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64,version=10.0.26100.0",
+      "cacheVariables": {
+        "TIMELINE_OBS_COMPATIBILITY": "obs33"
+      }
+    },
+    {
+      "name": "windows-ci-obs33-x64",
+      "inherits": ["windows-obs33-x64"],
+      "displayName": "Windows OBS33 x64 CI",
+      "cacheVariables": {
+        "CMAKE_COMPILE_WARNING_AS_ERROR": true
+      }
+    },
+    {
       "name": "ubuntu-x86_64",
       "displayName": "Ubuntu x86_64",
       "description": "Build for Ubuntu x86_64",
@@ -115,6 +134,18 @@
       "configurePreset": "windows-ci-x64",
       "displayName": "Windows x64 CI",
       "description": "Windows CI build for x64 (RelWithDebInfo configuration)",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "windows-obs33-x64",
+      "configurePreset": "windows-obs33-x64",
+      "displayName": "Windows OBS33 x64",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "windows-ci-obs33-x64",
+      "configurePreset": "windows-ci-obs33-x64",
+      "displayName": "Windows OBS33 x64 CI",
       "configuration": "RelWithDebInfo"
     },
     {

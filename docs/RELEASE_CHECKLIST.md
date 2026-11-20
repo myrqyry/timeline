@@ -70,6 +70,18 @@ use have not been demonstrated**.
 - Strict native OBS32 suite after packaging changes: 102 passed.
   Windows/macOS OBS33 SDK and runtime support remain unverified.
 
+## OBS33 Windows x64 preparation (2026-11-19)
+
+- Official OBS 33.0.1 source ZIP downloaded and SHA-256 checked. Windows
+  deps/Qt pins match the upstream 2026-10-23 release asset digests.
+- Dedicated Visual Studio 18 2026 preset and 10.0.26100.0 SDK, isolated
+  build/staging directories, matching hosted runner, and modern ProgramData
+  plugin layout. Legacy OBS31/32 runner and archive layout retained.
+- CI validates actual ZIP entries including locale and forbids a duplicate
+  legacy DLL in OBS33. Local pin/preset/matrix contracts pass; Windows
+  compilation, artifact contents and OBS runtime interaction remain pending.
+- Previous Linux package workflow passed (run 44664678938).
+
 ## Before tagging (release blockers)
 
 - [ ] Confirm the exact commit, its six build jobs, two Linux test jobs and

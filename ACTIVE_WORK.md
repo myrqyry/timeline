@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### OBS33 Windows x64 — 2026-11-19
+
+- User requested Windows follow-on; upstream 33.0.1 source presets confirm VS18 2026, SDK 10.0.26100.0, dependency release 2026-10-23, and windows-2025-vs2026. Downloaded and SHA-256 hashed source ZIP; checked Windows deps/Qt digests against upstream preset and release. No inferred pins.
+- RED missing source/deps Windows pins; GREEN readiness contract. Added separate Windows OBS33 configure/build preset, pinned dependencies, runner matrix, script target support, ProgramData modern install/default, per-major staging, exact ZIP verification. OBS31/32 retain their previous runners and dual legacy/modern layout. No C++ feature changes; no macOS/ARM64 OBS33 claims.
+- Previous Linux/packaging run 44664678938 succeeded. New Windows exact-commit compilation, ZIP verification and runtime remain pending. Local PowerShell parser invocation blocked by command checker; no bypass. CI will exercise real scripts. No installation or release.
+
+
 ### OBS33 Linux installation and packaging — 2026-11-19
 
 - User requested OBS33 compatibility. Exact pushed b7eb40b Linux CI 44660008317 all three majors green; OBS33 job 136035639882 102 passed, 0 failed/skipped. Regular push pipeline omitted OBS33 distributables. RED packaging contract failed missing Ubuntu26.04 OBS33 matrix.

@@ -45,7 +45,7 @@ inputs:
     required: false
     default: ${{ github.workspace }}
   obsCompatibility:
-    description: OBS compatibility target (obs31, obs32, or Linux obs33)
+    description: OBS compatibility target (obs31, obs32, or Linux/Windows x64 obs33)
     required: false
     default: obs32
 runs:

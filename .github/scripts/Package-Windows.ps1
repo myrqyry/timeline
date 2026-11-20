@@ -4,7 +4,7 @@ param(
     [string] $Target = 'x64',
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release', 'MinSizeRel')]
     [string] $Configuration = 'RelWithDebInfo',
-    [ValidateSet('obs31', 'obs32')]
+    [ValidateSet('obs31', 'obs32', 'obs33')]
     [string] $ObsCompatibility = 'obs32'
 )
 
@@ -54,7 +54,7 @@ function Package {
     $RemoveArgs = @{
         ErrorAction = 'SilentlyContinue'
         Path = @(
-            "${ProjectRoot}/release/${ProductName}-*-windows-*.zip"
+            "${ProjectRoot}/release/${OutputName}.zip"
         )
     }
 
@@ -62,7 +62,7 @@ function Package {
 
     Log-Group "Archiving ${ProductName}..."
     $CompressArgs = @{
-        Path = (Get-ChildItem -Path "${ProjectRoot}/release/${Configuration}" -Exclude "${OutputName}*.*")
+        Path = (Get-ChildItem -Path "${ProjectRoot}/release/${ObsCompatibility}/${Configuration}" -Exclude "${OutputName}*.*")
         CompressionLevel = 'Optimal'
         DestinationPath = "${ProjectRoot}/release/${OutputName}.zip"
         Verbose = ($Env:CI -ne $null)

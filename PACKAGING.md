@@ -28,7 +28,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 ```
 
 The OBS 31.1.2 and OBS 32.2.1 targets have established cross-platform builds.
-OBS 33.0.1 is a **Linux-only compatibility target**: its source archive is
+OBS 33.0.1 is a **Linux and Windows x64 compatibility target** (Windows build verification pending): its source archive is
 SHA-256 pinned. The [Linux CI run on b7eb40b](https://github.com/myrqyry/timeline/actions/runs/44660008317)
 passed all 102 strict headless tests for OBS33 on Ubuntu 26.04. A separate
 module build against the installed OBS33 Flatpak's libobs and Qt 6.11.1
@@ -36,8 +36,8 @@ headers, libraries and matching moc loaded both docks and executed a
 scheduled scene change and a Macro Strip return action in a disposable
 OBS33 profile. This local probe used the host C++ compiler, not the
 complete Flatpak SDK; it is not a distributable Flatpak package build.
-Windows/macOS OBS33 builds and native Ubuntu33 package installation
-remain separate verification work.
+Windows OBS33 x64 CI compilation and actual runtime loading, macOS builds,
+and native Ubuntu33 package installation remain separate verification work.
 
 Use Ubuntu 26.04 or a matching SDK environment, not Qt 6.4 host libraries
 with OBS33. The Linux CI workflow builds the selected pinned OBS SDK
@@ -72,6 +72,31 @@ cmake --build --preset ubuntu-x86_64
 cmake --build build
 ```
 
+### Windows OBS33 x64
+
+Use Visual Studio 2026 with the C++ desktop workload, Windows SDK
+10.0.26100.0 and CMake 4.2+ (the Visual Studio 18 generator). The dedicated
+preset pins OBS 33.0.1 and the official 2026-10-23 OBS/Qt dependency bundles.
+The Windows CI runner is windows-2025-vs2026.
+
+From a developer PowerShell:
+
+    cmake --preset windows-obs33-x64 -DTIMELINE_BUILD_TESTS=OFF
+    cmake --build --preset windows-obs33-x64
+    cmake --install build_obs33_x64 --config RelWithDebInfo
+
+The default target is %ProgramData%/obs-studio/plugins/timeline with
+timeline.dll next to data/locale/en-US.ini. Installing there may require
+administrator privileges. Close OBS and back up any existing Timeline
+installation first; do not leave an older DLL in another discoverable
+plugin location. CI stages each major separately and produces a
+major-labeled ZIP; it checks the actual archive for the expected layout.
+OBS33 ZIPs contain only the modern DLL path. Existing OBS31/32 packaging
+is unchanged apart from separate staging directories.
+
+The Windows build has not yet passed hosted CI or a real OBS33 load test.
+No ARM64 or macOS OBS33 support is claimed.
+
 ## Install
 
 ```bash
@@ -103,7 +128,8 @@ macOS 13 or newer.
 
 GitHub Actions builds **separate OBS 31 and OBS 32 variants** for Linux,
 Windows x64 and macOS universal. The Linux packaging matrix includes OBS33
-on Ubuntu 26.04 (new package workflow verification pending). Each target
+on Ubuntu 26.04 (CI run 44664678938 passed). The Windows x64 matrix now
+includes OBS33 on windows-2025-vs2026 (verification pending). Each target
 provides a labeled archive or Debian package. The
 CI matrix also exercises the Debian `package` target during pull requests so
 release-only packaging failures are caught before tagging.
