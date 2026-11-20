@@ -29,19 +29,28 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 
 The OBS 31.1.2 and OBS 32.2.1 targets have established cross-platform builds.
 OBS 33.0.1 is a **Linux-only compatibility target**: its source archive is
-SHA-256 pinned and strict headless Qt/OBS tests passed on the Ubuntu 26.04 CI
-runner. Interactive dock usage and clean installation still require validation. The Linux compatibility workflow builds the matching OBS SDK from
-source. A local build uses the installed SDK unless
-`TIMELINE_BUILD_OBS_FROM_SOURCE=ON` is set. For OBS 33, use Ubuntu 26.04 or a
-matching SDK environment, not your Ubuntu 24.04 / Qt 6.4 host libraries.
-The installed OBS 33 Flatpak headers are sufficient for a compile-only probe,
-not for linking host-side Qt tests with its runtime libraries.
+SHA-256 pinned. The [Linux CI run on b7eb40b](https://github.com/myrqyry/timeline/actions/runs/44660008317)
+passed all 102 strict headless tests for OBS33 on Ubuntu 26.04. A separate
+module build against the installed OBS33 Flatpak's libobs and Qt 6.11.1
+headers, libraries and matching moc loaded both docks and executed a
+scheduled scene change and a Macro Strip return action in a disposable
+OBS33 profile. This local probe used the host C++ compiler, not the
+complete Flatpak SDK; it is not a distributable Flatpak package build.
+Windows/macOS OBS33 builds and native Ubuntu33 package installation
+remain separate verification work.
+
+Use Ubuntu 26.04 or a matching SDK environment, not Qt 6.4 host libraries
+with OBS33. The Linux CI workflow builds the selected pinned OBS SDK
+from source. A local build uses the installed SDK unless
+`TIMELINE_BUILD_OBS_FROM_SOURCE=ON` is set.
 
 Optional flags:
 
 - `-DENABLE_OBS_WEBSOCKET_VENDOR=ON|OFF` — enable or disable WebSocket vendor
   support. When enabled, CMake uses the vendor header if it is available;
   when disabled, the integration is compiled out.
+- `-DTIMELINE_SYSTEM_INSTALL=ON` — use the matching Linux system plugin
+  directories (CI enables this; defaults to OFF).
 - `-DTIMELINE_PLUGIN_ROOT=/path/to/install/root` — override the
   install location.
 - `-DOBS_PLUGIN_DESTINATION=/custom/bin/64bit` — override the binary
@@ -72,10 +81,20 @@ cmake --install build_x86_64
 cmake --install build
 ```
 
-Default install layout (Linux):
+Default user install layouts (Linux, use a fresh build directory per major):
 
-- Binary: `~/.config/obs-studio/plugins/timeline/bin/64bit/timeline.so`
-- Data: `~/.config/obs-studio/plugins/timeline/data/`
+| Target | Binary relative to the user plugin directory | User plugin directory |
+| --- | --- | --- |
+| OBS31/32 | `timeline/bin/64bit/timeline.so` | `~/.config/obs-studio/plugins` |
+| OBS33 | `timeline/timeline.so` | `$XDG_DATA_HOME/obs-studio/plugins` (fallback `~/.local/share/obs-studio/plugins`) |
+
+Both layouts use `timeline/data/locale/en-US.ini` and preserve writable
+configuration in the OBS module config directory. OBS33 Flatpak uses
+its sandbox data directory (normally
+`~/.var/app/com.obsproject.Studio/data/obs-studio/plugins` on the host).
+Build against the matching Flatpak runtime/SDK for that installation;
+do not install an Ubuntu Debian artifact into the Flatpak. Close the
+target OBS process before installing.
 
 OBS 31 macOS packages require macOS 12 or newer. OBS 32 macOS packages require
 macOS 13 or newer.
@@ -83,22 +102,25 @@ macOS 13 or newer.
 ### CI artifacts and release-mode packages
 
 GitHub Actions builds **separate OBS 31 and OBS 32 variants** for Linux,
-Windows x64 and macOS universal. The Linux build provides an `obs31`/`obs32`
-archive and, when packaging is enabled, a version-labeled Debian package. The
+Windows x64 and macOS universal. The Linux packaging matrix includes OBS33
+on Ubuntu 26.04 (new package workflow verification pending). Each target
+provides a labeled archive or Debian package. The
 CI matrix also exercises the Debian `package` target during pull requests so
 release-only packaging failures are caught before tagging.
 
-- The Linux `.deb` installs `timeline.so` into `/usr/lib/obs-plugins/` and
-  localization into `/usr/share/obs/obs-plugins/timeline/`; it depends on
-  the matching `obs-studio` major version. This differs from the default
-  local user-plugin install above.
+- OBS31/32 Debian packages retain `/usr/lib/obs-plugins/` and
+  `/usr/share/obs/obs-plugins/timeline/`. OBS33 uses
+  `/usr/lib/x86_64-linux-gnu/obs-modules/plugins/` and
+  `/usr/share/obs/obs-modules/plugins/timeline/` on the Ubuntu x86_64
+  runner, following the modern loader in OBS 33.0.1. All packages require
+  the matching OBS major version. These are system, not per-user, layouts.
 - Local user-plugin and system-wide package installs target the same OBS
   module name. Do not install two OBS major variants simultaneously.
 - The repository's `data/AGENTS.md` documents development conventions and is
   **not** an OBS runtime asset; it must not be included in install packages.
 - CPack source archives are built from the working tree, **not** Git's tracked
   files. `.gitignore` alone does not protect private `.meristem/local/` state;
-  CPack excludes it explicitly. Both Ubuntu CI jobs seed synthetic local data
+  CPack excludes it explicitly. All Ubuntu CI jobs seed synthetic local data
   before packaging and refuse to upload an archive that contains that path.
 - Compiled CI artifacts are **test candidates**. Actual Windows/macOS OBS
   loading and interactive behavior remain unverified; see

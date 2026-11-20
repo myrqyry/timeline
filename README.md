@@ -146,7 +146,7 @@ Choose the build matching your OBS major version. Do not mix plugin variants.
 | --- | --- |
 | 31 | Linux, Windows and macOS builds (macOS 12+). |
 | 32 | Linux, Windows and macOS builds (macOS 13+). |
-| 33 | Experimental Linux compatibility target. |
+| 33 | Linux x86_64 (Ubuntu 26.04 SDK); module load and scene-switch smoke verified in OBS33 Flatpak. Windows/macOS builds not yet available. |
 
 Preview CI artifacts are available from [GitHub Actions](https://github.com/myrqyry/timeline/actions).
 Windows and macOS runtime installation and interactive testing remain outstanding.
@@ -162,7 +162,10 @@ cmake --build --preset ubuntu-x86_64
 cmake --install build_x86_64
 ```
 
-Use `obs31` for OBS 31 and a separate build directory when switching SDKs.
+Use `obs31` for OBS 31 or `obs33` with the matching OBS33/Qt toolchain.
+Always use a separate build directory when switching SDKs. OBS33 Linux user
+modules install under `$XDG_DATA_HOME/obs-studio/plugins` (default
+`~/.local/share/obs-studio/plugins`), with the binary next to `data/`.
 See [PACKAGING.md](PACKAGING.md) for dependencies, other targets, custom install
 paths and optional WebSocket support.
 

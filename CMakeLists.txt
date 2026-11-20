@@ -125,18 +125,41 @@ if(APPLE)
   # macOS requires a .plugin bundle with its data inside Resources.
   set_target_properties_plugin(${PROJECT_NAME})
 else()
+  # OBS33 discovers modern Linux user modules below XDG_DATA_HOME,
+  # with the binary next to data/. OBS31/32 retain their legacy layout.
   if(WIN32)
     set(_timeline_user_plugin_root "$ENV{APPDATA}/obs-studio/plugins/timeline")
+  elseif(TIMELINE_EXPECTED_OBS_MAJOR GREATER_EQUAL 33 AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(_timeline_data_home "$ENV{XDG_DATA_HOME}")
+    if(NOT IS_ABSOLUTE "${_timeline_data_home}")
+      set(_timeline_data_home "$ENV{HOME}/.local/share")
+    endif()
+    set(_timeline_user_plugin_root "${_timeline_data_home}/obs-studio/plugins/timeline")
   else()
     set(_timeline_user_plugin_root "$ENV{HOME}/.config/obs-studio/plugins/timeline")
   endif()
 
   set(TIMELINE_PLUGIN_ROOT "${_timeline_user_plugin_root}" CACHE PATH "Timeline for OBS plugin install root")
+  option(TIMELINE_SYSTEM_INSTALL "Install into the matching Linux OBS system plugin directories" OFF)
+
+  set(_timeline_default_binary "${TIMELINE_PLUGIN_ROOT}/bin/64bit")
+  set(_timeline_default_data "${TIMELINE_PLUGIN_ROOT}/data")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(TIMELINE_EXPECTED_OBS_MAJOR GREATER_EQUAL 33)
+      set(_timeline_default_binary "${TIMELINE_PLUGIN_ROOT}")
+      if(TIMELINE_SYSTEM_INSTALL)
+        set(_timeline_default_binary "${CMAKE_INSTALL_LIBDIR}/obs-modules/plugins")
+        set(_timeline_default_data "${CMAKE_INSTALL_DATAROOTDIR}/obs/obs-modules/plugins/timeline")
+      endif()
+    elseif(TIMELINE_SYSTEM_INSTALL)
+      set(_timeline_default_binary "lib/obs-plugins")
+      set(_timeline_default_data "share/obs/obs-plugins/timeline")
+    endif()
+  endif()
 
   # STRING permits relative CI staging paths without making them absolute.
-  set(OBS_PLUGIN_DESTINATION "${TIMELINE_PLUGIN_ROOT}/bin/64bit" CACHE STRING "OBS plugin binary destination")
-
-  set(OBS_DATA_DESTINATION "${TIMELINE_PLUGIN_ROOT}/data" CACHE STRING "OBS plugin data destination")
+  set(OBS_PLUGIN_DESTINATION "${_timeline_default_binary}" CACHE STRING "OBS plugin binary destination")
+  set(OBS_DATA_DESTINATION "${_timeline_default_data}" CACHE STRING "OBS plugin data destination")
 
   install(
     TARGETS ${PROJECT_NAME}

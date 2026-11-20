@@ -51,6 +51,25 @@ use have not been demonstrated**.
 - Exact CI clang-format checked the changed C++ files. Remote exact-head
   CI is not implied by local tests. No tag/release.
 
+## OBS33 compatibility checkpoint (2026-11-19)
+
+- [Exact-head Linux CI b7eb40b](https://github.com/myrqyry/timeline/actions/runs/44660008317):
+  OBS31, OBS32 and OBS33 passed; OBS33 logged 102 passed, 0 failed/skipped.
+- Native OBS33 Flatpak 33.0.1 with Qt 6.11.1: built the production module
+  using its actual headers/libraries and matching moc, with the host
+  compiler. Relocation check and isolated full OBS startup passed.
+  Temporary test driver exercised a scheduled scene change then clicked
+  a Macro Strip action to return. Both outcomes verified via real frontend
+  current-scene readback. No production profiles or plugin installs changed.
+- Corrected modern Linux user and system installation paths. The new
+  default XDG data-directory installation loaded successfully; staged
+  system module and locale paths verified, and local CPack Debian
+  contents inspected (explicit dependency flags supplied to CPack because
+  Flatpak libs have no host dpkg metadata). New Ubuntu26.04 package
+  matrix and exact-head package job still need hosted verification.
+- Strict native OBS32 suite after packaging changes: 102 passed.
+  Windows/macOS OBS33 SDK and runtime support remain unverified.
+
 ## Before tagging (release blockers)
 
 - [ ] Confirm the exact commit, its six build jobs, two Linux test jobs and
@@ -149,7 +168,7 @@ runtime check**. Run the OBS 31 suite with `obs31` in its own build tree.
 - OBS 31 macOS targets macOS 12+; OBS 32 macOS targets macOS 13+.
 - Linux local user-plugin installs and system-wide CI `.deb` layouts are
   intentionally different; verify the one being distributed.
-- **Do not install OBS 31 and OBS 32 variants together** in the same plugin
+- **Do not install different OBS major variants together** in the same plugin
   location: both use the same module and data paths.
 - The current milestone is an early `v0.1.0-preview.1` development preview.
   There is no published tagged release yet.

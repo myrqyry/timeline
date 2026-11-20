@@ -1,6 +1,14 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### OBS33 Linux installation and packaging — 2026-11-19
+
+- User requested OBS33 compatibility. Exact pushed b7eb40b Linux CI 44660008317 all three majors green; OBS33 job 136035639882 102 passed, 0 failed/skipped. Regular push pipeline omitted OBS33 distributables. RED packaging contract failed missing Ubuntu26.04 OBS33 matrix.
+- Real local OBS33.0.1 Flatpak provides actual Qt6.11.1/OBS headers/libs and moc; separate temporary module build used host GCC13 with matching Qt/OBS SDK and moc launched against Flatpak runtime loader. QtTest library/matching full SDK absent; no mixed host Qt or full Flatpak SDK claim. First staged modern-shaped module under config root did not load. OBS33 upstream PluginModuleLoader_Linux/Flatpak confirmed modern XDG_DATA_HOME root and obs-modules/plugins system paths; clean modern install produced successful native module/locale loading and WebSocket registration. Temporary isolated smoke driver verified scheduled scene switch and Macro Strip action return using real OBS frontend scene state. No production config or installation touched.
+- Fresh CMake Linux OBS33 user default points to XDG_DATA_HOME (or HOME/.local/share), one root binary and data; Linux system install selects matching modern lib/data paths for OBS33 and preserves historical paths for OBS31/32. CI build script clears cached destination overrides as it historically forced system destinations. Ubuntu package matrix adds OBS33 only on 26.04; verify Debian contents on both push and PR, include new OS artifact in tag collection. No new tag/release or Windows/macOS OBS33 claims.
+- GREEN packaging contracts, actual staged user/system installs and local CPack Debian contents (explicit dependency metadata override because Flatpak SDK lacks dpkg metadata); native32 full strict suite 102/0/0. New hosted package CI pending. Machine-local probe logs and driver in private install evidence; no binary copies into normal OBS profiles.
+
+
 ### Centered toolbar and Colorway captures — 2026-11-19
 
 - User requested centered controls by default, a divider between clock and zooms, and selected screenshots in their actual theme. Defaults changed consistently in dock and document parsing; explicit saved false preserved. New divider uses existing QFrame factory in both normal and compact layouts.

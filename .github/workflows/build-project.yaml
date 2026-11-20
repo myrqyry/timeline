@@ -191,8 +191,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
-        obsCompatibility: [obs31, obs32]
+        include:
+          - { os: ubuntu-24.04, obsCompatibility: obs31 }
+          - { os: ubuntu-24.04, obsCompatibility: obs32 }
+          - { os: ubuntu-26.04, obsCompatibility: obs33 }
     runs-on: ${{ matrix.os }}
     needs: check-event
     defaults:
@@ -267,12 +269,13 @@ jobs:
           rm -f .meristem/local/.source-archive-privacy-canary
 
       - name: Verify release-mode Debian package
-        # Pull requests normally create tarballs only; exercise the release
-        # branch too so missing Debian metadata/layout cannot reach tags.
-        if: ${{ !fromJSON(needs.check-event.outputs.package) }}
+        # Always inspect the actual Debian layout. Pull requests that only
+        # create tarballs additionally exercise the release package target.
         shell: bash
         run: |
-          cmake --build build_x86_64 --config ${{ needs.check-event.outputs.config }} --target package
+          if [[ "${{ needs.check-event.outputs.package }}" != true ]]; then
+            cmake --build build_x86_64 --config ${{ needs.check-event.outputs.config }} --target package
+          fi
           packages=(release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.obsCompatibility }}-x86_64*.deb)
           if [[ ${#packages[@]} != 1 || ! -s ${packages[0]} ]]; then
             echo '::error::Expected exactly one compatibility-labeled Debian package'
@@ -287,8 +290,13 @@ jobs:
             echo "::error::Missing version-bounded OBS dependency in Debian package: $depends"
             exit 1
           fi
-          dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/obs-plugins/timeline.so' > /dev/null
-          dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-plugins/timeline/locale/en-US.ini' > /dev/null
+          if [[ "$obs_major" == 33 ]]; then
+            dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/x86_64-linux-gnu/obs-modules/plugins/timeline.so' > /dev/null
+            dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-modules/plugins/timeline/locale/en-US.ini' > /dev/null
+          else
+            dpkg-deb --contents "${packages[0]}" | grep -F './usr/lib/obs-plugins/timeline.so' > /dev/null
+            dpkg-deb --contents "${packages[0]}" | grep -F './usr/share/obs/obs-plugins/timeline/locale/en-US.ini' > /dev/null
+          fi
           if dpkg-deb --contents "${packages[0]}" | grep '/AGENTS\.md$' > /dev/null; then
             echo '::error::Development-only AGENTS.md leaked into Debian package'
             exit 1
