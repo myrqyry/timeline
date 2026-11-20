@@ -7,9 +7,11 @@ media and other actions into timed sequences. Its companion Macro Strip dock
 lets you build a compact control surface with buttons, sliders, knobs, toggles, XY pads and
 text entry.
 
-![Timeline dock with a duration ramp, Freeze Time and scene changes](docs/screenshots/timeline.png)
+![Timeline dock with a duration ramp, Freeze Time and scene changes](docs/screenshots/synthwave84/timeline.png)
 
-*Current Timeline interface, captured in an isolated Qt/libobs session.*
+*Timeline with centered controls, using the Colorway Synthwave 84 theme.*
+
+![Timeline compact mode](docs/screenshots/synthwave84/timeline-compact.png)
 
 [Installation](#installation) · [Timeline](#timeline) · [Macro Strip](#macro-strip) ·
 [Shortcuts](#keyboard-shortcuts) · [Documentation](#documentation)
@@ -88,9 +90,9 @@ Build a small control surface for your OBS setup. Open
 **View → Docks → Macro Strip** and use **+** to add an action button or a
 parameter control.
 
-![Compact Macro Strip with action, slider, knob, XY, toggle and text controls](docs/screenshots/macro-strip.png)
+![Compact Macro Strip with action, slider, knob, XY, toggle and text controls](docs/screenshots/synthwave84/macro-strip.png)
 
-![Macro Strip with optional bottom captions and live values](docs/screenshots/macro-strip-readouts.png)
+![Macro Strip with optional bottom captions and live values](docs/screenshots/synthwave84/macro-strip-readouts.png)
 
 | Control | Example use |
 | --- | --- |
@@ -201,13 +203,15 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- Native OBS32 source checkpoint `f6ae128` and its documentation harness:
-  **101/101 strict Qt/libobs tests passed**, zero failures/skips.
-- The matching build was installed in native OBS 32.2.0 on Linux.
+- Current local source: **102/102 strict Qt/libobs tests passed**, zero
+  failures/skips. Centered controls are now the default; existing explicit
+  layout choices remain unchanged.
+- Previous source checkpoint `f6ae128` was installed in native OBS 32.2.0 on Linux.
   Both docks and the WebSocket vendor registered in an isolated startup;
   saved timeline and macro configuration checksums were unchanged.
 - The screenshots above use the production Qt widgets with synthetic
-  sources, a dark Fusion palette, English localization and headless Xvfb.
+  sources, the Colorway Synthwave 84 theme resolved by native OBS, English
+  localization and headless Xvfb. Fusion reference captures are retained.
   See [capture instructions](docs/screenshots/README.md).
 - HyperShaderFX effect opacity and a shader uniform have been verified
   through the real plugin's property interface. Render smoothness,

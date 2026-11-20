@@ -14,6 +14,7 @@
 #include <QTemporaryFile>
 #include <QFile>
 #include <QDir>
+#include <QDataStream>
 #include <util/text-lookup.h>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -1623,6 +1624,46 @@ private slots:
 	{
 		QCOMPARE(TimelineHitTesting::kMarkerHandleSizePx,
 			 static_cast<int>(TimelineHitTesting::kMarkerGrabRadiusPx * 2.0));
+	}
+
+	void testTimelineCenteredDefaultAndClockDivider()
+	{
+		QTemporaryDir dir;
+		const QString path = dir.filePath("timeline.json");
+		TimelineDock dock(nullptr, path);
+		dock.resize(1400, 180);
+		dock.show();
+		QCoreApplication::processEvents();
+		auto *center = dock.findChild<QCheckBox *>("timeline-center-controls");
+		auto *line = dock.findChild<QFrame *>("timeline-clock-zoom-separator");
+		auto *clock = dock.findChild<QWidget *>("OBSAudioMeter");
+		auto *zoom = dock.findChild<QPushButton *>("timeline-zoom-out-btn");
+		QVERIFY(center && center->isChecked());
+		QVERIFY(line && clock && zoom);
+		auto verifyDivider = [&] {
+			QCoreApplication::processEvents();
+			QVERIFY(line->isVisible());
+			QVERIFY(clock->mapTo(&dock, QPoint(clock->width(), 0)).x() <= line->mapTo(&dock, QPoint()).x());
+			QVERIFY(line->mapTo(&dock, QPoint(line->width(), 0)).x() <= zoom->mapTo(&dock, QPoint()).x());
+		};
+		verifyDivider();
+		QCOMPARE(line->frameShape(), QFrame::VLine);
+		QCOMPARE(line->frameShadow(), QFrame::Sunken);
+		center->setChecked(false);
+		verifyDivider();
+		dock.save();
+		dock.load();
+		QVERIFY(!center->isChecked());
+		center->setChecked(true);
+		auto *compact = dock.findChild<QCheckBox *>("timeline-compact-mode");
+		QVERIFY(compact);
+		compact->setChecked(true);
+		verifyDivider();
+		TimelineDocument document;
+		TimelineModel model;
+		QVERIFY(TimelineSerialization::fromJsonDocument(QJsonDocument(QJsonObject{{"events", QJsonArray{}}}),
+								model, document));
+		QVERIFY(document.centerControls);
 	}
 
 	void testTimelineCompactModeRefreshesLayoutAndFitsMarkers()
@@ -3336,6 +3377,33 @@ private:
 		palette.setColor(QPalette::Highlight, QColor("#55c7b6"));
 		palette.setColor(QPalette::HighlightedText, QColor("#121c21"));
 		palette.setColor(QPalette::Disabled, QPalette::Text, QColor("#89919e"));
+		const QString nativeTheme = qEnvironmentVariable("TIMELINE_DOC_THEME");
+		const auto originalStyleSheet = qApp->styleSheet();
+		const auto originalFont = qApp->font();
+		const auto originalThemePaths = QDir::searchPaths("theme");
+		const auto originalObsPaths = QDir::searchPaths("obs");
+		auto restoreTheme = qScopeGuard([&] {
+			qApp->setStyleSheet(originalStyleSheet);
+			qApp->setFont(originalFont);
+			QDir::setSearchPaths("theme", originalThemePaths);
+			QDir::setSearchPaths("obs", originalObsPaths);
+		});
+		if (!nativeTheme.isEmpty()) {
+			QDir theme(nativeTheme);
+			QFile data(theme.filePath("theme.qt"));
+			QFile css(theme.filePath("theme.qss"));
+			QVERIFY(data.open(QIODevice::ReadOnly));
+			QVERIFY(css.open(QIODevice::ReadOnly));
+			QDataStream stream(&data);
+			QFont font;
+			QStringList themePaths, obsPaths;
+			stream >> palette >> font >> themePaths >> obsPaths;
+			QCOMPARE(stream.status(), QDataStream::Ok);
+			QDir::setSearchPaths("theme", themePaths);
+			QDir::setSearchPaths("obs", obsPaths);
+			qApp->setFont(font);
+			qApp->setStyleSheet(QString::fromUtf8(css.readAll()));
+		}
 		QApplication::setPalette(palette);
 
 		QTemporaryDir temp;
@@ -3371,7 +3439,7 @@ private:
 		knob.label = "Intensity";
 		knob.binding = gain;
 		xy.kind = MacroControlKind::XY;
-		xy.label = "Position";
+		xy.label = "XY";
 		xy.binding = gain;
 		xy.bindingY = count;
 		toggle.kind = MacroControlKind::Toggle;
@@ -3461,6 +3529,12 @@ private:
 		timeline.resize(1040, 180);
 		settle(timeline);
 		QVERIFY(timeline.grab().save(dir.filePath("timeline.png")));
+		auto *compact = timeline.findChild<QCheckBox *>("timeline-compact-mode");
+		QVERIFY(compact);
+		compact->setChecked(true);
+		timeline.resize(1040, timeline.minimumHeight());
+		settle(timeline);
+		QVERIFY(timeline.grab().save(dir.filePath("timeline-compact.png")));
 	}
 
 private slots:

@@ -64,7 +64,7 @@ bool TimelineSerialization::fromJsonDocument(const QJsonDocument &doc, TimelineM
 	outDocument.bpm = settings["bpm"].toDouble(120.0);
 	outDocument.gridToBpm = settings["gridToBpm"].toBool(false);
 	outDocument.noteLengthBeats = settings["noteLengthBeats"].toDouble(1.0);
-	outDocument.centerControls = settings["centerControls"].toBool(false);
+	outDocument.centerControls = settings["centerControls"].toBool(true);
 	outDocument.alternatingBg = settings["alternatingBg"].toBool(false);
 	outDocument.compactMode = settings["compactMode"].toBool(false);
 	outDocument.showEndTimeOnDock = settings["showEndTimeOnDock"].toBool(true);

@@ -385,6 +385,8 @@ void TimelineDock::setupUi()
 	settingsSeparator = createSeparator();
 	playbackSeparator = createSeparator();
 	zoomSeparator = createSeparator();
+	clockZoomSeparator = createSeparator();
+	clockZoomSeparator->setObjectName("timeline-clock-zoom-separator");
 	addSeparator = createSeparator();
 	modeSeparator = createSeparator();
 	snapSeparator = createSeparator();
@@ -473,6 +475,8 @@ void TimelineDock::setupUi()
 	connect(bpmModeBtn, &QPushButton::toggled, this, refreshIconColors);
 
 	centerControlsCheckbox = new QCheckBox(obs_module_text("TimelineDock.CenterControls"), this);
+	centerControlsCheckbox->setObjectName("timeline-center-controls");
+	centerControlsCheckbox->setChecked(centerControls);
 	centerControlsCheckbox->setToolTip("Center controls in the interface");
 	connect(centerControlsCheckbox, &QCheckBox::toggled, this, &TimelineDock::onCenterControlsToggled);
 
@@ -790,7 +794,7 @@ void TimelineDock::updateControlsLayout()
 
 	// Time display sits close to playback controls (no large stretches)
 	controlsLayout->addWidget(show(timecodeDisplay));
-	controlsLayout->addSpacing(8);
+	controlsLayout->addWidget(show(clockZoomSeparator));
 
 	controlsLayout->addWidget(show(zoomToggleContainer));
 	controlsLayout->addWidget(show(zoomSeparator));

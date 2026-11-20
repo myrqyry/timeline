@@ -1,6 +1,14 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Centered toolbar and Colorway captures — 2026-11-19
+
+- User requested centered controls by default, a divider between clock and zooms, and selected screenshots in their actual theme. Defaults changed consistently in dock and document parsing; explicit saved false preserved. New divider uses existing QFrame factory in both normal and compact layouts.
+- User explicitly objected to unrequested divider coloring/opacity adjustments. Removed experimental custom separator painter entirely. Keep existing divider rendering and theme rules; do not adjust color, opacity or style merely to improve screenshot contrast.
+- Native OBS isolated profile resolved installed Colorway Synthwave 84; temporary capture-only module exported actual Qt stylesheet, palette, font and resource paths. Harness captured normal/compact timeline, both macro caption layouts and two editors. Fusion references retained. No normal profile/scene capture; no theme source redistribution. Existing divider is subtle in this theme; retained as requested.
+- RED default/position regression; focused tests passed after changes, capture runs passed. Full strict native suite gate 102 tests; logs /tmp/timeline-center-final-focused.log, /tmp/timeline-center-final-full.log, /tmp/timeline-center-theme.log. Installed f6ae128 and remote 845aaa1 unchanged until separately requested. No release.
+
+
 ## Installed checkpoint and documentation captures — 2026-11-19
 
 - Installed production commit `f6ae128` in native OBS32.2.0. Staged/installed assets match, ELF build ID and relocation checks verified, both docks and WebSocket vendor registered in isolated startup. User configuration checksums unchanged; rollback archive and detailed logs recorded in ignored local history.

@@ -3,6 +3,13 @@
 The [README](../README.md) is the quick start. This guide describes action
 semantics, binding behavior and operational details for the current preview.
 
+## Toolbar layout
+
+New timelines default to centered playback, clock and zoom controls.
+Existing explicit alignment preferences are preserved. Center controls
+can be toggled in the settings menu. The clock and zoom group are
+separated using the same native divider as the other toolbar groups.
+
 ## Action behavior
 
 ### Scene switch
@@ -224,7 +231,7 @@ transforms and manual ramp controls are not included in Macro Strip.
 
 ### Labels and appearance
 
-![Appearance editor for an XY controller](screenshots/appearance-editor.png)
+![Appearance editor for an XY controller](screenshots/synthwave84/appearance-editor.png)
 
 Right-click any control and choose **Labels and appearance** to rename
 the top label independently of its action or binding. By default only
@@ -259,7 +266,7 @@ before downgrading.
 
 ### Two-state toggles
 
-![Configuration of two numeric states in the parameter binding editor](screenshots/toggle-editor.png)
+![Configuration of two numeric states in the parameter binding editor](screenshots/synthwave84/toggle-editor.png)
 
 Choose Toggle and bind a supported scalar property. Booleans use the ordinary
 unchecked/checked false/true behavior. For integer, float or editable text

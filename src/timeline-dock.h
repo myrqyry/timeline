@@ -153,6 +153,7 @@ private:
 	QFrame *settingsSeparator = nullptr;
 	QFrame *playbackSeparator = nullptr;
 	QFrame *zoomSeparator = nullptr;
+	QFrame *clockZoomSeparator = nullptr;
 	QFrame *addSeparator = nullptr;
 	QFrame *modeSeparator = nullptr;
 	QFrame *snapSeparator = nullptr;
@@ -181,7 +182,7 @@ private:
 	TimecodeDisplay *timecodeDisplay = nullptr;
 
 	// Settings
-	bool centerControls = false;
+	bool centerControls = true;
 	bool alternatingBg = false;
 	bool compactMode = false;
 	bool showEndTimeOnDock = true;

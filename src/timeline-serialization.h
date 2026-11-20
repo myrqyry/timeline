@@ -15,7 +15,7 @@ struct TimelineDocument {
 	double bpm = 120.0;
 	bool gridToBpm = false;
 	double noteLengthBeats = 1.0; // Quarter note = 1 beat
-	bool centerControls = false;
+	bool centerControls = true;
 	bool alternatingBg = false;
 	bool compactMode = false;
 	bool showEndTimeOnDock = true;
