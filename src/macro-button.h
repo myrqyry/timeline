@@ -16,7 +16,8 @@ struct MacroButton {
 	QColor color = QColor(0, 200, 255);
 	MacroControlKind kind = MacroControlKind::Action;
 	MacroParameterBinding binding;
-	MacroParameterBinding bindingY; // XY controls only.
+	MacroParameterBinding bindingY;                           // XY controls only.
+	std::optional<MacroParameter::ToggleValues> toggleValues; // Non-boolean toggle presets.
 	QString bottomLabel;
 	bool showValue = false;
 	int xySize = 40;

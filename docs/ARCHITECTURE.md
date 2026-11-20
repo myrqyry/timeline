@@ -321,13 +321,27 @@ readback. Focused wheel and arrow events adjust individual steps. Visible
 widgets poll values every 250 ms, refresh the
 property schema approximately every two seconds, and block UI signals during
 readback. Continuous writes are coalesced at 80 ms intervals, with an immediate
-final write on slider release; boolean toggles write immediately. Each write
+final write on slider release; toggles write immediately. Each write
 checks the current property schema, quantizes to its current step and sends
 a typed one-key settings patch via `obs_source_update`. The live source owns
 the value. Parameter adjustments do not modify macro configuration/history.
 Unavailable targets disable interaction. Schema refresh and update callbacks
 run on the dock thread; performance depends on the target plugin's property
 and update implementation.
+
+### Preset toggles
+
+Boolean toggles retain their legacy record and behavior. Non-boolean toggles
+use the distinct `state-toggle` record with two typed JSON values,
+`toggleA` and `toggleB`, alongside the existing binding. This prevents older
+readers from interpreting them as boolean controls. The binding editor
+uses the declared range and step for numeric presets and exact strings for
+text presets. Serialization rejects equal or incorrectly typed states.
+Runtime readback distinguishes A, B and other values (with a small numeric
+tolerance for floating-point readback). The next state is derived from fresh
+readback on click, not a private toggle flag. Both numeric states must fit
+the live schema before interaction; edits to the schema cannot silently
+collapse the two states. Writes use the existing typed scalar path.
 
 ### Text bindings
 

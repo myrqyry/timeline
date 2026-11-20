@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Two-state parameter toggles — 2026-11-19
+
+- User requested toggling between two states instead of booleans only. Existing Toggle supports integer/float/editable text A/B presets on one exact property, with typed editors, numeric quantization, distinct-state validation, no writes during setup, and a separate state-toggle serialization token. Existing boolean toggles are unchanged. Live readback maps to A/B/indeterminate; click from another value selects A. Both presets must fit the live property schema before writing; missing/invalid bindings disable. Optional live caption shows current preset or Other value. Lists/enums/colors, multi-property presets and independent action pairs are outside this change.
+- RED missing preset fields; GREEN actual numeric and text editor selection, equal-state rejection, typed JSON roundtrip and malformed import rejection, native libobs writes and external readback, unavailable numeric target, schema-range and numeric-string validation. Full strict native suite 101 passed, 0 failed/skipped. Exact CI clang-format passed. Logs /tmp/timeline-preset-toggle-red.log, /tmp/timeline-preset-toggle-green2.log, /tmp/timeline-preset-toggle-full.log.
+- OBS running; no install or push. Installed/remote 38f3e6e; prior local commits 09fadcc and 7422ef2 also pending. Native interactive appearance and cross-platform CI remain unverified. Older builds reject state-toggle records; preserve a backup before downgrade.
+
+
 ### Compact macro captions and XY size — 2026-11-19
 
 - User requested two text rows with only the top tag visible by default, smaller XY, and independent top tag renaming. All control types have a right-click Labels and appearance editor. Top tag renamed independently; optional custom bottom caption or live readout (numeric/boolean/XY), none by default. Shared optional bottom-row height, palette-aware rounded top labels, smaller secondary text, fixed widths and tooltips. XY defaults to 40 px, optional 48/64 px. JSON presentation fields are optional and backward readable; older builds can discard these new fields on save. Binding/action edits preserve appearance. Appearance edits follow existing model rebuild semantics (unapplied text drafts can be lost).

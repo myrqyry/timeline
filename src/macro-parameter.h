@@ -21,6 +21,10 @@ struct DefinedValue {
 	MacroParameterBinding binding;
 	QVariant value;
 };
+struct ToggleValues {
+	QVariant a, b;
+};
+bool validToggleValues(MacroParameterType type, const ToggleValues &values);
 struct Ramp {
 	DefinedValue start;
 	double end;
@@ -66,6 +70,8 @@ struct Spec {
 	int indexOf(double value) const;
 };
 
+bool toggleValuesFit(const Spec &spec, const ToggleValues &values);
+std::optional<int> toggleState(const MacroParameterBinding &binding, const Spec &spec, const ToggleValues &values);
 QList<Target> targets();
 QList<Spec> properties(const MacroParameterBinding &binding);
 std::optional<Spec> describe(const MacroParameterBinding &binding);

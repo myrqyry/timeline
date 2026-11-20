@@ -58,12 +58,17 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 		// as legacy scene-switch buttons.
 		obj["type"] = b.kind == MacroControlKind::Action ? static_cast<int>(b.type) : -1;
 		if (b.kind != MacroControlKind::Action) {
-			obj["control"] = b.kind == MacroControlKind::Slider   ? "slider"
-					 : b.kind == MacroControlKind::Knob   ? "knob"
-					 : b.kind == MacroControlKind::Toggle ? "toggle"
-					 : b.kind == MacroControlKind::XY     ? "xy"
-									      : "text";
+			obj["control"] = b.kind == MacroControlKind::Slider ? "slider"
+					 : b.kind == MacroControlKind::Knob ? "knob"
+					 : b.kind == MacroControlKind::Toggle
+						 ? (b.toggleValues ? "state-toggle" : "toggle")
+					 : b.kind == MacroControlKind::XY ? "xy"
+									  : "text";
 			obj["binding"] = encodeBinding(b.binding);
+			if (b.kind == MacroControlKind::Toggle && b.toggleValues) {
+				obj["toggleA"] = QJsonValue::fromVariant(b.toggleValues->a);
+				obj["toggleB"] = QJsonValue::fromVariant(b.toggleValues->b);
+			}
 			if (b.kind == MacroControlKind::XY)
 				obj["bindingY"] = encodeBinding(b.bindingY);
 		}
@@ -111,23 +116,29 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 		if (obj.contains("control")) {
 			const QString kind = obj["control"].toString();
 			const auto binding = decodeBinding(obj["binding"]);
+			const bool preset = kind == "state-toggle";
+			const MacroParameter::ToggleValues values{obj["toggleA"].toVariant(),
+								  obj["toggleB"].toVariant()};
 			const auto y = kind == "xy" ? decodeBinding(obj["bindingY"]) : std::nullopt;
 			if (!binding ||
-			    (kind != "slider" && kind != "knob" && kind != "toggle" && kind != "text" &&
-			     kind != "xy") ||
+			    (kind != "slider" && kind != "knob" && kind != "toggle" && kind != "text" && kind != "xy" &&
+			     !preset) ||
 			    ((kind == "toggle") != (binding->type == MacroParameterType::Boolean)) ||
-			    ((kind == "text") != (binding->type == MacroParameterType::Text)) ||
+			    (!preset && ((kind == "text") != (binding->type == MacroParameterType::Text))) ||
+			    (preset && !MacroParameter::validToggleValues(binding->type, values)) ||
 			    (kind == "xy" && (!y || !MacroParameter::numericPair(*binding, *y)))) {
 				if (errorMessage)
 					*errorMessage = "Invalid or unsupported macro parameter binding";
 				return false;
 			}
-			b.kind = kind == "slider"   ? MacroControlKind::Slider
-				 : kind == "knob"   ? MacroControlKind::Knob
-				 : kind == "toggle" ? MacroControlKind::Toggle
-				 : kind == "xy"     ? MacroControlKind::XY
-						    : MacroControlKind::Text;
+			b.kind = kind == "slider"               ? MacroControlKind::Slider
+				 : kind == "knob"               ? MacroControlKind::Knob
+				 : (kind == "toggle" || preset) ? MacroControlKind::Toggle
+				 : kind == "xy"                 ? MacroControlKind::XY
+								: MacroControlKind::Text;
 			b.binding = *binding;
+			if (preset)
+				b.toggleValues = values;
 			if (y)
 				b.bindingY = *y;
 		} else {

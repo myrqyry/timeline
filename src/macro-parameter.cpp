@@ -284,6 +284,56 @@ int Spec::indexOf(double value) const
 	return static_cast<int>(std::round((std::clamp(value, min, max) - min) / step));
 }
 
+bool validToggleValues(MacroParameterType type, const ToggleValues &values)
+{
+	const auto a = QJsonValue::fromVariant(values.a);
+	const auto b = QJsonValue::fromVariant(values.b);
+	if (type == MacroParameterType::Text)
+		return a.isString() && b.isString() && a != b && !a.toString().contains(QChar::Null) &&
+		       !b.toString().contains(QChar::Null);
+	if (type != MacroParameterType::Float && type != MacroParameterType::Integer)
+		return false;
+	if (!a.isDouble() || !b.isDouble() || !std::isfinite(a.toDouble()) || !std::isfinite(b.toDouble()) || a == b)
+		return false;
+	return type != MacroParameterType::Integer ||
+	       (a.toDouble() == std::round(a.toDouble()) && b.toDouble() == std::round(b.toDouble()));
+}
+
+bool toggleValuesFit(const Spec &spec, const ToggleValues &values)
+{
+	if (!validToggleValues(spec.type, values))
+		return false;
+	if (spec.type == MacroParameterType::Text)
+		return true;
+	auto fits = [&](double v) {
+		return v >= spec.min - spec.step * 1e-5 && v <= spec.max + spec.step * 1e-5 &&
+		       std::abs(spec.valueAt(spec.indexOf(v)) - v) <= spec.step * 1e-5;
+	};
+	const double a = values.a.toDouble(), b = values.b.toDouble();
+	return fits(a) && fits(b) && spec.indexOf(a) != spec.indexOf(b);
+}
+
+std::optional<int> toggleState(const MacroParameterBinding &binding, const Spec &spec, const ToggleValues &values)
+{
+	if (!toggleValuesFit(spec, values))
+		return std::nullopt;
+	if (binding.type == MacroParameterType::Text) {
+		const auto current = readText(binding);
+		if (!current)
+			return std::nullopt;
+		return *current == values.a.toString() ? 0 : *current == values.b.toString() ? 1 : -1;
+	}
+	const auto current = read(binding);
+	if (!current)
+		return std::nullopt;
+	// Readback can have small floating-point error (especially mixer faders).
+	// Do not quantize arbitrary external values into the selected presets.
+	const double tolerance = spec.type == MacroParameterType::Integer ? 0.0 : spec.step * 1e-3;
+	return std::abs(*current - values.a.toDouble()) <= tolerance   ? 0
+	       : std::abs(*current - values.b.toDouble()) <= tolerance ? 1
+								       : -1;
+}
+
 QList<Target> targets()
 {
 	struct Context {

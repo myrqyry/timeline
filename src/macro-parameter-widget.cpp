@@ -546,6 +546,7 @@ public:
 		: QWidget(parent),
 		  binding(button.binding),
 		  kind(button.kind),
+		  toggleValues(button.toggleValues),
 		  subtitle(button.bottomLabel),
 		  showValue(button.showsLiveCaption())
 	{
@@ -628,10 +629,28 @@ public:
 			toggle->setObjectName("macro-parameter-toggle");
 			toggle->setAccessibleName(title);
 			controlLayout->addWidget(toggle, 0, Qt::AlignCenter);
-			connect(toggle, &QCheckBox::toggled, this, [this](bool value) {
-				queueValue(value ? 1 : 0);
-				flush();
-			});
+			if (toggleValues) {
+				toggle->setTristate(true);
+				connect(toggle, &QCheckBox::clicked, this, [this] {
+					const auto current = MacroParameter::describe(binding);
+					const auto state =
+						current ? MacroParameter::toggleState(binding, *current, *toggleValues)
+							: std::nullopt;
+					if (state && isVisible()) {
+						const auto &next = *state == 0 ? toggleValues->b : toggleValues->a;
+						if (binding.type == MacroParameterType::Text)
+							MacroParameter::writeText(binding, next.toString());
+						else
+							MacroParameter::write(binding, next.toDouble());
+					}
+					refresh(true);
+				});
+			} else {
+				connect(toggle, &QCheckBox::toggled, this, [this](bool value) {
+					queueValue(value ? 1 : 0);
+					flush();
+				});
+			}
 		} else {
 			if (button.kind == MacroControlKind::Knob) {
 				auto *dial = new RelativeDial(this);
@@ -725,11 +744,21 @@ private:
 		const QFontMetrics fm(label->font());
 		// Width depends on the assigned caption and control kind, never
 		// the live value or current availability of the target.
-		const QString sample = showValue ? (kind == MacroControlKind::Toggle
-							    ? tr("Off")
-							    : (binding.domain == "mixer" ? QStringLiteral("-100.0 dB")
-											 : QStringLiteral("-0.000000")))
-						 : subtitle;
+		QString sample = showValue ? (kind == MacroControlKind::Toggle
+						      ? tr("Off")
+						      : (binding.domain == "mixer" ? QStringLiteral("-100.0 dB")
+										   : QStringLiteral("-0.000000")))
+					   : subtitle;
+		if (showValue && toggleValues) {
+			const QFontMetrics valueFont(bottom->font());
+			for (const auto &value : {toggleValues->a, toggleValues->b}) {
+				const auto candidate = binding.domain == "mixer"
+							       ? MacroParameter::mixerVolumeLabel(value.toDouble())
+							       : value.toString();
+				if (valueFont.horizontalAdvance(candidate) > valueFont.horizontalAdvance(sample))
+					sample = candidate;
+			}
+		}
 		int width = std::clamp(std::max(fm.horizontalAdvance(title),
 						QFontMetrics(bottom->font()).horizontalAdvance(sample)) +
 					       12,
@@ -792,6 +821,34 @@ private:
 	{
 		if (schema)
 			spec = MacroParameter::describe(binding);
+		if (toggle && toggleValues) {
+			const auto state = spec ? MacroParameter::toggleState(binding, *spec, *toggleValues)
+						: std::nullopt;
+			const QSignalBlocker block(toggle);
+			toggle->setEnabled(state.has_value());
+			toggle->setCheckState(!state || *state < 0 ? Qt::PartiallyChecked
+					      : *state == 0        ? Qt::Unchecked
+								   : Qt::Checked);
+			auto display = [&](const QVariant &v) {
+				if (binding.type == MacroParameterType::Text)
+					return v.toString();
+				return binding.domain == "mixer" ? MacroParameter::mixerVolumeLabel(v.toDouble())
+								 : QString::number(v.toDouble(), 'g', 7) +
+									   (spec ? spec->suffix : QString());
+			};
+			const QString shown = !state       ? tr("Unavailable")
+					      : *state < 0 ? tr("Other value")
+							   : display(*state == 0 ? toggleValues->a : toggleValues->b);
+			if (showValue)
+				bottom->setText(shown);
+			const QString tip = title + "\n" + tr("A: %1").arg(display(toggleValues->a)) + "\n" +
+					    tr("B: %1").arg(display(toggleValues->b)) + "\n" + shown;
+			setToolTip(tip);
+			toggle->setToolTip(tip);
+			label->setToolTip(tip);
+			bottom->setToolTip(showValue ? shown : subtitle);
+			return;
+		}
 		if (textEntry) {
 			auto value = spec ? MacroParameter::readText(binding) : std::nullopt;
 			const bool valid = value.has_value();
@@ -847,6 +904,7 @@ private:
 	}
 	MacroParameterBinding binding;
 	MacroControlKind kind;
+	std::optional<MacroParameter::ToggleValues> toggleValues;
 	std::optional<MacroParameter::Spec> spec;
 	std::optional<double> pending;
 	QAbstractSlider *slider = nullptr;
@@ -926,6 +984,28 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	valueLayout->addWidget(valueSpin);
 	valueLayout->addWidget(boolValue);
 	valueLayout->addWidget(textValue);
+	auto *stateA = new QDoubleSpinBox(&dialog);
+	auto *stateB = new QDoubleSpinBox(&dialog);
+	stateA->setObjectName("macro-toggle-a");
+	stateB->setObjectName("macro-toggle-b");
+	stateA->setKeyboardTracking(false);
+	stateB->setKeyboardTracking(false);
+	auto *textA = new QPlainTextEdit(&dialog);
+	auto *textB = new QPlainTextEdit(&dialog);
+	textA->setObjectName("macro-toggle-text-a");
+	textB->setObjectName("macro-toggle-text-b");
+	textA->setMaximumHeight(80);
+	textB->setMaximumHeight(80);
+	auto makeStateRow = [&](QWidget *spin, QWidget *text) {
+		auto *row = new QWidget(&dialog);
+		auto *layout = new QVBoxLayout(row);
+		layout->setContentsMargins(0, 0, 0, 0);
+		layout->addWidget(spin);
+		layout->addWidget(text);
+		return row;
+	};
+	auto *stateRowA = makeStateRow(stateA, textA);
+	auto *stateRowB = makeStateRow(stateB, textB);
 	auto *info = new QLabel(&dialog);
 	info->setWordWrap(true);
 	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
@@ -947,6 +1027,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		label->hide();
 	} else {
 		if (axis.isEmpty()) {
+			form->addRow(QObject::tr("State A (unchecked)"), stateRowA);
+			form->addRow(QObject::tr("State B (checked)"), stateRowB);
 			form->addRow(QObject::tr("Label"), label);
 		} else {
 			kindCombo->hide();
@@ -954,6 +1036,15 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 		}
 		valueRow->hide();
 	}
+	auto showStateRows = [&](bool visible) {
+		stateRowA->setVisible(visible);
+		stateRowB->setVisible(visible);
+		if (auto *l = form->labelForField(stateRowA))
+			l->setVisible(visible);
+		if (auto *l = form->labelForField(stateRowB))
+			l->setVisible(visible);
+	};
+	showStateRows(false);
 	form->addRow(info);
 	form->addRow(buttons);
 	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -996,12 +1087,89 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 				previousValue = boolValue->currentData().toDouble();
 		});
 	}
+	std::optional<MacroParameter::Spec> presetSpec;
+	MacroParameterBinding presetBinding = initial.binding;
+	auto draftStates = [&]() -> std::optional<MacroParameter::ToggleValues> {
+		if (!presetSpec)
+			return std::nullopt;
+		const auto &s = *presetSpec;
+		MacroParameter::ToggleValues values;
+		if (s.type == MacroParameterType::Text) {
+			values = {textA->toPlainText(), textB->toPlainText()};
+		} else {
+			values = {s.valueAt(s.indexOf(stateA->value())), s.valueAt(s.indexOf(stateB->value()))};
+		}
+		if (!MacroParameter::toggleValuesFit(s, values))
+			return std::nullopt;
+		return values;
+	};
+	auto validatePresets = [&] {
+		if (presetSpec)
+			buttons->button(QDialogButtonBox::Ok)->setEnabled(draftStates().has_value());
+	};
+	QObject::connect(stateA, qOverload<double>(&QDoubleSpinBox::valueChanged), &dialog,
+			 [&](double) { validatePresets(); });
+	QObject::connect(stateB, qOverload<double>(&QDoubleSpinBox::valueChanged), &dialog,
+			 [&](double) { validatePresets(); });
+	QObject::connect(textA, &QPlainTextEdit::textChanged, &dialog, validatePresets);
+	QObject::connect(textB, &QPlainTextEdit::textChanged, &dialog, validatePresets);
+	auto configurePresets = [&](const MacroParameter::Spec *spec) {
+		const bool active = spec && chooseControl && preferred == MacroControlKind::Toggle &&
+				    spec->type != MacroParameterType::Boolean;
+		showStateRows(active);
+		if (!active) {
+			presetSpec.reset();
+			return;
+		}
+		const auto binding = selectedBinding();
+		const bool same = sameBinding(binding, presetBinding);
+		const bool preserve = presetSpec && same;
+		const auto prior =
+			preserve ? std::optional<MacroParameter::ToggleValues>(
+					   presetSpec->type == MacroParameterType::Text
+						   ? MacroParameter::ToggleValues{textA->toPlainText(),
+										  textB->toPlainText()}
+						   : MacroParameter::ToggleValues{stateA->value(), stateB->value()})
+				 : (sameBinding(binding, initial.binding) ? initial.toggleValues : std::nullopt);
+		presetBinding = binding;
+		presetSpec = *spec;
+		const QSignalBlocker a(stateA), b(stateB), ta(textA), tb(textB);
+		const bool text = spec->type == MacroParameterType::Text;
+		stateA->setVisible(!text);
+		stateB->setVisible(!text);
+		textA->setVisible(text);
+		textB->setVisible(text);
+		if (text) {
+			textA->setPlainText(prior ? prior->a.toString()
+						  : MacroParameter::readText(binding).value_or(QString()));
+			textB->setPlainText(prior ? prior->b.toString() : QString());
+		} else {
+			int decimals = 0;
+			for (; decimals < 12; ++decimals) {
+				const double scale = std::pow(10.0, decimals);
+				auto integral = [scale](double v) {
+					return std::abs(v * scale - std::round(v * scale)) < 1e-7;
+				};
+				if (integral(spec->min) && integral(spec->max) && integral(spec->step))
+					break;
+			}
+			for (auto *spin : {stateA, stateB}) {
+				spin->setDecimals(decimals);
+				spin->setRange(spec->min, spec->max);
+				spin->setSingleStep(spec->step);
+				spin->setSuffix(spec->suffix);
+			}
+			stateA->setValue(prior ? prior->a.toDouble() : spec->min);
+			stateB->setValue(prior ? prior->b.toDouble() : spec->valueAt(spec->steps()));
+		}
+		validatePresets();
+	};
 	// Keep property filtering and acceptance tied to the same declared type.
 	auto compatible = [&](MacroParameterType type) {
 		if (definedValue)
 			return true;
 		if (chooseControl && preferred == MacroControlKind::Toggle)
-			return type == MacroParameterType::Boolean;
+			return true; // Toggle supports discrete values of every supported scalar type.
 		if (chooseControl && preferred == MacroControlKind::Text)
 			return type == MacroParameterType::Text;
 		return type == MacroParameterType::Integer || type == MacroParameterType::Float;
@@ -1013,13 +1181,15 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 			kindCombo->clear();
 		const bool valid = index >= 0 && index < specs.size() && compatible(specs[index].type);
 		buttons->button(QDialogButtonBox::Ok)->setEnabled(valid);
+		configurePresets(valid ? &specs[index] : nullptr);
 		if (!valid) {
 			if (definedValue)
 				valueRow->setEnabled(false);
 			if (definedValue)
 				info->setText(QObject::tr("Choose an exposed numeric, boolean or text property."));
 			else if (chooseControl && preferred == MacroControlKind::Toggle)
-				info->setText(QObject::tr("Choose an exposed boolean property."));
+				info->setText(QObject::tr(
+					"Choose an exposed property. Non-boolean toggles use two defined values."));
 			else if (chooseControl && preferred == MacroControlKind::Text)
 				info->setText(QObject::tr("Choose an exposed editable text property."));
 			else
@@ -1155,6 +1325,8 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	QObject::connect(&catalogTimer, &QTimer::timeout, &dialog, [&] {
 		// Do not disrupt an open dropdown; refresh after it closes.
 		if ((definedValue && (valueSpin->hasFocus() || textValue->hasFocus())) ||
+		    (presetSpec &&
+		     (stateA->hasFocus() || stateB->hasFocus() || textA->hasFocus() || textB->hasFocus())) ||
 		    targetCombo->view()->isVisible() || propertyCombo->view()->isVisible() ||
 		    kindCombo->view()->isVisible() || (definedValue && boolValue->view()->isVisible()))
 			return;
@@ -1177,6 +1349,15 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	const auto current = MacroParameter::describe(result.binding);
 	if (!current || !compatible(current->type))
 		return std::nullopt;
+	if (chooseControl) {
+		result.toggleValues.reset();
+		if (result.kind == MacroControlKind::Toggle && current->type != MacroParameterType::Boolean) {
+			const auto values = draftStates();
+			if (!values || !MacroParameter::toggleValuesFit(*current, *values))
+				return std::nullopt;
+			result.toggleValues = values;
+		}
+	}
 	if (definedValue && spec.type == MacroParameterType::Text) {
 		*definedValue = textValue->toPlainText();
 	} else if (definedValue) {

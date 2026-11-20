@@ -93,7 +93,7 @@ parameter control.
 | Action button | Switch scenes, run a hotkey or apply a parameter preset. |
 | Slider | Adjust mixer volume, effect opacity or another numeric property. |
 | Knob | Adjust shader speed or intensity. |
-| Toggle | Mute an audio source or turn a boolean setting on or off. |
+| Toggle | Turn a boolean on/off or switch between two defined numeric or text values. |
 | Text entry | Edit a source caption or another exposed string property. |
 | XY controller | Adjust two numeric properties with a single two-axis gesture. |
 
@@ -122,7 +122,11 @@ Audio sources also expose **Mixer / Volume** and **Mixer / Mute**. Volume
 uses OBS’s logarithmic fader curve with a dB readout; both can be scheduled
 with Set Parameter Value.
 
-Numeric, boolean and editable text properties are supported. Text fields
+For non-boolean toggles, choose State A and State B in the binding editor.
+The checkbox follows the actual property, using an indeterminate state for
+values outside the presets. The next click from that state selects A.
+
+Numeric, boolean and editable text properties are supported. Text entries
 apply changes explicitly; multiline fields open a larger editor without
 growing the dock. Password and informational fields are excluded. Color,
 list controls, custom ranges and scene-item transforms are not yet supported.
@@ -194,11 +198,11 @@ Only play timeline files you trust; they can change your OBS state.
 ## Development status
 
 - Current local source includes customizable top/bottom captions, type-first
-  parameter binding and compact XY controls; **100/100 strict Qt/libobs
+  parameter binding, compact XY controls and two-state toggles; **101/101 strict Qt/libobs
   tests passed**. Frontend interactions in the harness use test doubles.
 - Installed source checkpoint `38f3e6e` passed 99 tests and loaded both
   docks and the WebSocket vendor in an isolated native OBS32.2.0 startup.
-  Existing saved macros and timelines were preserved. The latest caption
+  Existing saved macros and timelines were preserved. The latest caption, two-state toggle
   and numeric-picker hint updates have not yet been installed.
 - HyperShaderFX effect opacity and a shader uniform have been verified
   through the real plugin's property interface. Render smoothness,

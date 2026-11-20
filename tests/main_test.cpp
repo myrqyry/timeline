@@ -3178,6 +3178,128 @@ private slots:
 		QVERIFY(!unfocused.isAccepted());
 	}
 
+	void testMacroTogglePresetValues()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Preset toggle target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton initial;
+		initial.kind = MacroControlKind::Toggle;
+		QWidget host;
+		bool configured = false;
+		QTimer::singleShot(0, &host, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			QVERIFY(dialog);
+			auto guard = qScopeGuard([&] {
+				if (!configured)
+					dialog->reject();
+			});
+			auto *target = dialog->findChild<QComboBox *>("macro-parameter-target");
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *a = dialog->findChild<QDoubleSpinBox *>("macro-toggle-a");
+			auto *b = dialog->findChild<QDoubleSpinBox *>("macro-toggle-b");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			QVERIFY(target && property && a && b && buttons);
+			target->setCurrentIndex(target->findText("Preset toggle target"));
+			property->setCurrentIndex(property->findText("Controls / Gain"));
+			QVERIFY(a->isVisible() && b->isVisible());
+			a->setValue(-0.5);
+			b->setValue(-0.5);
+			QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			b->setValue(0.75);
+			QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			configured = true;
+			dialog->accept();
+		});
+		const auto selected = editMacroParameter(&host, initial);
+		QVERIFY(configured && selected && selected->toggleValues);
+		QCOMPARE(selected->toggleValues->a.toDouble(), -0.5);
+		QCOMPARE(selected->toggleValues->b.toDouble(), 0.75);
+		QCOMPARE(MacroParameter::read(selected->binding).value(), 0.25);
+		// Reopen the editor for a real text-valued toggle; no numeric coercion.
+		MacroButton textInitial = *selected;
+		textInitial.id = QUuid::createUuid().toString();
+		bool textConfigured = false;
+		QTimer::singleShot(0, &host, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			QVERIFY(dialog);
+			auto guard = qScopeGuard([&] {
+				if (!textConfigured)
+					dialog->reject();
+			});
+			auto *property = dialog->findChild<QComboBox *>("macro-parameter-property");
+			auto *a = dialog->findChild<QPlainTextEdit *>("macro-toggle-text-a");
+			auto *b = dialog->findChild<QPlainTextEdit *>("macro-toggle-text-b");
+			auto *buttons = dialog->findChild<QDialogButtonBox *>();
+			QVERIFY(property && a && b && buttons);
+			property->setCurrentIndex(property->findText("Text"));
+			QVERIFY(a->isVisible() && b->isVisible());
+			a->setPlainText("keep");
+			b->setPlainText("123");
+			QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
+			textConfigured = true;
+			dialog->accept();
+		});
+		const auto textChoice = editMacroParameter(&host, textInitial);
+		QVERIFY(textConfigured && textChoice && textChoice->toggleValues);
+		const auto text = *textChoice;
+		QCOMPARE(text.binding.type, MacroParameterType::Text);
+		QCOMPARE(text.toggleValues->b.toString(), QString("123"));
+		QVERIFY(!MacroParameter::validToggleValues(MacroParameterType::Integer, {1.5, 2.0}));
+		QVERIFY(!MacroParameter::validToggleValues(MacroParameterType::Float, {QString("1"), 2.0}));
+		QVERIFY(!MacroParameter::validToggleValues(MacroParameterType::Text, {QString("a"), QString("a")}));
+		QVERIFY(MacroParameter::validToggleValues(MacroParameterType::Text, {QString("a"), QString("")}));
+		auto reduced = MacroParameter::describe(selected->binding);
+		QVERIFY(reduced);
+		reduced->max = 0.0;
+		QVERIFY(!MacroParameter::toggleValuesFit(*reduced, *selected->toggleValues));
+		MacroButtonModel model, restored;
+		model.addButton(*selected);
+		model.addButton(text);
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(MacroSerialization::toJsonObject(model)),
+							     restored));
+		QCOMPARE(restored.buttons().first().toggleValues->b.toDouble(), 0.75);
+		QCOMPARE(restored.buttons().last().toggleValues->b.toString(), QString("123"));
+		auto invalid = MacroSerialization::toJsonObject(model);
+		auto records = invalid["buttons"].toArray();
+		auto broken = records.first().toObject();
+		broken["toggleB"] = "0.75";
+		records[0] = broken;
+		invalid["buttons"] = records;
+		QVERIFY(!MacroSerialization::fromJsonDocument(QJsonDocument(invalid), restored));
+		QCOMPARE(restored.buttons().size(), 2);
+		auto *numeric = createMacroParameterWidget(restored.buttons().first(), &host);
+		auto *strings = createMacroParameterWidget(restored.buttons().last(), &host);
+		strings->move(160, 0);
+		host.resize(400, 120);
+		host.show();
+		auto *check = numeric->findChild<QCheckBox *>("macro-parameter-toggle");
+		auto *textCheck = strings->findChild<QCheckBox *>("macro-parameter-toggle");
+		QVERIFY(check && textCheck);
+		QCOMPARE(check->checkState(), Qt::PartiallyChecked);
+		QTest::mouseClick(check, Qt::LeftButton);
+		QCOMPARE(MacroParameter::read(selected->binding).value(), -0.5);
+		QCOMPARE(check->checkState(), Qt::Unchecked);
+		QTest::mouseClick(check, Qt::LeftButton);
+		QCOMPARE(MacroParameter::read(selected->binding).value(), 0.75);
+		QCOMPARE(check->checkState(), Qt::Checked);
+		QVERIFY(MacroParameter::write(selected->binding, 0.0));
+		QTRY_COMPARE(check->checkState(), Qt::PartiallyChecked);
+		QCOMPARE(MacroParameter::readText(text.binding).value(), QString("keep"));
+		QTest::mouseClick(textCheck, Qt::LeftButton);
+		QCOMPARE(MacroParameter::readText(text.binding).value(), QString("123"));
+		QCOMPARE(textCheck->checkState(), Qt::Checked);
+		QTest::mouseClick(textCheck, Qt::LeftButton);
+		QCOMPARE(MacroParameter::readText(text.binding).value(), QString("keep"));
+		QCOMPARE(textCheck->checkState(), Qt::Unchecked);
+		QVERIFY(MacroParameter::write({text.binding.sourceUuid, {}, "enabled", MacroParameterType::Boolean},
+					      0));
+		QTRY_VERIFY_WITH_TIMEOUT(!check->isEnabled(), 3000);
+	}
+
 	void testMacroOptionalBottomCaptionAndCompactXY()
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Caption layout target", nullptr, nullptr);
@@ -3799,8 +3921,8 @@ private slots:
 			select(MacroControlKind::Toggle);
 			target->setCurrentIndex(target->findText("Type first target"));
 			QVERIFY(property->findText("Enabled") >= 0);
-			QCOMPARE(property->findText("Controls / Gain"), -1);
-			QCOMPARE(property->findText("Text"), -1);
+			QVERIFY(property->findText("Controls / Gain") >= 0);
+			QVERIFY(property->findText("Text") >= 0);
 			property->setCurrentIndex(property->findText("Enabled"));
 			QVERIFY(buttons->button(QDialogButtonBox::Ok)->isEnabled());
 			select(MacroControlKind::Knob);

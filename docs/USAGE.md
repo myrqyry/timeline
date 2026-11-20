@@ -183,13 +183,13 @@ The normal autosave path persists the resulting event data.
 ## Live parameter controls
 
 Macro Strip mixes immediate action buttons with live numeric sliders/knobs
-boolean toggles and editable text controls. The shared parameter catalog walks scenes, nested
+boolean/preset toggles and editable text controls. The shared parameter catalog walks scenes, nested
 groups, standalone sources, attached filters and exposed property groups.
 It reads the property's current type, range, increment and unit suffix.
 
 Choose the control type before selecting a source/filter and parameter.
-Sliders and knobs list numeric properties only, toggles list booleans only,
-and text entries list editable strings only. Changing between compatible
+Sliders and knobs list numeric properties only, toggles accept supported
+scalar properties, and text entries list editable strings only. Changing between compatible
 control types retains the selected binding; an incompatible property
 selection clears and must be chosen again. XY axis pickers remain numeric;
 the timeline defined-value picker still accepts all supported scalar types.
@@ -255,10 +255,26 @@ updated transactionally across OBS objects. Right-click to edit or remove
 the control. Older builds cannot read XY macro records; keep a backup
 before downgrading.
 
-### Boolean and text controls
+### Two-state toggles
 
-Choose Toggle to expose boolean properties or Text entry to expose
-editable text properties. The checked state tracks the current OBS value. Single-line fields
+Choose Toggle and bind a supported scalar property. Booleans use the ordinary
+unchecked/checked false/true behavior. For integer, float or editable text
+properties, define State A (unchecked) and State B (checked). Numeric presets
+are snapped to the declared step, and the two states must remain distinct.
+Text presets are exact strings, including empty or multiline strings.
+No values are applied when configuring or loading the toggle.
+
+The checkbox reads the actual OBS value, including changes from a timeline
+or another control. A third value displays as indeterminate; the next click
+selects A. A subsequent click selects B. Both presets are validated against
+the live schema before writing; invalid or missing targets disable the toggle.
+The optional live caption reports the active preset or Other value.
+Earlier versions cannot read non-boolean preset toggles; back up macros before
+downgrading. List/enum and color properties remain unsupported.
+
+### Text controls
+
+Choose Text entry to expose editable text properties. Single-line fields
 use an inline entry and an explicit **Apply** button, keeping unsubmitted
 edits separate from the live value. External updates refresh clean entries
 without replacing a draft. Multiline properties open an editable text
