@@ -111,10 +111,11 @@ Timeline cues. Saved bindings follow source/filter identities through renames.
 
 Knobs use a compact, themed progress arc and vertical dragging, with no
 value jump on click. Captions reserve fixed space, so live values never
-shift neighboring controls. Hold **Shift** for 10× finer movement, or focus a knob and use the wheel or arrow keys.
+shift neighboring controls. Right-click **Labels and appearance** to rename
+the top tag, add a bottom caption or enable a live value readout. Hold **Shift** for 10× finer movement, or focus a knob and use the wheel or arrow keys.
 
 Use **+ → XY controller** to assign two separate numeric properties to
-a compact crosshair pad. Both values follow OBS readback, and each axis
+a compact crosshair pad (40 px by default; 48 or 64 px optional). Both values follow OBS readback, and each axis
 uses its own range and step.
 
 Audio sources also expose **Mixer / Volume** and **Mixer / Mute**. Volume
@@ -192,15 +193,13 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- Current local source includes XY controls and type-first binding and passes **99/99 strict
-  Qt/libobs tests**. XY is installed on the local OBS32 test machine; the new type-first
-  binding dialog has not yet been installed or interactively tested.
-- Installed source checkpoint `9773946` (November 19, 2026): **96/96 tests
-  passed** with native Qt/libobs and strict runtime initialization.
-  Frontend interactions in the harness use test doubles.
-- The same build was installed in native OBS 32.2.0 on Linux; both docks
-  and the WebSocket vendor registered in an isolated OBS startup.
-  Existing saved timelines and macros were preserved.
+- Current local source includes customizable top/bottom captions, type-first
+  parameter binding and compact XY controls; **100/100 strict Qt/libobs
+  tests passed**. Frontend interactions in the harness use test doubles.
+- Installed source checkpoint `38f3e6e` passed 99 tests and loaded both
+  docks and the WebSocket vendor in an isolated native OBS32.2.0 startup.
+  Existing saved macros and timelines were preserved. The latest caption
+  and numeric-picker hint updates have not yet been installed.
 - HyperShaderFX effect opacity and a shader uniform have been verified
   through the real plugin's property interface. Render smoothness,
   interactive theme acceptance, and Windows/macOS runtime use remain

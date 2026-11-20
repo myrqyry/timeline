@@ -222,6 +222,19 @@ settings are discoverable (numeric controls are limited to one million
 increments). List/color/button properties, custom ranges, scene-item
 transforms and manual ramp controls are not included in Macro Strip.
 
+### Labels and appearance
+
+Right-click any control and choose **Labels and appearance** to rename
+the top label independently of its action or binding. By default only
+the top label appears, styled as a compact theme-aware tag. The bottom
+row is optional: choose None, Custom text, or Live value (for numeric,
+boolean and XY controls). Text entries and action buttons support custom
+bottom text. When any control uses a second caption, the strip reserves
+a shared bottom row so all controls stay aligned. Values remain readable
+in tooltips even when the live value row is hidden. Caption widths are
+fixed between configuration changes. XY pad size can be selected here
+without changing either axis binding.
+
 ### XY controllers
 
 Choose **+ → XY controller**, assign a numeric property to each axis,
@@ -229,8 +242,8 @@ and name the control. X increases to the right; Y increases upward.
 Click or drag in the pad to set both values. Focus the pad and use the
 arrow keys to adjust the corresponding axis by a single property step.
 Axes can bind to different sources or filters, but not the same property.
-The square pad reserves 64 logical pixels in the control row, and its
-caption does not resize as values change. A strip without an XY control
+The square pad defaults to 40 logical pixels, with 48 and 64 pixel
+options in Labels and appearance. Its caption does not resize as values change. A strip without an XY control
 keeps its ordinary row height.
 
 Both bindings are saved, and values are read from OBS without writing on
@@ -265,8 +278,7 @@ Audio-capable sources expose **Mixer / Volume (fader position)** and
 **Mixer / Mute** in the same parameter picker, even without corresponding
 OBS settings properties. Use a slider or knob for volume, or a toggle for
 mute. The volume uses the OBS logarithmic fader curve; 0–100% represents
-fader travel in 0.1% increments, not a linear audio multiplier. Its live
-caption shows the corresponding dB value. At zero it reads -inf dB and
+fader travel in 0.1% increments, not a linear audio multiplier. Its tooltip and optional live value row show the corresponding dB value. At zero it reads -inf dB and
 at 100% it reaches unity (0 dB). Positive gain above unity is outside
 this control's range; readback saturates at the maximum. Mute is independent
 of volume. External mixer adjustments are read back without resetting values.

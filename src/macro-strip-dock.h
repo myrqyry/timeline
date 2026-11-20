@@ -48,6 +48,7 @@ public slots:
 	void moveLeft(const QString &id);
 	void moveRight(const QString &id);
 	void editButton(const QString &id);
+	void editDisplay(const QString &id);
 	void removeButton(const QString &id);
 
 	void onFrontendEvent(enum obs_frontend_event event);

@@ -603,14 +603,19 @@ and event content height; additional lanes become vertically scrollable
 instead of imposing an unbounded minimum dock height. The ruler currently
 scrolls with the scene. Playhead, grid and end marker use the scene height.
 
-Macro Strip uses shared caption and control rows derived from caption font
+Macro Strip uses shared top-caption, control and optional bottom-caption rows derived from caption font
 metrics, native slider/toggle/text-entry/button size hints and the fixed dial size. The inner
 scroll area reserves horizontal scrollbar space; the outer dock remains
 resizable. Rows recalculate on model rebuild and frontend theme changes.
 Live parameter columns reserve width from the assigned caption, control
 kind and native control minimums, independently of current values or schema
 availability. StableCaption preserves its full QLabel text while painting
-a middle-elided line inside the reserved width.
+an elided line inside the reserved width. The top name uses a palette-aware
+rounded tag; the optional bottom caption is lighter-weight. Macro records
+store optional bottomLabel, showValue and xySize fields, preserving the
+legacy default of an assigned top label with no additional caption.
+The appearance dialog edits presentation without changing binding identity.
+The row contracts remain shared across action buttons and parameter controls.
 
 ### XY control surface
 
@@ -619,7 +624,8 @@ binding in `bindingY`, with `control: "xy"`. The bindings must be distinct
 numeric properties. Both use the existing live catalog and exact identity
 resolver. The assignment dialog reuses its numeric-only picker separately
 for each axis, and revalidates both before acceptance. The pad normalizes
-each property's step-index range independently, with upward Y. Live
+each property's step-index range independently, with upward Y. The pad
+defaults to 40 logical pixels, with 48/64 pixel alternatives. Live
 readback, coalesced writes, stable captions and shared row height preserve
 the strip's existing conventions. Both axes are validated before a pair
 write; two settings on the same OBS object use a single patch, while

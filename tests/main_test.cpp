@@ -2993,17 +2993,18 @@ private slots:
 		auto *caption = dock.findChild<QLabel *>("macro-parameter-caption");
 		auto *next = dock.findChild<MacroButtonWidget *>();
 		QVERIFY(pad && caption && next && pad->isEnabled());
-		QCOMPARE(pad->size(), QSize(64, 64));
+		QCOMPARE(pad->size(), QSize(40, 40));
 		QVERIFY(pad->parentWidget()->rect().contains(pad->geometry()));
 		QCOMPARE(MacroParameter::read(xy.binding).value(), 0.25);
 		QCOMPARE(MacroParameter::read(xy.bindingY).value(), 4.0);
 		const QRect initial(next->mapTo(&dock, QPoint()), next->size());
-		QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(59, 4));
-		QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(59, 4));
+		QTest::mousePress(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() - 5, 4));
+		QTest::mouseRelease(pad, Qt::LeftButton, Qt::NoModifier, QPoint(pad->width() - 5, 4));
 		QTRY_COMPARE(MacroParameter::read(xy.binding).value(), 1.0);
 		QTRY_COMPARE(MacroParameter::read(xy.bindingY).value(), 10.0);
 		QVERIFY(MacroParameter::writePair(xy.binding, -1.0, xy.bindingY, 2.0));
-		QTRY_VERIFY(caption->text().contains("-1") && caption->text().contains("2"));
+		QTRY_VERIFY(caption->toolTip().contains("-1") && caption->toolTip().contains("2"));
+		QCOMPARE(caption->text(), QString("Position"));
 		QCOMPARE(QRect(next->mapTo(&dock, QPoint()), next->size()), initial);
 		dock.activateWindow();
 		QVERIFY(QTest::qWaitForWindowActive(&dock));
@@ -3175,6 +3176,107 @@ private slots:
 		QCoreApplication::sendEvent(dial, &unfocused);
 		QCOMPARE(dial->value(), 35);
 		QVERIFY(!unfocused.isAccepted());
+	}
+
+	void testMacroOptionalBottomCaptionAndCompactXY()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Caption layout target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton knob;
+		knob.kind = MacroControlKind::Knob;
+		knob.label = "Gain";
+		knob.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		MacroButton xy = knob;
+		xy.id = QUuid::createUuid().toString();
+		xy.kind = MacroControlKind::XY;
+		xy.label = "Position";
+		xy.bindingY = {xy.binding.sourceUuid, {}, "count", MacroParameterType::Integer};
+		MacroButton action;
+		action.label = "Next";
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		for (const auto &b : {knob, xy, action})
+			dock.buttonModel()->addButton(b);
+		dock.resize(700, dock.minimumHeight());
+		dock.show();
+		auto settle = [&] {
+			QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+			QCoreApplication::processEvents();
+		};
+		settle();
+		auto *pad = dock.findChild<QWidget *>("macro-parameter-xy");
+		QVERIFY(pad);
+		QCOMPARE(pad->size(), QSize(40, 40));
+		auto *dial = dock.findChild<QDial *>("macro-parameter-knob");
+		QVERIFY(dial);
+		auto *column = dial->parentWidget()->parentWidget();
+		auto *top = column->findChild<QLabel *>("macro-parameter-caption");
+		QVERIFY(top);
+		QCOMPARE(top->text(), QString("Gain"));
+		const int compactHeight = dock.minimumHeight();
+		bool appearanceEdited = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			auto *topEdit = dialog->findChild<QLineEdit *>("macro-display-top");
+			auto *mode = dialog->findChild<QComboBox *>("macro-display-bottom-mode");
+			if (!topEdit || !mode) {
+				dialog->reject();
+				return;
+			}
+			topEdit->setText("Intensity");
+			mode->setCurrentIndex(mode->findData(2));
+			appearanceEdited = true;
+			dialog->accept();
+		});
+		dock.editDisplay(knob.id);
+		QVERIFY(appearanceEdited);
+		const auto renamed = dock.buttonModel()->findById(knob.id);
+		QVERIFY(renamed);
+		QCOMPARE(renamed->binding.key, knob.binding.key);
+		QCOMPARE(renamed->binding.sourceUuid, knob.binding.sourceUuid);
+		QCOMPARE(renamed->label, QString("Intensity"));
+		QVERIFY(renamed->showValue);
+		knob = *renamed;
+		action.bottomLabel = "Next scene";
+		xy.bottomLabel = "Motion";
+		xy.xySize = 48;
+		QVERIFY(dock.buttonModel()->replaceButtonById(knob.id, knob));
+		QVERIFY(dock.buttonModel()->replaceButtonById(xy.id, xy));
+		QVERIFY(dock.buttonModel()->replaceButtonById(action.id, action));
+		dock.resize(700, dock.minimumHeight());
+		settle();
+		dial = dock.findChild<QDial *>("macro-parameter-knob");
+		pad = dock.findChild<QWidget *>("macro-parameter-xy");
+		auto *next = dock.findChild<MacroButtonWidget *>();
+		QVERIFY(dial && pad && next);
+		column = dial->parentWidget()->parentWidget();
+		top = column->findChild<QLabel *>("macro-parameter-caption");
+		auto *bottom = column->findChild<QLabel *>("macro-parameter-bottom-caption");
+		QVERIFY(top && bottom && bottom->isVisible());
+		QCOMPARE(pad->size(), QSize(48, 48));
+		QCOMPARE(top->text(), QString("Intensity"));
+		QCOMPARE(bottom->text(), QString("0.25"));
+		QVERIFY(bottom->mapTo(&dock, QPoint()).y() > dial->mapTo(&dock, QPoint()).y());
+		QVERIFY(dock.minimumHeight() > compactHeight);
+		QVERIFY(qAbs(dial->mapTo(&dock, dial->rect().center()).y() -
+			     pad->mapTo(&dock, pad->rect().center()).y()) <= 1);
+		QCOMPARE(next->height(), column->height());
+		const QRect initial(next->mapTo(&dock, QPoint()), next->size());
+		QVERIFY(MacroParameter::write(knob.binding, -0.95));
+		QTRY_COMPARE(bottom->text(), QString("-0.95"));
+		QCOMPARE(top->text(), QString("Intensity"));
+		QCOMPARE(QRect(next->mapTo(&dock, QPoint()), next->size()), initial);
+		MacroButtonModel restored;
+		QVERIFY(MacroSerialization::fromJsonDocument(QJsonDocument(dock.toJson()), restored));
+		QVERIFY(restored.findById(knob.id)->showValue);
+		QCOMPARE(restored.findById(action.id)->bottomLabel, QString("Next scene"));
+		QCOMPARE(restored.findById(xy.id)->xySize, 48);
 	}
 
 	void testMacroControlRowsAligned()
@@ -3433,7 +3535,7 @@ private slots:
 		auto *input = control->findChild<QSlider *>("macro-parameter-slider");
 		QVERIFY(input && input->isEnabled());
 		QCOMPARE(input->value(), 500);
-		QVERIFY(control->findChild<QLabel *>("macro-parameter-caption")->text().contains("dB"));
+		QVERIFY(control->findChild<QLabel *>("macro-parameter-caption")->toolTip().contains("dB"));
 		obs_source_set_volume(source, 1.0f);
 		QTRY_COMPARE(input->value(), 1000);
 		input->setValue(500);

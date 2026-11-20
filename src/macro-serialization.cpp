@@ -48,6 +48,12 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 		QJsonObject obj;
 		obj["id"] = b.id;
 		obj["label"] = b.label;
+		if (!b.bottomLabel.isEmpty())
+			obj["bottomLabel"] = b.bottomLabel;
+		if (b.showsLiveCaption())
+			obj["showValue"] = true;
+		if (b.kind == MacroControlKind::XY && b.padSize() != 40)
+			obj["xySize"] = b.padSize();
 		// An older plugin must skip parameter controls, never execute them
 		// as legacy scene-switch buttons.
 		obj["type"] = b.kind == MacroControlKind::Action ? static_cast<int>(b.type) : -1;
@@ -129,6 +135,10 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 				continue;
 			b.type = static_cast<TimelineEventType>(typeInt);
 		}
+		b.bottomLabel = obj["bottomLabel"].toString();
+		b.showValue = b.supportsLiveCaption() && obj["showValue"].toBool(false);
+		b.xySize = obj["xySize"].toInt(40);
+		b.xySize = b.padSize();
 		b.sourceName = obj["source"].toString();
 		b.filterName = obj["filter"].toString();
 		b.data = obj["data"].toString();

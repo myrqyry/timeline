@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Compact macro captions and XY size — 2026-11-19
+
+- User requested two text rows with only the top tag visible by default, smaller XY, and independent top tag renaming. All control types have a right-click Labels and appearance editor. Top tag renamed independently; optional custom bottom caption or live readout (numeric/boolean/XY), none by default. Shared optional bottom-row height, palette-aware rounded top labels, smaller secondary text, fixed widths and tooltips. XY defaults to 40 px, optional 48/64 px. JSON presentation fields are optional and backward readable; older builds can discard these new fields on save. Binding/action edits preserve appearance. Appearance edits follow existing model rebuild semantics (unapplied text drafts can be lost).
+- RED missing presentation fields; GREEN actual dialog rename retained exact binding; compact/default and larger pad geometry, optional live readout updates, stable neighboring positions, JSON persistence, existing XY/mixer/knob/alignment tests. Full strict native suite 100 passed, zero failed/skipped. Logs /tmp/timeline-caption-rows-red.log, /tmp/timeline-caption-rows-green.log, /tmp/timeline-caption-rows-full.log.
+- Installed/remote checkpoint 38f3e6e remains unchanged; normal OBS still running. Local commits include earlier numeric-picker wording fix. Native appearance acceptance pending; no install or push.
+
+
 ### Numeric-only picker wording and acceptance — 2026-11-19
 
 - User reported slider/knob/XY text choices and supplied a screenshot of the XY X-axis picker saying numeric, boolean or text property. Confirmed shared-dialog hint defect; actual text choices in numeric dropdowns have not been reproduced. Real isolated FreeType and Text Pthread module catalog probe confirmed their text properties are strings (log /tmp/timeline-text-catalog-gUR8Th/log).

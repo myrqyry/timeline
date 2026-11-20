@@ -21,14 +21,17 @@ MacroButtonWidget::MacroButtonWidget(const MacroButton &button, QWidget *parent)
 	setMouseTracking(true);
 	setAttribute(Qt::WA_Hover, true);
 	setCursor(Qt::PointingHandCursor);
-	setToolTip(fallbackLabel(m_button));
+	setToolTip(fallbackLabel(m_button) +
+		   (m_button.bottomLabel.isEmpty() ? QString() : "\n" + m_button.bottomLabel));
 	rebuildRenderer();
+	m_bottomHeight = m_button.hasBottomCaption() ? kBottomHeight : 0;
 }
 
 void MacroButtonWidget::setButton(const MacroButton &button)
 {
 	m_button = button;
-	setToolTip(fallbackLabel(m_button));
+	setToolTip(fallbackLabel(m_button) +
+		   (m_button.bottomLabel.isEmpty() ? QString() : "\n" + m_button.bottomLabel));
 	rebuildRenderer();
 	updateGeometry();
 	update();
@@ -61,16 +64,20 @@ QSize MacroButtonWidget::sizeHint() const
 	QFont labelFont = font();
 	labelFont.setPointSize(8);
 	labelFont.setBold(true);
-	const int labelWidth = QFontMetrics(labelFont).horizontalAdvance(fallbackLabel(m_button)) + 8;
+	int labelWidth = QFontMetrics(labelFont).horizontalAdvance(fallbackLabel(m_button)) + 8;
+	labelFont.setBold(false);
+	labelWidth = std::max(labelWidth, QFontMetrics(labelFont).horizontalAdvance(m_button.bottomLabel) + 8);
 	// Keep labels readable without making a long macro name dominate the strip.
-	return QSize(qBound(static_cast<int>(kBubbleSize) + 12, labelWidth, 160), m_labelHeight + m_controlHeight);
+	return QSize(qBound(static_cast<int>(kBubbleSize) + 12, labelWidth, 160),
+		     m_labelHeight + m_controlHeight + m_bottomHeight);
 }
 
-void MacroButtonWidget::setRowHeights(int labelHeight, int controlHeight)
+void MacroButtonWidget::setRowHeights(int labelHeight, int controlHeight, int bottomHeight)
 {
 	m_labelHeight = labelHeight;
 	m_controlHeight = controlHeight;
-	setFixedHeight(labelHeight + controlHeight);
+	m_bottomHeight = bottomHeight;
+	setFixedHeight(labelHeight + controlHeight + bottomHeight);
 	updateGeometry();
 	update();
 }
@@ -178,5 +185,17 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 
 		painter.setPen(textColor);
 		painter.drawText(box, Qt::AlignCenter, fm.elidedText(label, Qt::ElideRight, boxW - padX * 2));
+	}
+	if (m_bottomHeight > 0 && !m_button.bottomLabel.isEmpty()) {
+		QFont font = painter.font();
+		font.setPointSize(8);
+		font.setBold(false);
+		painter.setFont(font);
+		QColor ink = palette().color(QPalette::Text);
+		ink.setAlpha(190);
+		painter.setPen(ink);
+		painter.drawText(QRect(2, m_labelHeight + m_controlHeight, width() - 4, m_bottomHeight),
+				 Qt::AlignCenter | Qt::TextSingleLine,
+				 QFontMetrics(font).elidedText(m_button.bottomLabel, Qt::ElideRight, width() - 4));
 	}
 }

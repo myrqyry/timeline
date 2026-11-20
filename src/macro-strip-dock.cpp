@@ -10,6 +10,11 @@
 #include <obs-module.h>
 
 #include <QPushButton>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QComboBox>
+#include <QLineEdit>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QScrollArea>
@@ -112,6 +117,7 @@ void MacroStripDock::rebuildFromModel()
 			QPointer<MacroStripDock> safeThis(this);
 			QMenu menu;
 			QAction *edit = menu.addAction(QObject::tr("Edit"));
+			QAction *display = menu.addAction(QObject::tr("Labels and appearance…"));
 			QAction *left = menu.addAction(QObject::tr("Move Left"));
 			QAction *right = menu.addAction(QObject::tr("Move Right"));
 			menu.addSeparator();
@@ -121,6 +127,8 @@ void MacroStripDock::rebuildFromModel()
 				return;
 			if (picked == edit)
 				safeThis->editButton(id);
+			else if (picked == display)
+				safeThis->editDisplay(id);
 			else if (picked == left)
 				safeThis->moveLeft(id);
 			else if (picked == right)
@@ -142,6 +150,15 @@ void MacroStripDock::updateStripHeight()
 	captionFont.setBold(true);
 	int labelHeight = std::max(MacroButtonWidget::kLabelHeight, QFontMetrics(captionFont).height() + 2);
 	int controlHeight = MacroButtonWidget::kControlHeight;
+	QFont bottomFont = captionFont;
+	bottomFont.setBold(false);
+	int bottomHeight = 0;
+	for (const auto &button : m_model.buttons())
+		if (button.hasBottomCaption()) {
+			bottomHeight =
+				std::max(MacroButtonWidget::kBottomHeight, QFontMetrics(bottomFont).height() + 2);
+			break;
+		}
 	for (int i = 0; i < m_buttonLayout->count(); ++i) {
 		if (auto *widget = m_buttonLayout->itemAt(i)->widget()) {
 			const QSize required = macroParameterRequiredRows(widget);
@@ -152,12 +169,12 @@ void MacroStripDock::updateStripHeight()
 	for (int i = 0; i < m_buttonLayout->count(); ++i) {
 		if (auto *widget = m_buttonLayout->itemAt(i)->widget()) {
 			if (auto *action = qobject_cast<MacroButtonWidget *>(widget))
-				action->setRowHeights(labelHeight, controlHeight);
+				action->setRowHeights(labelHeight, controlHeight, bottomHeight);
 			else
-				setMacroParameterRows(widget, labelHeight, controlHeight);
+				setMacroParameterRows(widget, labelHeight, controlHeight, bottomHeight);
 		}
 	}
-	const int contentHeight = labelHeight + controlHeight;
+	const int contentHeight = labelHeight + controlHeight + bottomHeight;
 	m_buttonContainer->setFixedHeight(contentHeight);
 	// Keep the content strip compact, reserving its horizontal scrollbar
 	// even when it is not currently visible. The outer dock stays resizable.
@@ -228,6 +245,65 @@ void MacroStripDock::editButton(const QString &id)
 	showEditEditor(id);
 }
 
+void MacroStripDock::editDisplay(const QString &id)
+{
+	auto existing = m_model.findById(id);
+	if (!existing)
+		return;
+	QDialog dialog(this);
+	dialog.setWindowTitle(tr("Labels and appearance"));
+	auto *form = new QFormLayout(&dialog);
+	auto *top = new QLineEdit(existing->label, &dialog);
+	top->setObjectName("macro-display-top");
+	top->setPlaceholderText(tr("Automatic label"));
+	form->addRow(tr("Top label"), top);
+	auto *mode = new QComboBox(&dialog);
+	mode->setObjectName("macro-display-bottom-mode");
+	mode->addItem(tr("None"), 0);
+	mode->addItem(tr("Custom text"), 1);
+	if (existing->supportsLiveCaption())
+		mode->addItem(tr("Live value"), 2);
+	mode->setCurrentIndex(mode->findData(existing->showsLiveCaption()      ? 2
+					     : existing->bottomLabel.isEmpty() ? 0
+									       : 1));
+	form->addRow(tr("Bottom row"), mode);
+	auto *bottom = new QLineEdit(existing->bottomLabel, &dialog);
+	bottom->setObjectName("macro-display-bottom");
+	form->addRow(tr("Bottom text"), bottom);
+	auto updateMode = [&] {
+		bottom->setEnabled(mode->currentData().toInt() == 1);
+	};
+	connect(mode, qOverload<int>(&QComboBox::currentIndexChanged), &dialog, [&](int) { updateMode(); });
+	updateMode();
+	auto *size = new QComboBox(&dialog);
+	size->setObjectName("macro-display-xy-size");
+	if (existing->kind == MacroControlKind::XY) {
+		size->addItem(tr("Compact (40 px)"), 40);
+		size->addItem(tr("Medium (48 px)"), 48);
+		size->addItem(tr("Large (64 px)"), 64);
+		size->setCurrentIndex(size->findData(existing->padSize()));
+		form->addRow(tr("Pad size"), size);
+	} else {
+		size->hide();
+	}
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	form->addRow(buttons);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	// Update presentation only; keep the original action or exact bindings.
+	auto current = m_model.findById(id);
+	if (!current || current->kind != existing->kind)
+		return;
+	current->label = top->text().trimmed();
+	current->showValue = mode->currentData().toInt() == 2;
+	current->bottomLabel = mode->currentData().toInt() == 1 ? bottom->text().trimmed() : QString();
+	if (current->kind == MacroControlKind::XY)
+		current->xySize = size->currentData().toInt();
+	m_model.replaceButtonById(id, *current);
+}
+
 void MacroStripDock::showEditEditor(const QString &id)
 {
 	auto existing = m_model.findById(id);
@@ -253,7 +329,7 @@ void MacroStripDock::showEditEditor(const QString &id)
 
 	editor.getUpdatedEvent(evt);
 
-	MacroButton updated;
+	MacroButton updated = *existing;
 	updated.id = existing->id;
 	updated.type = evt.type;
 	updated.sourceName = evt.sourceName;

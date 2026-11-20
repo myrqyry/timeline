@@ -41,9 +41,10 @@ public:
 	static constexpr double kBubbleSize = 22.0;
 	static constexpr int kLabelHeight = 18;
 	static constexpr int kControlHeight = 34;
+	static constexpr int kBottomHeight = 16;
 	static constexpr int kWidgetHeight = kLabelHeight + kControlHeight;
 	static constexpr int kControlCenterY = kLabelHeight + kControlHeight / 2;
-	void setRowHeights(int labelHeight, int controlHeight);
+	void setRowHeights(int labelHeight, int controlHeight, int bottomHeight = 0);
 
 signals:
 	void fireRequested(const MacroButton &button);
@@ -64,6 +65,7 @@ private:
 
 	int m_labelHeight = kLabelHeight;
 	int m_controlHeight = kControlHeight;
+	int m_bottomHeight = 0;
 	MacroButton m_button;
 	QSvgRenderer *m_renderer = nullptr;
 

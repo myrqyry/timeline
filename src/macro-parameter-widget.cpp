@@ -210,7 +210,7 @@ private:
 // for accessibility/tooltips and elide only its painted representation.
 class StableCaption final : public QLabel {
 public:
-	explicit StableCaption(QWidget *parent) : QLabel(parent)
+	explicit StableCaption(QWidget *parent, bool secondary = false) : QLabel(parent), secondary(secondary)
 	{
 		setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
 	}
@@ -218,21 +218,55 @@ public:
 protected:
 	void paintEvent(QPaintEvent *) override
 	{
-		QStylePainter painter(this);
+		QPainter painter(this);
+		painter.setRenderHint(QPainter::Antialiasing);
 		painter.setFont(font());
-		const auto area = contentsRect();
-		const QString visible = fontMetrics().elidedText(text(), Qt::ElideMiddle, area.width());
-		painter.drawItemText(area, Qt::AlignCenter | Qt::TextSingleLine, palette(), isEnabled(), visible,
-				     foregroundRole());
+		const auto area = contentsRect().adjusted(2, 0, -2, 0);
+		const QString visible = fontMetrics().elidedText(text(), Qt::ElideRight, std::max(0, area.width() - 8));
+		if (visible.isEmpty())
+			return;
+		const auto group = !isEnabled() ? QPalette::Disabled
+						: (isActiveWindow() ? QPalette::Active : QPalette::Inactive);
+		QColor ink = palette().color(group, QPalette::Text);
+		if (secondary)
+			ink.setAlpha(190);
+		else {
+			QColor bg = palette().color(group, QPalette::Base);
+			bg.setAlpha(200);
+			const int w = std::min(area.width(), fontMetrics().horizontalAdvance(visible) + 8);
+			painter.setPen(Qt::NoPen);
+			painter.setBrush(bg);
+			painter.drawRoundedRect(QRectF((width() - w) / 2.0, 0, w, height()), 3, 3);
+		}
+		painter.setPen(ink);
+		painter.drawText(area, Qt::AlignCenter | Qt::TextSingleLine, visible);
 	}
+
+private:
+	bool secondary;
 };
+
+StableCaption *makeBottomCaption(QWidget *parent, const QString &text)
+{
+	auto *label = new StableCaption(parent, true);
+	label->setObjectName("macro-parameter-bottom-caption");
+	label->setTextFormat(Qt::PlainText);
+	label->setAttribute(Qt::WA_TransparentForMouseEvents);
+	QFont f = parent->font();
+	f.setPointSize(8);
+	f.setBold(false);
+	label->setFont(f);
+	label->setText(text);
+	label->setToolTip(text);
+	return label;
+}
 
 class XYPad final : public QWidget {
 public:
-	explicit XYPad(QWidget *parent) : QWidget(parent)
+	explicit XYPad(QWidget *parent, int size) : QWidget(parent)
 	{
 		setObjectName("macro-parameter-xy");
-		setFixedSize(64, 64);
+		setFixedSize(size, size);
 		setFocusPolicy(Qt::StrongFocus);
 		setCursor(Qt::CrossCursor);
 	}
@@ -357,7 +391,9 @@ public:
 		: QWidget(parent),
 		  x(button.binding),
 		  y(button.bindingY),
-		  title(button.label.isEmpty() ? tr("XY") : button.label)
+		  title(button.label.isEmpty() ? tr("XY") : button.label),
+		  subtitle(button.bottomLabel),
+		  showValue(button.showsLiveCaption())
 	{
 		setObjectName("macro-parameter-control");
 		auto *layout = new QVBoxLayout(this);
@@ -371,15 +407,18 @@ public:
 		f.setPointSize(8);
 		f.setBold(true);
 		caption->setFont(f);
+		caption->setText(title);
 		layout->addWidget(caption);
 		row = new QWidget(this);
 		auto *controls = new QVBoxLayout(row);
 		controls->setContentsMargins(0, 0, 0, 0);
-		pad = new XYPad(row);
+		pad = new XYPad(row, button.padSize());
 		pad->setAccessibleName(title + tr(" XY pad"));
 		pad->setAccessibleDescription(tr("Arrow keys adjust individual axes."));
 		controls->addWidget(pad, 0, Qt::AlignCenter);
 		layout->addWidget(row);
+		bottom = makeBottomCaption(this, subtitle);
+		layout->addWidget(bottom);
 		setContextMenuPolicy(Qt::CustomContextMenu);
 		pad->setContextMenuPolicy(Qt::CustomContextMenu);
 		connect(pad, &QWidget::customContextMenuRequested, this,
@@ -414,23 +453,29 @@ public:
 				refresh();
 		});
 		const auto size = requiredRows();
-		setRowHeights(size.width(), size.height());
+		setRowHeights(size.width(), size.height(),
+			      button.hasBottomCaption() ? MacroButtonWidget::kBottomHeight : 0);
 		refresh();
 		reader.start();
 	}
 	QSize requiredRows() const
 	{
-		return {std::max(MacroButtonWidget::kLabelHeight, QFontMetrics(caption->font()).height() + 2), 64};
+		return {std::max(MacroButtonWidget::kLabelHeight, QFontMetrics(caption->font()).height() + 2),
+			pad->height()};
 	}
-	void setRowHeights(int captionHeight, int controlHeight)
+	void setRowHeights(int captionHeight, int controlHeight, int bottomHeight)
 	{
 		caption->setFixedHeight(captionHeight);
-		row->setFixedHeight(std::max(64, controlHeight));
-		setFixedHeight(captionHeight + row->height());
-		setFixedWidth(
-			std::clamp(QFontMetrics(caption->font()).horizontalAdvance(title + " · -0.000 / -0.000") + 8,
-				   88, 220) +
-			6);
+		row->setFixedHeight(std::max(pad->height(), controlHeight));
+		bottom->setFixedHeight(bottomHeight);
+		bottom->setVisible(bottomHeight > 0);
+		setFixedHeight(captionHeight + row->height() + bottomHeight);
+		const int titleWidth = QFontMetrics(caption->font()).horizontalAdvance(title) + 12;
+		const int valueWidth =
+			QFontMetrics(bottom->font())
+				.horizontalAdvance(showValue ? QStringLiteral("-0.000 / -0.000") : subtitle) +
+			12;
+		setFixedWidth(std::clamp(std::max({titleWidth, valueWidth, pad->width()}), pad->width(), 220) + 6);
 	}
 
 private:
@@ -439,7 +484,11 @@ private:
 		if (!xs || !ys)
 			return;
 		pad->setPosition({double(xs->indexOf(xv)) / xs->steps(), double(ys->indexOf(yv)) / ys->steps()});
-		caption->setText(title + " · " + QString::number(xv, 'g', 5) + " / " + QString::number(yv, 'g', 5));
+		const QString value = QString::number(xv, 'g', 5) + " / " + QString::number(yv, 'g', 5);
+		if (showValue)
+			bottom->setText(value);
+		caption->setToolTip(title + " · " + value);
+		bottom->setToolTip(showValue ? value : subtitle);
 		pad->setToolTip(title + "\nX: " + xs->label + " = " + QString::number(xv, 'g', 12) + xs->suffix +
 				"\nY: " + ys->label + " = " + QString::number(yv, 'g', 12) + ys->suffix);
 	}
@@ -473,15 +522,19 @@ private:
 		if (valid)
 			display(*xv, *yv);
 		else {
-			caption->setText(title + " · " + tr("Unavailable"));
+			if (showValue)
+				bottom->setText(tr("Unavailable"));
+			caption->setToolTip(title + " · " + tr("Unavailable"));
 			pad->setToolTip(tr("One or both XY bindings are unavailable. Right-click to edit."));
 		}
 	}
 	MacroParameterBinding x, y;
-	QString title;
+	QString title, subtitle;
+	bool showValue;
 	std::optional<MacroParameter::Spec> xs, ys;
 	std::optional<QPointF> pending;
 	StableCaption *caption;
+	StableCaption *bottom;
 	QWidget *row;
 	XYPad *pad;
 	QTimer writer, reader;
@@ -492,7 +545,9 @@ public:
 	ParameterWidget(const MacroButton &button, QWidget *parent)
 		: QWidget(parent),
 		  binding(button.binding),
-		  kind(button.kind)
+		  kind(button.kind),
+		  subtitle(button.bottomLabel),
+		  showValue(button.showsLiveCaption())
 	{
 		setObjectName("macro-parameter-control");
 		setContextMenuPolicy(Qt::CustomContextMenu);
@@ -519,6 +574,9 @@ public:
 		controlLayout->setContentsMargins(0, 0, 0, 0);
 		controlLayout->setSpacing(0);
 		layout->addWidget(controlRow);
+		bottom = makeBottomCaption(this, subtitle);
+		layout->addWidget(bottom);
+		bottom->hide();
 		if (button.kind == MacroControlKind::Text) {
 			textEntry = new QLineEdit(this);
 			textEntry->setObjectName("macro-parameter-text");
@@ -623,7 +681,9 @@ public:
 				refresh(++pollCount % 8 == 0);
 		});
 		refresh(true);
-		reserveColumnWidth();
+		const auto size = requiredRows();
+		setRowHeights(size.width(), size.height(),
+			      button.hasBottomCaption() ? MacroButtonWidget::kBottomHeight : 0);
 		readTimer.start();
 	}
 
@@ -648,11 +708,13 @@ public:
 					   : std::max(input->sizeHint().height(), input->minimumSizeHint().height());
 		return QSize(labelHeight, std::max(MacroButtonWidget::kControlHeight, height));
 	}
-	void setRowHeights(int labelHeight, int controlHeight)
+	void setRowHeights(int labelHeight, int controlHeight, int bottomHeight)
 	{
 		label->setFixedHeight(labelHeight);
 		controlRow->setFixedHeight(controlHeight);
-		setFixedHeight(labelHeight + controlHeight);
+		bottom->setFixedHeight(bottomHeight);
+		bottom->setVisible(bottomHeight > 0);
+		setFixedHeight(labelHeight + controlHeight + bottomHeight);
 		reserveColumnWidth();
 		updateGeometry();
 	}
@@ -663,15 +725,15 @@ private:
 		const QFontMetrics fm(label->font());
 		// Width depends on the assigned caption and control kind, never
 		// the live value or current availability of the target.
-		QString sample = title;
-		if (kind != MacroControlKind::Text) {
-			const QString value = kind == MacroControlKind::Toggle
-						      ? tr("Off")
-						      : (binding.domain == "mixer" ? QStringLiteral("-100.0 dB")
-										   : QStringLiteral("-0.000000"));
-			sample += " · " + value;
-		}
-		int width = std::clamp(fm.horizontalAdvance(sample) + 8, 52, 220);
+		const QString sample = showValue ? (kind == MacroControlKind::Toggle
+							    ? tr("Off")
+							    : (binding.domain == "mixer" ? QStringLiteral("-100.0 dB")
+											 : QStringLiteral("-0.000000")))
+						 : subtitle;
+		int width = std::clamp(std::max(fm.horizontalAdvance(title),
+						QFontMetrics(bottom->font()).horizontalAdvance(sample)) +
+					       12,
+				       40, 220);
 		if (slider)
 			width = std::max(width, slider->minimumWidth());
 		if (toggle) {
@@ -717,12 +779,14 @@ private:
 		const QString display = spec->type == MacroParameterType::Boolean
 						? (value != 0 ? tr("On") : tr("Off"))
 						: QString::number(value, 'g', 7) + spec->suffix;
-		label->setText(title + " · " +
-			       (binding.domain == "mixer" && binding.type == MacroParameterType::Float
-					? MacroParameter::mixerVolumeLabel(value)
-					: display));
-		label->setToolTip(label->text());
-		setToolTip(label->text() + "\n" + spec->label + " (" + binding.key + ")");
+		const QString shown = binding.domain == "mixer" && binding.type == MacroParameterType::Float
+					      ? MacroParameter::mixerVolumeLabel(value)
+					      : display;
+		if (showValue)
+			bottom->setText(shown);
+		bottom->setToolTip(showValue ? shown : subtitle);
+		label->setToolTip(title + " · " + shown);
+		setToolTip(label->toolTip() + "\n" + spec->label + " (" + binding.key + ")");
 	}
 	void refresh(bool schema)
 	{
@@ -740,7 +804,7 @@ private:
 			if (!valid) {
 				textEntry->clear();
 				textEntry->setModified(false);
-				label->setText(title + " · " + tr("Unavailable"));
+				label->setToolTip(title + " · " + tr("Unavailable"));
 			} else {
 				if (!textEntry->isModified() || multiline) {
 					if (textEntry->text() != *value)
@@ -772,11 +836,12 @@ private:
 
 			if (qobject_cast<QDial *>(slider))
 				slider->setToolTip(
-					label->text() + "\n" +
+					label->toolTip() + "\n" +
 					tr("Drag up/down · Shift: fine adjustment · Focus then scroll: one step"));
 		} else {
-			label->setText(title + " · " + tr("Unavailable"));
-			label->setToolTip(label->text());
+			label->setToolTip(title + " · " + tr("Unavailable"));
+			if (showValue)
+				bottom->setText(tr("Unavailable"));
 			setToolTip(tr("Bound source, filter or property is unavailable. Right-click to edit."));
 		}
 	}
@@ -791,8 +856,10 @@ private:
 	QWidget *textRow = nullptr;
 	QPushButton *editText = nullptr;
 	QLabel *label = nullptr;
+	StableCaption *bottom = nullptr;
 	QWidget *controlRow = nullptr;
-	QString title;
+	QString title, subtitle;
+	bool showValue;
 	QTimer readTimer;
 	QTimer writeTimer;
 	int pollCount = 0;
@@ -815,12 +882,12 @@ QSize macroParameterRequiredRows(QWidget *widget)
 	return QSize(0, 0);
 }
 
-void setMacroParameterRows(QWidget *widget, int labelHeight, int controlHeight)
+void setMacroParameterRows(QWidget *widget, int labelHeight, int controlHeight, int bottomHeight)
 {
 	if (auto *control = dynamic_cast<ParameterWidget *>(widget))
-		control->setRowHeights(labelHeight, controlHeight);
+		control->setRowHeights(labelHeight, controlHeight, bottomHeight);
 	else if (auto *xy = dynamic_cast<XYParameterWidget *>(widget))
-		xy->setRowHeights(labelHeight, controlHeight);
+		xy->setRowHeights(labelHeight, controlHeight, bottomHeight);
 }
 
 static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButton &initial,
