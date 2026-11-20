@@ -929,19 +929,34 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 				previousValue = boolValue->currentData().toDouble();
 		});
 	}
+	// Keep property filtering and acceptance tied to the same declared type.
+	auto compatible = [&](MacroParameterType type) {
+		if (definedValue)
+			return true;
+		if (chooseControl && preferred == MacroControlKind::Toggle)
+			return type == MacroParameterType::Boolean;
+		if (chooseControl && preferred == MacroControlKind::Text)
+			return type == MacroParameterType::Text;
+		return type == MacroParameterType::Integer || type == MacroParameterType::Float;
+	};
 	auto updateKind = [&] {
 		const int index = propertyCombo->currentIndex();
 		const QSignalBlocker block(kindCombo);
 		if (!chooseControl)
 			kindCombo->clear();
-		const bool valid = index >= 0 && index < specs.size();
+		const bool valid = index >= 0 && index < specs.size() && compatible(specs[index].type);
 		buttons->button(QDialogButtonBox::Ok)->setEnabled(valid);
 		if (!valid) {
 			if (definedValue)
 				valueRow->setEnabled(false);
-			info->setText(chooseControl
-					      ? QObject::tr("Choose a compatible property.")
-					      : QObject::tr("Choose an exposed numeric, boolean or text property."));
+			if (definedValue)
+				info->setText(QObject::tr("Choose an exposed numeric, boolean or text property."));
+			else if (chooseControl && preferred == MacroControlKind::Toggle)
+				info->setText(QObject::tr("Choose an exposed boolean property."));
+			else if (chooseControl && preferred == MacroControlKind::Text)
+				info->setText(QObject::tr("Choose an exposed editable text property."));
+			else
+				info->setText(QObject::tr("Choose an exposed integer or floating-point property."));
 			return;
 		}
 		const auto &spec = specs[index];
@@ -1011,18 +1026,9 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	auto updateProperties = [&](const MacroParameterBinding &selection, bool force) {
 		auto fresh = selection.sourceUuid.isEmpty() ? QList<MacroParameter::Spec>{}
 							    : MacroParameter::properties(selection);
-		if (!axis.isEmpty() || chooseControl) {
-			fresh.erase(std::remove_if(fresh.begin(), fresh.end(),
-						   [&](const auto &spec) {
-							   if (chooseControl && preferred == MacroControlKind::Toggle)
-								   return spec.type != MacroParameterType::Boolean;
-							   if (chooseControl && preferred == MacroControlKind::Text)
-								   return spec.type != MacroParameterType::Text;
-							   return spec.type != MacroParameterType::Integer &&
-								  spec.type != MacroParameterType::Float;
-						   }),
-				    fresh.end());
-		}
+		fresh.erase(std::remove_if(fresh.begin(), fresh.end(),
+					   [&](const auto &spec) { return !compatible(spec.type); }),
+			    fresh.end());
 		if (!force && fresh == specs)
 			return;
 		const QSignalBlocker block(propertyCombo);
@@ -1102,7 +1108,7 @@ static std::optional<MacroButton> editParameter(QWidget *parent, const MacroButt
 	result.sourceName = target.label;
 	result.label = label->text().trimmed().isEmpty() ? spec.label.section(" / ", -1) : label->text().trimmed();
 	const auto current = MacroParameter::describe(result.binding);
-	if (!current)
+	if (!current || !compatible(current->type))
 		return std::nullopt;
 	if (definedValue && spec.type == MacroParameterType::Text) {
 		*definedValue = textValue->toPlainText();

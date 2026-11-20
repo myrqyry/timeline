@@ -2911,9 +2911,16 @@ private slots:
 					auto *ok = picker->findChild<QDialogButtonBox *>();
 					if (target && property && ok) {
 						target->setCurrentIndex(target->findText(targetName));
+						property->setCurrentIndex(-1);
+						bool numericHint = false;
+						for (auto *hint : picker->findChildren<QLabel *>())
+							if (hint->text().contains(
+								    "Choose an exposed integer or floating-point property."))
+								numericHint = true;
 						property->setCurrentIndex(property->findText(propertyName));
-						selected = property->findText("Enabled") < 0 &&
+						selected = numericHint && property->findText("Enabled") < 0 &&
 							   property->findText("Text") < 0 &&
+							   property->findText("Caption") < 0 &&
 							   ok->button(QDialogButtonBox::Ok)->isEnabled();
 					}
 					if (selected)
@@ -3664,6 +3671,10 @@ private slots:
 			obs_source_remove(source);
 			obs_source_release(source);
 		});
+		// A numeric-looking string remains a string property.
+		QVERIFY(MacroParameter::writeText(
+			{QString::fromUtf8(obs_source_get_uuid(source)), {}, "untouched", MacroParameterType::Text},
+			"123"));
 		QWidget host;
 		bool configured = false;
 		QTimer::singleShot(0, &host, [&] {
@@ -3695,9 +3706,13 @@ private slots:
 			QVERIFY(!buttons->button(QDialogButtonBox::Ok)->isEnabled());
 			QVERIFY(property->findText("Controls / Gain") >= 0);
 			QCOMPARE(property->findText("Enabled"), -1);
+			QCOMPARE(property->findText("Text"), -1);
+			QCOMPARE(property->findText("Caption"), -1);
 			property->setCurrentIndex(property->findText("Controls / Gain"));
 			select(MacroControlKind::Slider);
 			QCOMPARE(property->currentText(), QString("Controls / Gain"));
+			QCOMPARE(property->findText("Text"), -1);
+			QCOMPARE(property->findText("Caption"), -1);
 			select(MacroControlKind::Text);
 			QCOMPARE(property->currentIndex(), -1);
 			QVERIFY(property->findText("Text") >= 0);

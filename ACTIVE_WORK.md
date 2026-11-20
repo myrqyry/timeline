@@ -1,6 +1,14 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+### Numeric-only picker wording and acceptance — 2026-11-19
+
+- User reported slider/knob/XY text choices and supplied a screenshot of the XY X-axis picker saying numeric, boolean or text property. Confirmed shared-dialog hint defect; actual text choices in numeric dropdowns have not been reproduced. Real isolated FreeType and Text Pthread module catalog probe confirmed their text properties are strings (log /tmp/timeline-text-catalog-gUR8Th/log).
+- Changed instructions to match allowed declared types (integer/float, boolean, editable text, or all supported types for defined-value cues). Filtering and final acceptance now use the same compatibility predicate. Numeric-looking strings are not converted. Added regression checks for the XY hint and text/Caption exclusion including a string containing "123"; corrected test to clear preselected property before checking the empty-selection hint.
+- RED reproduced old XY wording; GREEN focused tests and full strict native suite 99 passed, zero failures/skips. Exact clang-format passed. Logs /tmp/timeline-xy-hint-red.log, /tmp/timeline-xy-hint-green2.log, /tmp/timeline-xy-hint-full.log.
+- Normal OBS session still running; installed/remote checkpoint 38f3e6e remains unchanged. No install or push. Native acceptance and any actual incompatible dropdown entry remain to be checked.
+
+
 ### Type-first macro binding — 2026-11-19
 
 - User requested choosing the control type before the variable. Scalar assignment dialog now presents Slider/Knob/Toggle/Text entry first, then the source/filter and compatible property. Changing control kind preserves an exact compatible binding, clears incompatible selection, never auto-retargets, and keeps the live catalog refresh. XY retains its two-axis numeric picker; scheduled defined-value editor unchanged. No saved-format changes.
