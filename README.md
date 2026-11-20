@@ -4,12 +4,12 @@
 
 Timeline is a native OBS Studio plugin for arranging scene changes, effects,
 media and other actions into timed sequences. Its companion Macro Strip dock
-lets you build a compact control surface with buttons, sliders, knobs, toggles and
+lets you build a compact control surface with buttons, sliders, knobs, toggles, XY pads and
 text entry.
 
-![Timeline dock with event markers, ruler and playback controls](Screenshot.png)
+![Timeline dock with a duration ramp, Freeze Time and scene changes](docs/screenshots/timeline.png)
 
-*Timeline dock — earlier preview screenshot.*
+*Current Timeline interface, captured in an isolated Qt/libobs session.*
 
 [Installation](#installation) · [Timeline](#timeline) · [Macro Strip](#macro-strip) ·
 [Shortcuts](#keyboard-shortcuts) · [Documentation](#documentation)
@@ -87,6 +87,10 @@ continues running. See [clock holds](docs/USAGE.md#freeze-time).
 Build a small control surface for your OBS setup. Open
 **View → Docks → Macro Strip** and use **+** to add an action button or a
 parameter control.
+
+![Compact Macro Strip with action, slider, knob, XY, toggle and text controls](docs/screenshots/macro-strip.png)
+
+![Macro Strip with optional bottom captions and live values](docs/screenshots/macro-strip-readouts.png)
 
 | Control | Example use |
 | --- | --- |
@@ -197,13 +201,14 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- Current local source includes customizable top/bottom captions, type-first
-  parameter binding, compact XY controls and two-state toggles; **101/101 strict Qt/libobs
-  tests passed**. Frontend interactions in the harness use test doubles.
-- Installed source checkpoint `38f3e6e` passed 99 tests and loaded both
-  docks and the WebSocket vendor in an isolated native OBS32.2.0 startup.
-  Existing saved macros and timelines were preserved. The latest caption, two-state toggle
-  and numeric-picker hint updates have not yet been installed.
+- Native OBS32 source checkpoint `f6ae128` and its documentation harness:
+  **101/101 strict Qt/libobs tests passed**, zero failures/skips.
+- The matching build was installed in native OBS 32.2.0 on Linux.
+  Both docks and the WebSocket vendor registered in an isolated startup;
+  saved timeline and macro configuration checksums were unchanged.
+- The screenshots above use the production Qt widgets with synthetic
+  sources, a dark Fusion palette, English localization and headless Xvfb.
+  See [capture instructions](docs/screenshots/README.md).
 - HyperShaderFX effect opacity and a shader uniform have been verified
   through the real plugin's property interface. Render smoothness,
   interactive theme acceptance, and Windows/macOS runtime use remain

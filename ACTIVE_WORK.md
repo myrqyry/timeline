@@ -1,6 +1,13 @@
 <!-- meristem-template:v1 -->
 # Active Work — Timeline preview readiness
 
+## Installed checkpoint and documentation captures — 2026-11-19
+
+- Installed production commit `f6ae128` in native OBS32.2.0. Staged/installed assets match, ELF build ID and relocation checks verified, both docks and WebSocket vendor registered in isolated startup. User configuration checksums unchanged; rollback archive and detailed logs recorded in ignored local history.
+- Added opt-in screenshot capture to the existing caption/XY test using actual dock widgets, synthetic libobs sources, fixed dark Fusion palette and real en-US locale via the mock frontend's scoped lookup. Captured five images: current timeline, compact Macro Strip, optional readouts, toggle binding and appearance dialog. Visually reviewed images; regenerated Timeline after initial locale-key/clipping artifacts with loaded real locale and wider dock. No personal scenes/configuration in images.
+- Updated README, usage, release checklist and project checkpoint; reproducible capture instructions under docs/screenshots. Full strict suite 101 passed; formatting and link checks required before sync. No production source changes in screenshot/docs commit. Native interactive acceptance and remote exact-head CI remain pending; no release/tag.
+
+
 ### Two-state parameter toggles — 2026-11-19
 
 - User requested toggling between two states instead of booleans only. Existing Toggle supports integer/float/editable text A/B presets on one exact property, with typed editors, numeric quantization, distinct-state validation, no writes during setup, and a separate state-toggle serialization token. Existing boolean toggles are unchanged. Live readback maps to A/B/indeterminate; click from another value selects A. Both presets must fit the live property schema before writing; missing/invalid bindings disable. Optional live caption shows current preset or Other value. Lists/enums/colors, multi-property presets and independent action pairs are outside this change.

@@ -224,6 +224,8 @@ transforms and manual ramp controls are not included in Macro Strip.
 
 ### Labels and appearance
 
+![Appearance editor for an XY controller](screenshots/appearance-editor.png)
+
 Right-click any control and choose **Labels and appearance** to rename
 the top label independently of its action or binding. By default only
 the top label appears, styled as a compact theme-aware tag. The bottom
@@ -256,6 +258,8 @@ the control. Older builds cannot read XY macro records; keep a backup
 before downgrading.
 
 ### Two-state toggles
+
+![Configuration of two numeric states in the parameter binding editor](screenshots/toggle-editor.png)
 
 Choose Toggle and bind a supported scalar property. Booleans use the ordinary
 unchecked/checked false/true behavior. For integer, float or editable text

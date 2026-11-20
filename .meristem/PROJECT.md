@@ -30,7 +30,7 @@ Timeline is an OBS Studio dock plugin for composing and running scheduled OBS ac
 
 ## Verification baseline
 
-- November 19, 2026: `9773946` passed the native OBS32 build and all 96 strict Qt/libobs tests. The same module and locale were installed in OBS32.2.0 and both docks/WebSocket vendor registered in isolated startup. Existing config checksums unchanged. Native interactive appearance, ramp rendering/performance and other platform runtimes remain unverified.
+- November 19, 2026: production source `f6ae128` passed all 101 strict native Qt/libobs tests and installed successfully in OBS32.2.0. Both docks/WebSocket vendor registered under isolated startup; configuration checksums unchanged. Current headless widget screenshots and repeatable capture instructions included. Native interactive acceptance, ramp performance and other platform runtimes remain unverified.
 
 - Before Meristem adoption, draft PR #3 head `54040a4` passed Linux OBS31/OBS32 test jobs and the six Linux/Windows/macOS OBS31/OBS32 build matrix, including formatting. That **does not validate later Meristem changes**.
 - The Linux strict Qt suite previously ran 44 tests with no failures/skips. Isolated real OBS32 Linux smoke demonstrated source hide/restore, scene switching, Macro Strip migration and canonical-backup precedence.

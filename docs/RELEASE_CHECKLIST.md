@@ -30,30 +30,26 @@ use have not been demonstrated**.
 
 ## Recent local checkpoint (2026-11-19)
 
-- Source checkpoint `9773946`: native OBS32 module build; strict Xvfb
-  Qt/libobs suite **96 passed, 0 failed, 0 skipped**. Covers exact
-  targeting, owner-aware hotkeys, ordered cue boundaries, Freeze Time,
-  configurable ending states, numeric easing ramps, undo/redo, mixer
-  bindings, text settings, stable caption layout and themed arc knobs.
-- The matching CMake-staged binary and locale were installed in native
-  OBS 32.2.0 on Linux. Staged and installed assets matched; relocation
-  checks found no unresolved dependencies or symbols. Both docks and
-  WebSocket vendor registered in an isolated OBS startup. Existing
-  plugin configuration checksums were unchanged, and a rollback
-  archive was retained locally.
-- Historical real HyperShaderFX property smoke verified effect opacity
-  and a shader-specific uniform through the binding layer, not rendered
-  pixels. Ramp smoothness and the new controls' native interactive
-  appearance are still unverified.
-- Formatting: exact CI clang-format 19.1.1 checked the changed C++
-  sources. No CMake source changes in this series.
-- This verifies a local OBS32 source checkpoint, not the new remote
-  CI matrix or OBS31/33, Windows or macOS runtime. No release was tagged.
-
-- Subsequent local XY control work passed 98 strict Qt/libobs tests,
-  including independent axis assignment, paired writes, keyboard steps,
-  serialization and stable geometry. Native OBS XY installation and
-  interaction are not yet verified.
+- Production source `f6ae128`: native OBS32 build and strict Xvfb
+  Qt/libobs suite **101 passed, 0 failed, 0 skipped**. Covers exact
+  targeting, ordered cues, Freeze Time, explicit endings, eased ramps,
+  undo/redo, typed live controls, paired XY axes, customizable captions,
+  type-first selection and two-state numeric/text toggles.
+- The matching staged module and locale were installed in native OBS
+  32.2.0 on Linux. Staged/installed assets matched; relocation checks
+  found no unresolved dependencies or symbols. Both docks and the
+  WebSocket vendor registered in isolated startup. Saved configuration
+  checksums matched before/after; rollback archive retained locally.
+- Reproducible headless screenshots capture the actual production widgets
+  with synthetic sources and English locale. They were visually inspected
+  before inclusion in the README/usage guide. The harness uses frontend
+  test doubles, not the normal OBS profile.
+- Historical real HyperShaderFX property smoke verified opacity and a
+  shader-specific uniform through the binding layer, not rendered pixels.
+  Ramp smoothness, native interactive acceptance and other platform
+  runtimes remain separate verification gates.
+- Exact CI clang-format checked the changed C++ files. Remote exact-head
+  CI is not implied by local tests. No tag/release.
 
 ## Before tagging (release blockers)
 

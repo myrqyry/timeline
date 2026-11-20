@@ -13,6 +13,8 @@
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QFile>
+#include <QDir>
+#include <util/text-lookup.h>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -67,6 +69,7 @@ extern obs_source_t *g_current_preview_scene;
 extern obs_source_t *g_current_transition;
 extern std::vector<obs_source_t *> g_transitions;
 extern int g_transition_duration_ms;
+extern lookup_t *g_documentation_locale;
 
 class ExposedTimelineEventItem : public TimelineEventItem {
 public:
@@ -3300,6 +3303,167 @@ private slots:
 		QTRY_VERIFY_WITH_TIMEOUT(!check->isEnabled(), 3000);
 	}
 
+private:
+	// Called only when explicitly exporting documentation images. Uses the
+	// production dock/widgets with synthetic source settings and a fixed theme.
+	void captureDocumentationScreenshots()
+	{
+		const QString output = qEnvironmentVariable("TIMELINE_DOC_SCREENSHOTS");
+		if (output.isEmpty())
+			return;
+		QVERIFY(QDir(output).isAbsolute());
+		QVERIFY(QDir().mkpath(output));
+		QDir dir(output);
+		g_documentation_locale =
+			text_lookup_create(QDir::current().filePath("data/locale/en-US.ini").toUtf8().constData());
+		QVERIFY(g_documentation_locale);
+		auto releaseLocale = qScopeGuard([&] {
+			text_lookup_destroy(g_documentation_locale);
+			g_documentation_locale = nullptr;
+		});
+		const auto originalPalette = QApplication::palette();
+		auto restorePalette = qScopeGuard([&] { QApplication::setPalette(originalPalette); });
+		QPalette palette;
+		palette.setColor(QPalette::Window, QColor("#252931"));
+		palette.setColor(QPalette::WindowText, QColor("#e2e7ef"));
+		palette.setColor(QPalette::Base, QColor("#191d24"));
+		palette.setColor(QPalette::AlternateBase, QColor("#303641"));
+		palette.setColor(QPalette::Text, QColor("#e2e7ef"));
+		palette.setColor(QPalette::Button, QColor("#353b46"));
+		palette.setColor(QPalette::ButtonText, QColor("#e2e7ef"));
+		palette.setColor(QPalette::Mid, QColor("#596273"));
+		palette.setColor(QPalette::Dark, QColor("#1a1e25"));
+		palette.setColor(QPalette::Highlight, QColor("#55c7b6"));
+		palette.setColor(QPalette::HighlightedText, QColor("#121c21"));
+		palette.setColor(QPalette::Disabled, QPalette::Text, QColor("#89919e"));
+		QApplication::setPalette(palette);
+
+		QTemporaryDir temp;
+		QVERIFY(temp.isValid());
+		auto *source = obs_source_create("timeline_parameter_probe", "Demo effect", nullptr, nullptr);
+		auto *audio = obs_source_create("timeline_audio_probe", "Demo audio", nullptr, nullptr);
+		QVERIFY(source && audio);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+			obs_source_remove(audio);
+			obs_source_release(audio);
+		});
+		const auto uuid = QString::fromUtf8(obs_source_get_uuid(source));
+		const auto audioUuid = QString::fromUtf8(obs_source_get_uuid(audio));
+		const MacroParameterBinding gain{uuid, {}, "gain", MacroParameterType::Float};
+		const MacroParameterBinding count{uuid, {}, "count", MacroParameterType::Integer};
+		const MacroParameterBinding volume{audioUuid,
+						   {},
+						   "timeline:mixer:volume",
+						   MacroParameterType::Float,
+						   "mixer"};
+		QVERIFY(MacroParameter::write(gain, 0.65));
+		QVERIFY(MacroParameter::write(count, 8));
+		QVERIFY(MacroParameter::write(volume, 75));
+		MacroButton action, slider, knob, xy, toggle, text;
+		action.label = "Scene";
+		action.color = QColor("#55c7b6");
+		slider.kind = MacroControlKind::Slider;
+		slider.label = "Volume";
+		slider.binding = volume;
+		knob.kind = MacroControlKind::Knob;
+		knob.label = "Intensity";
+		knob.binding = gain;
+		xy.kind = MacroControlKind::XY;
+		xy.label = "Position";
+		xy.binding = gain;
+		xy.bindingY = count;
+		toggle.kind = MacroControlKind::Toggle;
+		toggle.label = "Preset";
+		toggle.binding = gain;
+		toggle.toggleValues = MacroParameter::ToggleValues{0.25, 0.65};
+		text.kind = MacroControlKind::Text;
+		text.label = "Caption";
+		text.binding = {uuid, {}, "untouched", MacroParameterType::Text};
+		QVERIFY(MacroParameter::writeText(text.binding, "Now playing"));
+		MacroStripDock dock(nullptr, temp.filePath("macro.json"));
+		dock.setPalette(palette);
+		for (const auto &button : {action, slider, knob, xy, toggle, text})
+			dock.buttonModel()->addButton(button);
+		auto settle = [&](QWidget &widget) {
+			widget.show();
+			QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+			QApplication::processEvents();
+			QTest::qWait(100);
+		};
+		dock.resize(690, dock.minimumHeight());
+		settle(dock);
+		QVERIFY(dock.grab().save(dir.filePath("macro-strip.png")));
+		action.bottomLabel = "Intro";
+		slider.showValue = true;
+		knob.showValue = true;
+		xy.showValue = true;
+		toggle.showValue = true;
+		text.bottomLabel = "Now playing text";
+		for (const auto &button : {action, slider, knob, xy, toggle, text})
+			QVERIFY(dock.buttonModel()->replaceButtonById(button.id, button));
+		dock.resize(690, dock.minimumHeight());
+		settle(dock);
+		QVERIFY(dock.grab().save(dir.filePath("macro-strip-readouts.png")));
+		bool captured = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			dialog->adjustSize();
+			QApplication::processEvents();
+			captured = dialog->grab().save(dir.filePath("toggle-editor.png"));
+			dialog->reject();
+		});
+		editMacroParameter(&dock, toggle);
+		QVERIFY(captured);
+		captured = false;
+		QTimer::singleShot(0, &dock, [&] {
+			auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+			if (!dialog)
+				return;
+			dialog->adjustSize();
+			QApplication::processEvents();
+			captured = dialog->grab().save(dir.filePath("appearance-editor.png"));
+			dialog->reject();
+		});
+		dock.editDisplay(xy.id);
+		QVERIFY(captured);
+
+		TimelineDock timeline(nullptr, temp.filePath("timeline.json"));
+		timeline.setPalette(palette);
+		auto *model = timeline.findChild<TimelineModel *>();
+		QVERIFY(model);
+		TimelineEvent intro, ramp, hold, cut;
+		intro.type = TimelineEventType::SceneSwitch;
+		intro.timeMs = 500;
+		intro.label = "Intro";
+		intro.color = QColor("#55c7b6");
+		ramp.type = TimelineEventType::SetParameterValue;
+		ramp.timeMs = 2000;
+		ramp.label = "Fade in";
+		ramp.durationMs = 2500;
+		ramp.hasDuration = true;
+		ramp.data = MacroParameter::encodeRamp({{gain, 0.0}, 1.0, "ease-in-out"});
+		ramp.color = QColor("#dfaa70");
+		hold.type = TimelineEventType::FreezeTime;
+		hold.timeMs = 5000;
+		hold.label = "Hold";
+		hold.data = "3000";
+		hold.color = QColor("#6FABC8");
+		cut.type = TimelineEventType::SceneSwitch;
+		cut.timeMs = 7000;
+		cut.label = "Next scene";
+		cut.color = QColor("#c9a2ee");
+		intro.showLabel = ramp.showLabel = hold.showLabel = cut.showLabel = true;
+		model->addEvents({intro, ramp, hold, cut});
+		timeline.resize(1040, 180);
+		settle(timeline);
+		QVERIFY(timeline.grab().save(dir.filePath("timeline.png")));
+	}
+
+private slots:
 	void testMacroOptionalBottomCaptionAndCompactXY()
 	{
 		auto *source = obs_source_create("timeline_parameter_probe", "Caption layout target", nullptr, nullptr);
@@ -3399,6 +3563,7 @@ private slots:
 		QVERIFY(restored.findById(knob.id)->showValue);
 		QCOMPARE(restored.findById(action.id)->bottomLabel, QString("Next scene"));
 		QCOMPARE(restored.findById(xy.id)->xySize, 48);
+		captureDocumentationScreenshots();
 	}
 
 	void testMacroControlRowsAligned()

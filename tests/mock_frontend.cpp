@@ -2,6 +2,7 @@
 #include <obs.h>
 #include <vector>
 #include <util/bmem.h>
+#include <util/text-lookup.h>
 
 // Global state for mocks
 obs_source_t *g_current_scene = nullptr;
@@ -9,6 +10,7 @@ obs_source_t *g_current_preview_scene = nullptr;
 obs_source_t *g_current_transition = nullptr;
 std::vector<obs_source_t *> g_transitions;
 int g_transition_duration_ms = 300;
+lookup_t *g_documentation_locale = nullptr;
 
 extern "C" {
 
@@ -148,6 +150,9 @@ obs_module_t *obs_current_module(void)
 // tests can exercise the actual value substitution in the widgets.
 const char *obs_module_text(const char *text)
 {
+	const char *translated = nullptr;
+	if (g_documentation_locale && text_lookup_getstr(g_documentation_locale, text, &translated))
+		return translated;
 	if (strcmp(text, "TimelineDock.FreezeLabel") == 0)
 		return "Hold %1s";
 	if (strcmp(text, "TimelineDock.FreezeRemaining") == 0)
