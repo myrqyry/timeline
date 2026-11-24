@@ -57,6 +57,11 @@ TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
 	model->setHistoryEnabled(true);
 	scheduler = new TimelineScheduler(model, this);
 	executor = new ObsExecutor(this);
+	automationStopTimer = new QTimer(this);
+	automationStopTimer->setObjectName("timeline-record-automation-timeout");
+	automationStopTimer->setSingleShot(true);
+	automationStopTimer->setInterval(120000);
+	connect(automationStopTimer, &QTimer::timeout, this, [this] { finishAutomationRecording(); });
 
 	qRegisterMetaType<obs_frontend_event>("obs_frontend_event");
 
@@ -105,6 +110,8 @@ TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
 
 TimelineDock::~TimelineDock()
 {
+	// Commit an armed take before the final save on an ordinary OBS exit.
+	finishAutomationRecording();
 	blog(LOG_INFO, "[Timeline] Cleaning up dock");
 	isDragging = false;
 	rebuildScheduled = false;
@@ -209,7 +216,9 @@ void TimelineDock::frontendEventCallback(enum obs_frontend_event event, void *pr
 
 void TimelineDock::onRestartHotkey()
 {
+	finishAutomationRecording();
 	scheduler->restart();
+	recordAutomationButton->setEnabled(true);
 	updatePlayButtonIcon();
 }
 
@@ -251,6 +260,8 @@ void TimelineDock::save()
 
 void TimelineDock::load()
 {
+	// Loading a new document must not carry pending capture into it.
+	finishAutomationRecording(false);
 	// Cancel any pending or in-flight saves from a previous session so
 	// a queued saveCallback cannot fire over freshly-loaded state.
 	if (debounceSaveTimer)
@@ -398,6 +409,10 @@ void TimelineDock::setupUi()
 	stopButton = new QPushButton(obs_module_text("TimelineDock.Stop"), this);
 	stopButton->setObjectName("timeline-stop-btn");
 	stopButton->setToolTip(obs_module_text("TimelineDock.StopPlayback"));
+	recordAutomationButton = new QPushButton(obs_module_text("TimelineDock.RecordAutomation"), this);
+	recordAutomationButton->setObjectName("timeline-record-automation-btn");
+	recordAutomationButton->setCheckable(true);
+	recordAutomationButton->setToolTip(obs_module_text("TimelineDock.RecordAutomationTooltip"));
 	zoomOutButton = new QPushButton("-", this);
 	zoomOutButton->setObjectName("timeline-zoom-out-btn");
 	zoomOutButton->setToolTip(obs_module_text("TimelineDock.ZoomOut"));
@@ -410,6 +425,7 @@ void TimelineDock::setupUi()
 
 	connect(playButton, &QPushButton::clicked, this, &TimelineDock::onPlayClicked);
 	connect(stopButton, &QPushButton::clicked, this, &TimelineDock::onStopClicked);
+	connect(recordAutomationButton, &QPushButton::clicked, this, &TimelineDock::onRecordAutomationClicked);
 	connect(zoomOutButton, &QPushButton::clicked, this, &TimelineDock::onZoomOutClicked);
 	connect(zoomInButton, &QPushButton::clicked, this, &TimelineDock::onZoomInClicked);
 	connect(addEventButton, &QPushButton::clicked, this, &TimelineDock::onAddEventClicked);
@@ -790,6 +806,7 @@ void TimelineDock::updateControlsLayout()
 	}
 	controlsLayout->addWidget(show(playButton));
 	controlsLayout->addWidget(show(stopButton));
+	controlsLayout->addWidget(show(recordAutomationButton));
 	controlsLayout->addWidget(show(playbackSeparator));
 
 	// Time display sits close to playback controls (no large stretches)
@@ -1343,10 +1360,59 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 	return QWidget::eventFilter(obj, event);
 }
 
+void TimelineDock::recordParameterChange(const MacroParameterBinding &binding, double value)
+{
+	if (automationRecorder.active() && !scheduler->isPlaying() && automationTimer.isValid() &&
+	    automationRecorder.record(binding, value, automationTimer.elapsed()) &&
+	    automationRecorder.sampleCount() >= 1200)
+		finishAutomationRecording();
+}
+
+void TimelineDock::finishAutomationRecording(bool commit)
+{
+	if (!automationRecorder.active())
+		return;
+	automationStopTimer->stop();
+	const auto events = commit ? automationRecorder.finish() : std::vector<TimelineEvent>{};
+	if (!commit)
+		automationRecorder.cancel();
+	{
+		const QSignalBlocker blocker(recordAutomationButton);
+		recordAutomationButton->setChecked(false);
+	}
+	playButton->setEnabled(true);
+	stopButton->setEnabled(true);
+	if (!events.empty()) {
+		model->addEvents(events);
+		blog(LOG_INFO, "[Timeline] Recorded %zu editable parameter cues as one take", events.size());
+	}
+}
+
+void TimelineDock::onRecordAutomationClicked()
+{
+	if (recordAutomationButton->isChecked()) {
+		if (scheduler->isPlaying() || !automationRecorder.start(scheduler->getCurrentTime())) {
+			recordAutomationButton->setChecked(false);
+			return;
+		}
+		automationTimer.start();
+		automationStopTimer->start();
+		playButton->setEnabled(false);
+		stopButton->setEnabled(false);
+	} else {
+		finishAutomationRecording();
+	}
+}
+
 void TimelineDock::onPlayClicked()
 {
+	if (automationRecorder.active()) {
+		finishAutomationRecording();
+		return;
+	}
 	if (scheduler->isPlaying()) {
 		scheduler->pause();
+		recordAutomationButton->setEnabled(true);
 		if (executor) {
 			executor->cancelAll();
 		}
@@ -1362,6 +1428,7 @@ void TimelineDock::onPlayClicked()
 #endif
 	} else {
 		scheduler->start();
+		recordAutomationButton->setEnabled(false);
 		updatePlayButtonIcon();
 		debounceSaveTimer->start();
 #if OBS_TIMELINE_HAS_WEBSOCKET
@@ -1377,7 +1444,9 @@ void TimelineDock::onPlayClicked()
 
 void TimelineDock::onStopClicked()
 {
+	finishAutomationRecording();
 	scheduler->restart();
+	recordAutomationButton->setEnabled(true);
 	if (executor) {
 		executor->cancelAll();
 	}
@@ -1414,6 +1483,7 @@ void TimelineDock::onEndTimeChanged(double value)
 
 void TimelineDock::onTimelineFinished()
 {
+	recordAutomationButton->setEnabled(true);
 	updatePlayButtonIcon();
 	blog(LOG_INFO, "[Timeline] Playback finished");
 	debounceSaveTimer->start();

@@ -59,6 +59,7 @@ set(
   src/timecode-display.cpp
   src/macro-button-model.cpp
   src/macro-parameter.cpp
+  src/macro-automation-recorder.cpp
   src/macro-parameter-widget.cpp
   src/macro-button-widget.cpp
   src/macro-serialization.cpp
@@ -84,6 +85,7 @@ set(
   src/macro-button-model.h
   src/macro-button-widget.h
   src/macro-serialization.h
+  src/macro-automation-recorder.h
   src/macro-strip-dock.h
 )
 

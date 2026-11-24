@@ -49,6 +49,7 @@
 #include "macro-button-widget.h"
 #include "macro-serialization.h"
 #include "macro-strip-dock.h"
+#include "macro-automation-recorder.h"
 #include "event-editor.h"
 #include "hotkey-catalog.h"
 #include <obs-audio-controls.h>
@@ -3920,6 +3921,122 @@ private slots:
 		obs_source_remove(source);
 		QVERIFY(!MacroParameter::write(volume, 100));
 		QTRY_VERIFY(!input->isEnabled());
+	}
+
+	void testMacroAutomationRecorderBuildsEditableRamps()
+	{
+		MacroAutomationRecorder recorder;
+		MacroParameterBinding gain{"src-uuid", "filter-uuid", "gain", MacroParameterType::Float};
+		MacroParameterBinding mute{"src-uuid", {}, "enabled", MacroParameterType::Boolean};
+		QVERIFY(recorder.start(1250));
+		QVERIFY(!recorder.start(1500));
+		QVERIFY(recorder.record(gain, 0.2, 0));
+		QVERIFY(!recorder.record(gain, 0.2, 50)); // unchanged
+		QVERIFY(recorder.record(gain, 0.4, 120));
+		QVERIFY(recorder.record(mute, 1.0, 122));
+		QVERIFY(!recorder.record(gain, std::numeric_limits<double>::infinity(), 140));
+		QVERIFY(!recorder.record({"", {}, "invalid", MacroParameterType::Float}, 0.5, 140));
+		QVERIFY(recorder.record(gain, 0.8, 240));
+		QVERIFY(recorder.record(gain, 0.9, 230) == false); // backwards clock
+		const auto events = recorder.finish();
+		QCOMPARE(events.size(), size_t(3));
+		QVERIFY(!recorder.active());
+		QCOMPARE(events.at(0).timeMs, 1250.0);
+		QCOMPARE(events.at(0).type, TimelineEventType::SetParameterValue);
+		QVERIFY(events.at(0).hasDuration);
+		QCOMPARE(events.at(0).durationMs, 120.0);
+		const auto first = MacroParameter::decodeRamp(events.at(0).data.toString());
+		QVERIFY(first);
+		QCOMPARE(first->start.value.toDouble(), 0.2);
+		QCOMPARE(first->end, 0.4);
+		QCOMPARE(first->easing, QString("linear"));
+		const auto second = MacroParameter::decodeRamp(events.at(1).data.toString());
+		QVERIFY(second);
+		QCOMPARE(second->end, 0.8);
+		QVERIFY(!events.at(2).hasDuration);
+		const auto boolean = MacroParameter::decodeValue(events.at(2).data.toString());
+		QVERIFY(boolean);
+		QCOMPARE(boolean->value.toDouble(), 1.0);
+		TimelineModel model;
+		model.setHistoryEnabled(true);
+		const size_t baseline = model.getEvents().size();
+		model.addEvents(events);
+		QCOMPARE(model.getEvents().size(), baseline + events.size());
+		QVERIFY(model.undo());
+		QCOMPARE(model.getEvents().size(), baseline); // one undoable take
+		QVERIFY(recorder.start(900));
+		QVERIFY(recorder.finish().empty());
+		QVERIFY(recorder.start(0));
+		for (int i = 0; i < 1200; ++i)
+			QVERIFY(recorder.record(gain, i * 0.01, i * 100));
+		QCOMPARE(recorder.sampleCount(), 1200);
+		QVERIFY(!recorder.record(gain, 12.0, 120000)); // bounded even on a long live take
+		QCOMPARE(recorder.finish().size(), size_t(1199));
+	}
+
+	void testMacroStripRecordingCapturesOnlyCommittedUserAdjustments()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Record source", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton fader;
+		fader.kind = MacroControlKind::Slider;
+		fader.label = "Record gain";
+		fader.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		QTemporaryDir dir;
+		TimelineDock timeline(nullptr, dir.filePath("record-timeline.json"));
+		MacroStripDock strip(nullptr, dir.filePath("record-macros.json"));
+		strip.buttonModel()->addButton(fader);
+		strip.show();
+		timeline.show();
+		QCoreApplication::processEvents();
+		QObject::connect(&strip, &MacroStripDock::parameterCommitted, &timeline,
+				 &TimelineDock::recordParameterChange);
+		auto *slider = strip.findChild<QSlider *>("macro-parameter-slider");
+		auto *rec = timeline.findChild<QPushButton *>("timeline-record-automation-btn");
+		QVERIFY(slider && slider->isEnabled() && rec);
+		auto *model = timeline.findChild<TimelineModel *>();
+		QVERIFY(model);
+		auto *patch = obs_data_create();
+		obs_data_set_double(patch, "gain", 0.45);
+		obs_source_update(source, patch);
+		obs_data_release(patch);
+		QTest::qWait(330);
+		QCOMPARE(model->getEvents().size(), size_t(0)); // external readback is never a take
+		QVERIFY(rec->isEnabled());
+		rec->click();
+		QVERIFY(rec->isChecked());
+		slider->setValue(4);
+		QTRY_VERIFY_WITH_TIMEOUT(qAbs(MacroParameter::read(fader.binding).value() + 0.8) < 0.001, 2000);
+		QTest::qWait(130);
+		slider->setValue(10);
+		QTRY_VERIFY_WITH_TIMEOUT(qAbs(MacroParameter::read(fader.binding).value() + 0.5) < 0.001, 2000);
+		rec->click();
+		QVERIFY(!rec->isChecked());
+		QCOMPARE(model->getEvents().size(), size_t(1));
+		QVERIFY(model->getEvents().front().hasDuration);
+		QVERIFY(MacroParameter::decodeRamp(model->getEvents().front().data.toString()));
+		QVERIFY(model->undo());
+		QCOMPARE(model->getEvents().size(), size_t(0));
+		slider->setValue(12);
+		QTest::qWait(150);
+		QCOMPARE(model->getEvents().size(), size_t(0)); // stopped recording
+		rec->click();
+		auto *deadline = timeline.findChild<QTimer *>("timeline-record-automation-timeout");
+		QVERIFY(deadline && deadline->isActive());
+		deadline->start(70); // exercise auto-stop without waiting two minutes
+		QTRY_VERIFY_WITH_TIMEOUT(!rec->isChecked(), 2000);
+		QCOMPARE(model->getEvents().size(), size_t(0)); // no synthetic parameter cue
+		auto *play = timeline.findChild<QPushButton *>("timeline-play-btn");
+		auto *stop = timeline.findChild<QPushButton *>("timeline-stop-btn");
+		QVERIFY(play && stop);
+		play->click();
+		QVERIFY(!rec->isEnabled()); // avoid recording playback-driven writes
+		stop->click();
+		QVERIFY(rec->isEnabled()); // user can record again after Stop
 	}
 
 	void testMacroParameterBindingsAndDock()

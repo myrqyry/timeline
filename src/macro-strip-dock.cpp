@@ -110,7 +110,10 @@ void MacroStripDock::rebuildFromModel()
 			connect(action, &MacroButtonWidget::fireRequested, this, &MacroStripDock::onButtonFired);
 			w = action;
 		} else {
-			w = createMacroParameterWidget(b, m_buttonContainer);
+			w = createMacroParameterWidget(b, m_buttonContainer,
+						       [this](const MacroParameterBinding &binding, double value) {
+							       emit parameterCommitted(binding, value);
+						       });
 		}
 		w->setContextMenuPolicy(Qt::CustomContextMenu);
 		connect(w, &QWidget::customContextMenuRequested, this, [this, w, id = b.id](const QPoint &pos) {

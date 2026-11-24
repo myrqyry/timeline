@@ -103,6 +103,22 @@ parameter control.
 | Text entry | Edit a source caption or another exposed string property. |
 | XY controller | Adjust two numeric properties with a single two-axis gesture. |
 
+### Record Macro Strip automation
+
+With Timeline **paused or stopped**, move its playhead to the desired starting
+position and press **Record** in the Timeline toolbar. Adjust sliders, knobs,
+XY pads, or numeric toggles on Macro Strip. Press **Record** again to finish.
+The recorded adjustments appear as editable parameter cues, with successive
+numeric movements converted into short linear ramps. **Undo** removes the
+entire recorded take in one operation.
+
+Capture observes only successfully applied Macro Strip changes, not OBS
+readback, text edits, or parameters modified by normal timeline playback.
+Recording runs for at most two minutes or 1,200 captured samples, whichever
+comes first; reaching either limit saves the take automatically. Playback is
+disabled while recording to avoid fighting a live control. Recorded takes are
+saved in the normal timeline document, not a second automation format.
+
 ### Assign a live control
 
 1. Click **+ → Parameter control**.

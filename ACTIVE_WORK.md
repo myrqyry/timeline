@@ -304,3 +304,47 @@ Complete native OBS32 interactive acceptance of the installed checkpoint, inspec
 
 - Completion of the separate Linux build/test workflow for `c490a40` remains to be checked; the six-platform build/packaging matrix is green.
 - Real Windows/macOS runtime loading, clean installation/upgrade and full interactive OBS action/editor coverage are not established. These remain in `docs/RELEASE_CHECKLIST.md`.
+
+
+## Macro Strip automation recording — 2026-11-24
+
+Scope: user-authorized initial Timeline upgrade, not new work in emuLensFX or
+HyperShaderFX. Timeline was clean on main before edits. Added native toolbar
+Record toggle. Successful Macro Strip slider, knob, XY and numeric toggle
+writes are delivered on GUI thread; periodic OBS parameter readback and
+timeline playback are excluded. Capture is opt-in, anchored at current
+paused playhead, bounded to 120 s / 1,200 samples, ~80ms coalescing per
+binding, and uses existing stable source/filter identities. Numeric
+successive samples become editable linear ramps with no interpolated gap
+over 750ms; boolean changes are point cues. Each finished take is inserted
+as one TimelineModel history edit, Undo removes it atomically. On restart,
+ordinary shutdown or elapsed/sample limit, the take is committed; loading
+a different timeline drops an uncommitted capture. No new persistent
+schema or alternate keyframe engine.
+
+TDD: first missing Recorder API RED; then missing UI and signal RED;
+focused strict Qt/libobs tests verify real Macro Strip slider writes,
+absence of readback capture, editable ramp data, one-step undo, stopped
+recording, timeout and bounded sample count. Separate regression exposed
+Record remaining disabled after playback Stop; RED then GREEN via
+explicit re-enable on Stop/Restart. Production OBS32 module build passed.
+Initial full strict suite passed. Actual isolated OBS32.2.0 run created a
+disposable Color Source, saved its UUID, loaded a real Macro Strip bound to
+its Width setting, opened both native docks, clicked Record, performed
+two successful slider changes, stopped Record and checked the saved
+timeline JSON: an authentic integer width ramp with duration 176 ms.
+The first GUI attempt left docks hidden, and an early harness used
+qApp->quit, which stalled normal OBS shutdown. Corrected harness
+explicitly shows both docks and closes the OBS main window; the exact
+production test module and real GUI then saved editable ramps and OBS
+exited 0 with normal module unload. Log under
+/tmp/timeline-automation-real-20261124/record-close.log.
+No ordinary scene collections or live OBS profile touched.
+Normal user plugin install and GitHub publication are separate.
+
+### Final verification/checkpoint — 2026-11-24
+
+- After formatting the changed C++ hunks, the final OBS32 production module built successfully and strict QT/libobs Xvfb CTest passed (1 aggregate QtTest target, zero failures or skips; 102 individual test methods are registered).
+- The exact final binary SHA-256 is ecb6df145eab69ba4f3227c9cdb674c9551ad666010ae157447bb59f5fb42c9a, matching the isolated native OBS installation tested in /tmp/timeline-automation-real-final-20261124/obs.log.
+- That final real-OBS session used both native docks and an actual OBS Color Source Width control; Record → two slider edits → Record persisted exactly one correctly identified editable ramp; normal OBS main-window close exited 0.
+- **No normal-profile installation:** two ordinary OBS instances were running, and Timeline's installation instructions require OBS be closed first. Left those processes and the pre-existing installed module untouched. No publication or push.

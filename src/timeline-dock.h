@@ -16,6 +16,8 @@
 #include "timeline-model.h"
 #include "timeline-scheduler.h"
 #include "obs-executor.h"
+#include "macro-automation-recorder.h"
+#include <QElapsedTimer>
 
 class TimelineEventItem;
 struct TimelineDocument;
@@ -40,6 +42,8 @@ public:
 	// Public accessor so the MacroStripDock can share this executor and fire actions
 	// through the same backend without duplicating OBS API usage.
 	ObsExecutor *obsExecutor() const { return executor; }
+	// Receives only successful Macro Strip user writes on the GUI thread.
+	void recordParameterChange(const MacroParameterBinding &binding, double value);
 
 	static void saveCallback(obs_data_t *save_data, bool saving, void *private_data);
 
@@ -58,6 +62,7 @@ protected:
 	void changeEvent(QEvent *event) override;
 
 private slots:
+	void onRecordAutomationClicked();
 	void onPlayClicked();
 	void onStopClicked();
 	void onTick(double currentTimeMs);
@@ -120,12 +125,17 @@ private:
 	void refreshPlayheadHandlePixmap();
 	void refreshEndMarkerHandlePixmap(const QColor &color);
 	void placeNewEvent(double timeMs);
+	void finishAutomationRecording(bool commit = true);
 
 	QList<TimelineEvent> clipboard;
 	QString storageFilePath;
 
 	TimelineModel *model = nullptr;
 	TimelineScheduler *scheduler = nullptr;
+	MacroAutomationRecorder automationRecorder;
+	QElapsedTimer automationTimer;
+	QTimer *automationStopTimer = nullptr;
+
 	ObsExecutor *executor = nullptr;
 
 	// UI Elements
@@ -141,6 +151,7 @@ private:
 	// Buttons & Controls
 	QPushButton *playButton = nullptr;
 	QPushButton *stopButton = nullptr;
+	QPushButton *recordAutomationButton = nullptr;
 	QPushButton *zoomInButton = nullptr;
 	QPushButton *zoomOutButton = nullptr;
 	QPushButton *addEventButton = nullptr;

@@ -55,6 +55,8 @@ public slots:
 
 signals:
 	void saveRequested();
+	// Only successful direct Macro Strip edits, never OBS readback or timeline playback.
+	void parameterCommitted(const MacroParameterBinding &binding, double value);
 
 protected:
 	void changeEvent(QEvent *event) override;

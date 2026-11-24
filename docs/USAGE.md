@@ -3,6 +3,38 @@
 The [README](../README.md) is the quick start. This guide describes action
 semantics, binding behavior and operational details for the current preview.
 
+## Recording live Macro Strip adjustments
+
+Press **Record** in the Timeline toolbar while playback is stopped. The
+recording starts at the current playhead time and uses elapsed wall time for
+subsequent gestures; it does not start Timeline playback. Move a Macro Strip
+slider, knob, or XY pad, or use a numeric/boolean toggle. Only a successful
+write to the selected OBS source/filter property produces a sample. Ordinary
+OBS property readback and timeline-generated changes do not enter the take.
+
+Press **Record** again to finish; the new parameter cues are added to the
+current document in one undoable edit. Each continuous numeric segment is a
+linear ramp with editable endpoints, easing, and duration. Separate gestures
+more than 750 ms apart do not acquire an artificial fade across the pause.
+Boolean changes remain instantaneous. Edits retain the existing exact source
+and filter UUID targets; missing targets remain unresolved rather than being
+silently redirected.
+
+- No source or filter parameter changes occur merely by arming recording.
+- Stop the recording before Play. While armed, the regular Play/Stop buttons
+  are disabled; a playback or restart hotkey finishes the current take first.
+- A 120-second or 1,200-sample capture bound automatically finishes the take.
+  Sample coalescing reduces dense movement writes; this is not lossless
+  audio-rate motion capture.
+- Recording a take changes the *timeline document*, not Macro Strip bindings.
+  Use Undo to remove the entire take, or edit individual generated events.
+- Text control edits, external OBS property changes, and third-party plugin
+  changes not made through Macro Strip are deliberately excluded. No general
+  automation input bus or live parameter feedback recording is implied.
+- If recording remains armed during a normal OBS shutdown, the buffered take
+  is committed before Timeline performs its final save. Loading a different
+  timeline cancels any uncommitted take.
+
 ## Toolbar layout
 
 New timelines default to centered playback, clock and zoom controls.

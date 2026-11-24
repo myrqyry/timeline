@@ -25,6 +25,7 @@ set(
   ../src/timeline-serialization.cpp
   ../src/macro-button-model.cpp
   ../src/macro-parameter.cpp
+  ../src/macro-automation-recorder.cpp
   ../src/macro-parameter-widget.cpp
   ../src/macro-button-widget.cpp
   ../src/macro-serialization.cpp

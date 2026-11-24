@@ -387,8 +387,9 @@ private:
 
 class XYParameterWidget final : public QWidget {
 public:
-	XYParameterWidget(const MacroButton &button, QWidget *parent)
+	XYParameterWidget(const MacroButton &button, QWidget *parent, MacroUserWrite committed)
 		: QWidget(parent),
+		  onCommitted(std::move(committed)),
 		  x(button.binding),
 		  y(button.bindingY),
 		  title(button.label.isEmpty() ? tr("XY") : button.label),
@@ -504,9 +505,15 @@ private:
 		writer.stop();
 		const auto value = pending;
 		pending.reset();
-		if (value && isVisible() && !MacroParameter::writePair(x, value->x(), y, value->y())) {
-			refresh();
-			return;
+		if (value && isVisible()) {
+			if (!MacroParameter::writePair(x, value->x(), y, value->y())) {
+				refresh();
+				return;
+			}
+			if (onCommitted) {
+				onCommitted(x, value->x());
+				onCommitted(y, value->y());
+			}
 		}
 		if (!pad->dragging())
 			refresh();
@@ -528,6 +535,7 @@ private:
 			pad->setToolTip(tr("One or both XY bindings are unavailable. Right-click to edit."));
 		}
 	}
+	MacroUserWrite onCommitted;
 	MacroParameterBinding x, y;
 	QString title, subtitle;
 	bool showValue;
@@ -542,8 +550,9 @@ private:
 
 class ParameterWidget final : public QWidget {
 public:
-	ParameterWidget(const MacroButton &button, QWidget *parent)
+	ParameterWidget(const MacroButton &button, QWidget *parent, MacroUserWrite committed)
 		: QWidget(parent),
+		  onCommitted(std::move(committed)),
 		  binding(button.binding),
 		  kind(button.kind),
 		  toggleValues(button.toggleValues),
@@ -640,8 +649,8 @@ public:
 						const auto &next = *state == 0 ? toggleValues->b : toggleValues->a;
 						if (binding.type == MacroParameterType::Text)
 							MacroParameter::writeText(binding, next.toString());
-						else
-							MacroParameter::write(binding, next.toDouble());
+						else if (MacroParameter::write(binding, next.toDouble()) && onCommitted)
+							onCommitted(binding, next.toDouble());
 					}
 					refresh(true);
 				});
@@ -795,6 +804,8 @@ private:
 		pending.reset();
 		if (value && isVisible()) {
 			const bool written = MacroParameter::write(binding, *value);
+			if (written && onCommitted)
+				onCommitted(binding, *value);
 			// Readback during a drag must not move the knob under the cursor.
 			// A failed write still invalidates an unavailable binding immediately.
 			if (!written || !(slider && slider->isSliderDown()))
@@ -902,6 +913,7 @@ private:
 			setToolTip(tr("Bound source, filter or property is unavailable. Right-click to edit."));
 		}
 	}
+	MacroUserWrite onCommitted;
 	MacroParameterBinding binding;
 	MacroControlKind kind;
 	std::optional<MacroParameter::ToggleValues> toggleValues;
@@ -924,11 +936,11 @@ private:
 };
 } // namespace
 
-QWidget *createMacroParameterWidget(const MacroButton &button, QWidget *parent)
+QWidget *createMacroParameterWidget(const MacroButton &button, QWidget *parent, MacroUserWrite onCommitted)
 {
 	if (button.kind == MacroControlKind::XY)
-		return new XYParameterWidget(button, parent);
-	return new ParameterWidget(button, parent);
+		return new XYParameterWidget(button, parent, std::move(onCommitted));
+	return new ParameterWidget(button, parent, std::move(onCommitted));
 }
 
 QSize macroParameterRequiredRows(QWidget *widget)
