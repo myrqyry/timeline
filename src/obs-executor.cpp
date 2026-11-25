@@ -1,5 +1,6 @@
 #include "macro-parameter.h"
 #include "obs-executor.h"
+#include "data-condition.h"
 #include "headless-timeline.h"
 #include "scene-item-target.h"
 #include "media-target.h"
@@ -86,9 +87,27 @@ void ObsExecutor::cancelAll()
 
 void ObsExecutor::executeEventStart(const TimelineEvent &evt)
 {
-	performAction(evt, true);
+	if (evt.type == TimelineEventType::DataConditionalScene) {
+		const auto condition = DataCondition::decode(evt.data.toString());
+		if (!condition || !DataCondition::evaluate(*condition)) {
+			blog(LOG_INFO, "[Timeline] Conditional scene cue skipped (condition false or unavailable)");
+			return;
+		}
+		auto *target = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
+		const bool scene = target && !obs_source_removed(target) && obs_source_is_scene(target);
+		if (target)
+			obs_source_release(target);
+		if (!scene)
+			return;
+		TimelineEvent action = evt;
+		action.type = TimelineEventType::SceneSwitch;
+		action.data = QVariant();
+		action.hasDuration = false;
+		performAction(action, true);
+	} else
+		performAction(evt, true);
 
-	// WebSocket notification
+		// WebSocket notification
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *event_data = obs_data_create();
@@ -108,6 +127,8 @@ void ObsExecutor::executeEventStart(const TimelineEvent &evt)
 
 void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 {
+	if (evt.type == TimelineEventType::DataConditionalScene)
+		return;
 	performAction(evt, false);
 
 #if OBS_TIMELINE_HAS_WEBSOCKET

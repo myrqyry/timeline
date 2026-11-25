@@ -28,6 +28,7 @@
 #include <obs.h>
 #include <util/bmem.h>
 #include "obs-executor.h"
+#include "data-condition.h"
 #include "media-target.h"
 #include "theme-helpers.h"
 #include "timeline-hit-testing.h"
@@ -709,6 +710,58 @@ private slots:
 		QCOMPARE(parsed.getEvents().front().data.toString(), QString("Vertical"));
 	}
 
+	void testDataConditionalScene()
+	{
+		using namespace DataCondition;
+		Condition c{"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", ">=", 0.5, 5000};
+		const auto encoded = encode(c);
+		QVERIFY(decode(encoded).has_value());
+		QVERIFY(matches(c, "0.75", 100));
+		QVERIFY(!matches(c, "0.49", 100));
+		QVERIFY(!matches(c, "0.75", 5000));
+		QVERIFY(!matches(c, "\"0.75\"", 100));
+		QVERIFY(!matches(c, "true", 100));
+		QVERIFY(!matches(c, "null", 100));
+		QVERIFY(!matches(c, "[0.75]", 100));
+		QVERIFY(!matches(c, "1,2", 100));
+		c.op = "true";
+		QVERIFY(matches(c, "true", 100));
+		QVERIFY(!matches(c, "1", 100));
+		QVERIFY(!decode("garbage"));
+		c.op = "invalid";
+		QVERIFY(!decode(encode(c)));
+		c.op = ">=";
+		TimelineEvent evt;
+		evt.type = TimelineEventType::DataConditionalScene;
+		evt.sourceName = "Scene 2";
+		evt.data = encode(c);
+		evt.hasDuration = true;
+		evt.durationMs = 500;
+		TimelineModel model, restored;
+		model.addEvent(evt);
+		restored.fromJson(model.toJson());
+		QCOMPARE(restored.getEvents().size(), size_t(1));
+		const auto saved = restored.getEvents().front();
+		QCOMPARE(saved.type, TimelineEventType::DataConditionalScene);
+		QVERIFY(!saved.hasDuration);
+		QCOMPARE(saved.data.toString(), encode(c));
+		EventEditor editor(saved);
+		QCOMPARE(editor.findChild<QComboBox *>("dataConditionSource")->currentData().toString(), c.uuid);
+		TimelineEvent revised;
+		editor.getUpdatedEvent(revised);
+		QCOMPARE(revised.data.toString(), encode(c));
+		QCOMPARE(revised.sourceName, evt.sourceName);
+		QVERIFY(!revised.hasDuration);
+		if (scene2) {
+			ObsExecutor executor;
+			auto *before = obs_frontend_get_current_scene();
+			executor.executeEventStart(saved);
+			QCOMPARE(g_current_scene, before);
+			if (before)
+				obs_source_release(before);
+		}
+	}
+
 	void testSceneSwitch()
 	{
 		if (!scene2)
@@ -810,7 +863,7 @@ private slots:
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::MediaStop)), -1);
 		QCOMPARE(types->findData(static_cast<int>(TimelineEventType::FilterDisable)), -1);
 		QCOMPARE(types->count(),
-			 8 + (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene)
+			 9 + (PluginIntegrations::instance().actionAvailable(TimelineEventType::DownstreamKeyerScene)
 				      ? 1
 				      : 0));
 		struct Case {

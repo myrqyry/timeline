@@ -257,6 +257,8 @@ inline QByteArray getMoonNumberSvg(int digit, const QString &color)
 inline QByteArray getIconSvg(TimelineEventType type, const QString &color = "white")
 {
 	switch (type) {
+	case TimelineEventType::DataConditionalScene:
+		return wrapIconMoon(MOON_FUNNEL, color);
 	case TimelineEventType::SceneSwitch:
 		return wrapIconMoon(MOON_MENU, color);
 	case TimelineEventType::SourceShow:
@@ -295,6 +297,8 @@ inline QByteArray getIconSvg(TimelineEventType type, const QString &color = "whi
 inline QColor getDefaultColor(TimelineEventType type)
 {
 	switch (type) {
+	case TimelineEventType::DataConditionalScene:
+		return QColor("#36B8A5");
 	case TimelineEventType::SceneSwitch:
 		return QColor("#4A90E2"); // Blue
 	case TimelineEventType::SourceShow:
@@ -333,6 +337,8 @@ inline QColor getDefaultColor(TimelineEventType type)
 inline QString typeDisplayName(TimelineEventType type)
 {
 	switch (type) {
+	case TimelineEventType::DataConditionalScene:
+		return QStringLiteral("Conditional Scene Switch");
 	case TimelineEventType::SceneSwitch:
 		return QStringLiteral("Scene Switch");
 	case TimelineEventType::SourceShow:

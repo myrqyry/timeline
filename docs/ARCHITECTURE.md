@@ -216,6 +216,7 @@ The executor interprets duration and instant events differently:
 | `FilterEnable` | Enable filter | Disable filter |
 | `FilterDisable` | Disable filter | Enable filter |
 | `SceneSwitch` | Switch scene | No end action |
+| `DataConditionalScene` | Switch scene only if a fresh cached scalar passes | No end action |
 | `HotkeyTrigger` | Trigger named hotkey | No end action |
 | `TriggerTimeline` | Start nested file | No end action |
 | `DownstreamKeyerScene` | Select or hide named keyer scene | Hide overlay |
@@ -404,6 +405,19 @@ pause retains the remaining wait; seeking resets it. A late tick begins
 the full wait when the marker is actually processed. Loop/end completion
 waits for the hold at the boundary. The executor does not alter OBS state
 for this cue. Macro Strip excludes the scheduler-only type.
+
+### Conditional scene cues
+
+DataConditionalScene (ID 16) stores a JSON condition in event data:
+provider UUID, comparison, numeric threshold and maximum age in milliseconds.
+A distinct appended event ID avoids an older build treating the condition as
+an unconditional switch. Imported duration fields are ignored for this cue.
+The executor checks the optional provider ABI symbol at dispatch; it reads
+only a bounded scalar buffer and never performs network I/O. False,
+unavailable, invalid or stale results skip the start action and its WebSocket
+start notification. No persistent subscription or reactive trigger runs
+outside timeline playback. The provider owns request scheduling. Existing
+scene-name targeting and current-transition behavior are retained.
 
 ### Parameter animation
 

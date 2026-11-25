@@ -2166,6 +2166,9 @@ void TimelineDock::rebuildEventItems()
 		// Tooltip and label
 		QString typeStr;
 		switch (evt.type) {
+		case TimelineEventType::DataConditionalScene:
+			typeStr = obs_module_text("EventType.DataConditionalScene");
+			break;
 		case TimelineEventType::SceneSwitch:
 			typeStr = obs_module_text("EventType.SceneSwitch");
 			break;

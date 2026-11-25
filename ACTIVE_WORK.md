@@ -348,3 +348,37 @@ Normal user plugin install and GitHub publication are separate.
 - The exact final binary SHA-256 is ecb6df145eab69ba4f3227c9cdb674c9551ad666010ae157447bb59f5fb42c9a, matching the isolated native OBS installation tested in /tmp/timeline-automation-real-final-20261124/obs.log.
 - That final real-OBS session used both native docks and an actual OBS Color Source Width control; Record → two slider edits → Record persisted exactly one correctly identified editable ramp; normal OBS main-window close exited 0.
 - **No normal-profile installation:** two ordinary OBS instances were running, and Timeline's installation instructions require OBS be closed first. Left those processes and the pre-existing installed module untouched. No publication or push.
+
+### Optional Data Source conditional scene cues — 2026-11-25
+
+New appended event ID 16, DataConditionalScene, in Timeline editor only.
+Select destination scene (existing name-based scene routing), provider
+UUID, numeric comparison (> / >= / < / <=) or strict JSON boolean true/false,
+and maximum age 100–60000 ms. Provider snapshot ABI v1 copied from
+obs-urlsource (8a014f3; current private remote b49174c). Resolve symbol
+only at dispatch. Bounded 128-byte caller buffer, no network, no subscription,
+no provider activation. False/missing/stale/malformed/unshared value skips
+cue; ordinary timeline continues, re-evaluate on next pass. No duration,
+inverse, or Macro Strip action; older builds skip unknown ID. Saved missing
+provider UUID remains editable. No custom transition for conditional cue.
+Skip does not emit executor WebSocket started notification.
+
+RED focused test failed missing header. GREEN focused test: strict numeric
+and boolean types, invalid payload, stale age, roundtrip, no duration,
+missing-provider editor retention, missing-module executor no action.
+Real isolated OBS 32.2.0 native probe in tests/native/run-data-condition.sh,
+evidence /tmp/timeline-data-native.U66KBu/{yes,no}.log: 9/9 checks per run,
+both exit0. True numeric/boolean changed actual program scene; false,
+opt-out, stale and removed skipped; same document without provider skipped
+all conditional cues and ran ordinary scene switch. Two unattributed
+libobs allocations per run. Initial full suite found one expected action
+category count assertion; updated to include new type. No production
+Timeline install/push. Earlier macro recorder commit 0a74550 preserved.
+HyperShader and URL Source previously staged packages installed after OBS
+closed, byte-identical to staged packages, previous HyperShader backed up.
+HyperShader uses the verified Qt/no-ML build, not a new native ML build.
+Final full strict suite 105 passed, zero failed/skipped; CTest 1/1,
+34.30 s. Logs /tmp/timeline-data-final-full.log and
+/tmp/timeline-data-final-build.log. Documentation updated. Native probe
+passed before a comment indentation-only runtime change and category
+count test correction. No public availability changes.

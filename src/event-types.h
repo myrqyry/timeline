@@ -22,7 +22,8 @@ enum class TimelineEventType {
 	MediaResume,
 	MediaSeekTo,
 	SetParameterValue,
-	FreezeTime // Append only: persisted enum IDs must not shift
+	FreezeTime, // Append only: persisted enum IDs must not shift
+	DataConditionalScene
 };
 
 struct TimelineEvent {

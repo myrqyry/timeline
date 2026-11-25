@@ -154,6 +154,29 @@ restart clears it. A new pass through the marker waits again. Nested
 timelines use their own clock. Other OBS media and independent timers
 are not paused. Active wait progress is not persisted across sessions.
 
+### Conditional Scene Switch
+
+With a compatible URL/API Source provider, enable **Share parsed data with
+OBS plugins** and select a single numeric or boolean result in its request
+parser. Enable background operation on the provider if it must remain
+available while not visible.
+
+Add a **Conditional Scene Switch** cue, choose the destination scene, select
+the Data Source, set a comparison and maximum age (100–60000 ms), and save.
+Numeric comparisons are greater/less than or equal; boolean comparisons
+require an actual JSON true or false. Numeric-looking strings are not numbers.
+
+At the cue timestamp, Timeline reads the provider's latest cached result,
+without issuing a network request. It switches using the current OBS
+transition only if the condition is true and the result is fresh. False,
+missing, stale, malformed or unshared data skips the cue permanently for
+that pass; playback does not wait. A later loop or replay evaluates it again.
+The source binding uses its UUID, so renaming does not redirect it. Missing
+providers never redirect to another source. There is no duration or inverse
+action and this cue is not offered in Macro Strip. Ordinary cues work
+without the companion plugin. Older Timeline builds skip the new event ID;
+do not resave the file with an older build.
+
 ### Finding hotkeys
 
 Select **Hotkey Trigger** in either editor. Search by description, registered

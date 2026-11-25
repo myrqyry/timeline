@@ -1,4 +1,6 @@
 #include "event-editor.h"
+#include "data-condition.h"
+#include <QSpinBox>
 #include "theme-helpers.h"
 #include "plugin-integrations.h"
 #include "scene-item-target.h"
@@ -92,6 +94,9 @@ void EventEditor::buildUi()
 	if (allowFreeze)
 		typeCombo->addItem(obs_module_text("EventType.FreezeTime"),
 				   static_cast<int>(TimelineEventType::FreezeTime));
+	if (allowFreeze)
+		typeCombo->addItem(obs_module_text("EventType.DataConditionalScene"),
+				   static_cast<int>(TimelineEventType::DataConditionalScene));
 	layout->addRow(obs_module_text("EventEditor.EventType"), typeCombo);
 
 	actionLabel = new QLabel(obs_module_text("EventEditor.Action"), this);
@@ -236,6 +241,47 @@ void EventEditor::buildUi()
 	freezeWidget->setToolTip(obs_module_text("EventEditor.FreezeTooltip"));
 	layout->addRow(freezeWidget);
 	freezeWidget->hide();
+
+	conditionWidget = new QWidget(this);
+	auto *conditionForm = new QFormLayout(conditionWidget);
+	conditionForm->setContentsMargins(0, 0, 0, 0);
+	conditionSource = new QComboBox(conditionWidget);
+	conditionSource->setObjectName("dataConditionSource");
+	conditionSource->addItem(obs_module_text("EventEditor.DataSourceSelect"), QString());
+	obs_enum_sources(
+		[](void *data, obs_source_t *source) {
+			auto *combo = static_cast<QComboBox *>(data);
+			if (!obs_source_removed(source) && !strcmp(obs_source_get_id(source), "url_source"))
+				combo->addItem(QString::fromUtf8(obs_source_get_name(source)),
+					       QString::fromUtf8(obs_source_get_uuid(source)));
+			return true;
+		},
+		conditionSource);
+	conditionOp = new QComboBox(conditionWidget);
+	conditionOp->setObjectName("dataConditionOp");
+	for (auto op : {">=", ">", "<=", "<", "true", "false"})
+		conditionOp->addItem(op, op);
+	conditionThreshold = new QDoubleSpinBox(conditionWidget);
+	conditionThreshold->setObjectName("dataConditionThreshold");
+	conditionThreshold->setDecimals(6);
+	conditionThreshold->setRange(-1e12, 1e12);
+	conditionThreshold->setValue(.5);
+	conditionAge = new QSpinBox(conditionWidget);
+	conditionAge->setObjectName("dataConditionAge");
+	conditionAge->setRange(100, 60000);
+	conditionAge->setValue(5000);
+	conditionAge->setSuffix(" ms");
+	conditionForm->addRow(obs_module_text("EventEditor.DataSource"), conditionSource);
+	conditionForm->addRow(obs_module_text("EventEditor.DataCompare"), conditionOp);
+	conditionForm->addRow(obs_module_text("EventEditor.DataThreshold"), conditionThreshold);
+	conditionForm->addRow(obs_module_text("EventEditor.DataMaxAge"), conditionAge);
+	auto *hint = new QLabel(obs_module_text("EventEditor.DataConditionHint"), conditionWidget);
+	hint->setWordWrap(true);
+	conditionForm->addRow(hint);
+	connect(conditionOp, &QComboBox::currentIndexChanged, conditionWidget,
+		[this](int i) { conditionThreshold->setEnabled(i < 4); });
+	layout->addRow(conditionWidget);
+	conditionWidget->hide();
 
 	// Duration controls
 	durationCheck = new QCheckBox(obs_module_text("EventEditor.HasDuration"), this);
@@ -405,6 +451,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
 	dskWidget->setVisible(evtType == TimelineEventType::DownstreamKeyerScene);
 	parameterWidget->setVisible(evtType == TimelineEventType::SetParameterValue);
 	freezeWidget->setVisible(evtType == TimelineEventType::FreezeTime);
+	conditionWidget->setVisible(evtType == TimelineEventType::DataConditionalScene);
 	if (evtType == TimelineEventType::SetParameterValue || evtType == TimelineEventType::FreezeTime) {
 		targetLabel->hide();
 		targetCombo->hide();
@@ -450,7 +497,7 @@ void EventEditor::populateTargets(TimelineEventType evtType)
 		transitionWidget->hide();
 	}
 
-	if (evtType == TimelineEventType::SceneSwitch) {
+	if (evtType == TimelineEventType::SceneSwitch || evtType == TimelineEventType::DataConditionalScene) {
 		targetLabel->setText(obs_module_text("EventEditor.TargetScene"));
 		struct obs_frontend_source_list scenes = {};
 		obs_frontend_get_scenes(&scenes);
@@ -663,6 +710,24 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 		dskViewEdit->setText(evt.data.toString());
 	} else if (evt.type == TimelineEventType::TriggerTimeline) {
 		fileEdit->setText(evt.data.toString());
+	} else if (evt.type == TimelineEventType::DataConditionalScene) {
+		int target = targetCombo->findText(evt.sourceName);
+		if (target < 0 && !evt.sourceName.isEmpty()) {
+			targetCombo->addItem(evt.sourceName);
+			target = targetCombo->count() - 1;
+		}
+		targetCombo->setCurrentIndex(target);
+		if (auto c = DataCondition::decode(evt.data.toString())) {
+			int index = conditionSource->findData(c->uuid);
+			if (index < 0) {
+				conditionSource->addItem(obs_module_text("EventEditor.DataSourceUnavailable"), c->uuid);
+				index = conditionSource->count() - 1;
+			}
+			conditionSource->setCurrentIndex(index);
+			conditionOp->setCurrentIndex(conditionOp->findData(c->op));
+			conditionThreshold->setValue(c->threshold);
+			conditionAge->setValue(c->maxAgeMs);
+		}
 	} else if (evt.type == TimelineEventType::SceneSwitch) {
 		targetCombo->setCurrentText(evt.sourceName);
 		if (!evt.data.isNull() && !evt.data.toString().isEmpty()) {
@@ -799,7 +864,15 @@ void EventEditor::validateAndAccept()
 		QMessageBox::warning(this, obs_module_text("EventEditor.InvalidEvent"), message);
 	};
 
-	if (type == TimelineEventType::FreezeTime) {
+	if (type == TimelineEventType::DataConditionalScene) {
+		DataCondition::Condition c{conditionSource->currentData().toString(),
+					   conditionOp->currentData().toString(), conditionThreshold->value(),
+					   conditionAge->value()};
+		if (!allowFreeze || !DataCondition::valid(c) || sourceText.isEmpty() || sourceText.startsWith("(")) {
+			warn(obs_module_text("EventEditor.DataConditionInvalid"));
+			return;
+		}
+	} else if (type == TimelineEventType::FreezeTime) {
 		if (!allowFreeze || freezeDurationSpin->value() <= 0) {
 			warn(obs_module_text("EventEditor.WarnDuration"));
 			return;
@@ -883,10 +956,11 @@ void EventEditor::onActionChanged(int index)
 	Q_UNUSED(index);
 	const bool seek = selectedActionType() == TimelineEventType::MediaSeekTo;
 	const bool freeze = selectedActionType() == TimelineEventType::FreezeTime;
-	const bool instantaneous = seek || freeze ||
+	const bool conditional = selectedActionType() == TimelineEventType::DataConditionalScene;
+	const bool instantaneous = seek || freeze || conditional ||
 				   (selectedActionType() == TimelineEventType::SetParameterValue && !canRamp());
-	durationCheck->setVisible(!freeze);
-	durationSpin->setVisible(!freeze);
+	durationCheck->setVisible(!freeze && !conditional);
+	durationSpin->setVisible(!freeze && !conditional);
 	mediaSeekWidget->setVisible(seek);
 	durationCheck->setText(obs_module_text("EventEditor.TimedDuration"));
 	durationCheck->setEnabled(!instantaneous);
@@ -1037,7 +1111,13 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 		evt.data = QVariant();
 	evt.type = selectedActionType();
 
-	if (evt.type == TimelineEventType::FreezeTime) {
+	if (evt.type == TimelineEventType::DataConditionalScene) {
+		evt.sourceName = targetCombo->currentText();
+		evt.filterName.clear();
+		evt.data = DataCondition::encode({conditionSource->currentData().toString(),
+						  conditionOp->currentData().toString(), conditionThreshold->value(),
+						  conditionAge->value()});
+	} else if (evt.type == TimelineEventType::FreezeTime) {
 		evt.sourceName.clear();
 		evt.filterName.clear();
 		evt.data = freezeDurationSpin->value() * 1000.0;
@@ -1106,8 +1186,12 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 	evt.label = labelEdit->text().trimmed();
 	evt.hasDuration = evt.type != TimelineEventType::MediaSeekTo &&
 			  (evt.type != TimelineEventType::SetParameterValue || canRamp()) &&
-			  evt.type != TimelineEventType::FreezeTime && durationCheck->isChecked();
-	evt.durationMs = evt.type == TimelineEventType::FreezeTime ? 0.0 : durationSpin->value() * 1000.0;
+			  evt.type != TimelineEventType::FreezeTime &&
+			  evt.type != TimelineEventType::DataConditionalScene && durationCheck->isChecked();
+	evt.durationMs =
+		(evt.type == TimelineEventType::FreezeTime || evt.type == TimelineEventType::DataConditionalScene)
+			? 0.0
+			: durationSpin->value() * 1000.0;
 	if (evt.type == TimelineEventType::SetParameterValue && evt.hasDuration) {
 		if (const auto start = MacroParameter::decodeValue(parameterPayload)) {
 			const double end = rampEnd->value();

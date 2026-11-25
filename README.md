@@ -38,6 +38,7 @@ Build reusable sequences without leaving OBS.
 | Action | What it does |
 | --- | --- |
 | Scene Switch | Switch scenes, optionally with a named transition. |
+| Conditional Scene Switch | Switch at a scheduled time only when a fresh shared Data Source value passes a condition (optional integration). |
 | Source Visibility | Show or hide a scene item, including nested sources and groups. |
 | Media Playback | Restart, stop, pause, resume or seek a media source. |
 | Filter Visibility | Enable or disable a source filter. |

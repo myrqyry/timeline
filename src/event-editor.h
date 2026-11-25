@@ -11,6 +11,7 @@ class QPushButton;
 class QWidget;
 class QCheckBox;
 class QDoubleSpinBox;
+class QSpinBox;
 
 class EventEditor : public QDialog {
 	Q_OBJECT
@@ -51,6 +52,11 @@ private:
 	QDoubleSpinBox *rampEnd = nullptr;
 	QComboBox *rampEasing = nullptr;
 	QString parameterTarget;
+	QWidget *conditionWidget = nullptr;
+	QComboBox *conditionSource = nullptr;
+	QComboBox *conditionOp = nullptr;
+	QDoubleSpinBox *conditionThreshold = nullptr;
+	QSpinBox *conditionAge = nullptr;
 	QWidget *freezeWidget = nullptr;
 	QDoubleSpinBox *freezeDurationSpin = nullptr;
 	QWidget *mediaSeekWidget = nullptr;
