@@ -58,6 +58,38 @@ function(_timeline_sdk_configurations output)
   endif()
 endfunction()
 
+# OBS 33.0.1 stores bool list values in item.b but reads item.d.
+# Keep MSVC warnings-as-errors and correct only the pinned SDK getter.
+function(_timeline_patch_obs33_bool path)
+  file(READ "${path}" source)
+  set(
+    old
+    "struct list_data *data = get_list_fmt_data(p, OBS_COMBO_FORMAT_BOOL);
+	return (data && idx < data->items.num) ? data->items.array[idx].d : false;"
+  )
+  set(
+    new
+    "struct list_data *data = get_list_fmt_data(p, OBS_COMBO_FORMAT_BOOL);
+	return (data && idx < data->items.num) ? data->items.array[idx].b : false;"
+  )
+  string(REPLACE "${old}" "" without_old "${source}")
+  string(REPLACE "${new}" "" without_new "${source}")
+  string(LENGTH "${source}" original_length)
+  string(LENGTH "${without_old}" without_old_length)
+  string(LENGTH "${without_new}" without_new_length)
+  string(LENGTH "${old}" old_length)
+  string(LENGTH "${new}" new_length)
+  math(EXPR old_count "(${original_length} - ${without_old_length}) / ${old_length}")
+  math(EXPR new_count "(${original_length} - ${without_new_length}) / ${new_length}")
+  if(old_count EQUAL 1 AND new_count EQUAL 0)
+    string(REPLACE "${old}" "${new}" corrected "${source}")
+    file(WRITE "${path}" "${corrected}")
+    message(STATUS "Corrected OBS 33.0.1 boolean list getter")
+  elseif(NOT (old_count EQUAL 0 AND new_count EQUAL 1))
+    message(FATAL_ERROR "Unexpected OBS 33.0.1 boolean list getter in ${path}")
+  endif()
+endfunction()
+
 # _setup_obs_studio: Create obs-studio build project, then build libobs and obs-frontend-api
 function(_setup_obs_studio)
   if(NOT libobs_DIR)
@@ -67,7 +99,10 @@ function(_setup_obs_studio)
   if(OS_WINDOWS)
     set(_cmake_generator "${CMAKE_GENERATOR}")
     set(_cmake_arch "-A ${arch},version=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
-    set(_cmake_extra "-DCMAKE_SYSTEM_VERSION=${CMAKE_SYSTEM_VERSION} -DCMAKE_ENABLE_SCRIPTING=OFF")
+    set(_cmake_extra "-DCMAKE_SYSTEM_VERSION=${CMAKE_SYSTEM_VERSION}" "-DCMAKE_ENABLE_SCRIPTING=OFF")
+    if(_obs_version STREQUAL "33.0.1")
+      _timeline_patch_obs33_bool("${dependencies_dir}/${_obs_destination}/libobs/obs-properties.c")
+    endif()
   elseif(OS_MACOS)
     set(_cmake_generator "Xcode")
     set(_cmake_arch "-DCMAKE_OSX_ARCHITECTURES:STRING='arm64;x86_64'")

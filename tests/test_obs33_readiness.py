@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import re
 import subprocess
+import sys
 
 root = Path(__file__).resolve().parents[1]
 
@@ -71,3 +72,4 @@ print("PASS: OBS33 Windows x64 pinned SDK, runner and package contracts")
 
 # The release-only SDK configuration path must not affect legacy or Debug builds.
 subprocess.run(["cmake", "-P", str(root / "tests/test_sdk_configurations.cmake")], check=True)
+subprocess.run([sys.executable, str(root / "tests/test_sdk_patch.py")], check=True)

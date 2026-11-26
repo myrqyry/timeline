@@ -45,3 +45,20 @@ Explicit Debug and all other platform SDK configuration choices retained.
 SDK configuration regression and existing readiness contract passed,
 gersemi 0.21.0 passed, local strict OBS32 suite 105/0/0. Native Windows
 qualification remains pending; do not treat this as a proven compiler fix.
+
+### Follow-up: PR #7 native compiler diagnosis
+
+Run 45910745622 on e372395: seven of eight packaging builds plus both
+format checks passed; separate strict Linux run 45910745736 passed.
+Visible Windows OBS33 child diagnostics identify C2220/C4244 at pinned
+OBS 33.0.1 libobs/obs-properties.c:1252, where the bool getter reads
+the double member although add/insert store the bool member. Release-only
+SDK did not avoid the defect. Apply a version-scoped exact-context patch
+before configuring the Windows SDK, preserving warnings-as-errors.
+Reject missing or ambiguous context; already corrected source is accepted.
+Split Windows CMake flags into separate list items (review concern;
+the hosted configure had succeeded, so this was not the observed failure).
+Keep diagnostics visible. RED/GREEN patch tests and readiness contracts
+passed; verified original upstream archive hash and actual source changes
+by exactly one byte, with idempotent reapplication. gersemi 0.21.0 passed.
+Windows native compilation and final archive remain pending hosted CI.
