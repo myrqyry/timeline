@@ -46,6 +46,18 @@ function(_check_deps_version version)
   return(PROPAGATE found CMAKE_PREFIX_PATH)
 endfunction()
 
+# A release package does not require a separately compiled Debug OBS SDK.
+function(_timeline_sdk_configurations output)
+  if(TIMELINE_OBS_SDK_RELEASE_ONLY)
+    if(NOT OS_WINDOWS OR NOT OBS_COMPATIBILITY_TARGET STREQUAL "obs33")
+      message(FATAL_ERROR "Release-only OBS SDK is limited to Windows OBS33")
+    endif()
+    set(${output} Release PARENT_SCOPE)
+  else()
+    set(${output} Debug Release PARENT_SCOPE)
+  endif()
+endfunction()
+
 # _setup_obs_studio: Create obs-studio build project, then build libobs and obs-frontend-api
 function(_setup_obs_studio)
   if(NOT libobs_DIR)
@@ -65,6 +77,14 @@ function(_setup_obs_studio)
     set(_cmake_extra "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_INSTALL_PREFIX=${dependencies_dir}")
   endif()
 
+  _timeline_sdk_configurations(_sdk_configurations)
+  set(_sdk_parallel --parallel)
+  if(TIMELINE_OBS_SDK_RELEASE_ONLY)
+    # Match upstream's minimal native SDK build, not the OBS application.
+    list(APPEND _cmake_extra "-DENABLE_SCRIPTING=OFF" "-DENABLE_BROWSER=OFF")
+    list(APPEND _sdk_parallel 4)
+  endif()
+
   message(STATUS "Configure ${label} (${arch})")
   execute_process(
     COMMAND
@@ -75,7 +95,6 @@ function(_setup_obs_studio)
       ${_cmake_extra}
     RESULT_VARIABLE _process_result
     COMMAND_ERROR_IS_FATAL ANY
-    OUTPUT_QUIET
   )
   message(STATUS "Configure ${label} (${arch}) - done")
 
@@ -84,43 +103,27 @@ function(_setup_obs_studio)
     list(APPEND _obs_build_targets libobs-opengl)
   endif()
 
-  message(STATUS "Build ${label} (Debug - ${arch})")
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build build_${arch} --target ${_obs_build_targets} --config Debug --parallel
-    WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
-    RESULT_VARIABLE _process_result
-    COMMAND_ERROR_IS_FATAL ANY
-    OUTPUT_QUIET
-  )
-  message(STATUS "Build ${label} (Debug - ${arch}) - done")
-
-  message(STATUS "Build ${label} (Release - ${arch})")
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build build_${arch} --target ${_obs_build_targets} --config Release --parallel
-    WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
-    RESULT_VARIABLE _process_result
-    COMMAND_ERROR_IS_FATAL ANY
-    OUTPUT_QUIET
-  )
-  message(STATUS "Build ${label} (Reelase - ${arch}) - done")
+  foreach(_sdk_config IN LISTS _sdk_configurations)
+    message(STATUS "Build ${label} (${_sdk_config} - ${arch})")
+    execute_process(
+      COMMAND
+        "${CMAKE_COMMAND}" --build build_${arch} --target ${_obs_build_targets} --config ${_sdk_config} ${_sdk_parallel}
+      WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    message(STATUS "Build ${label} (${_sdk_config} - ${arch}) - done")
+  endforeach()
 
   message(STATUS "Install ${label} (${arch})")
-  execute_process(
-    COMMAND
-      "${CMAKE_COMMAND}" --install build_${arch} --component Development --config Debug --prefix "${dependencies_dir}"
-    WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
-    RESULT_VARIABLE _process_result
-    COMMAND_ERROR_IS_FATAL ANY
-    OUTPUT_QUIET
-  )
-  execute_process(
-    COMMAND
-      "${CMAKE_COMMAND}" --install build_${arch} --component Development --config Release --prefix "${dependencies_dir}"
-    WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
-    RESULT_VARIABLE _process_result
-    COMMAND_ERROR_IS_FATAL ANY
-    OUTPUT_QUIET
-  )
+  foreach(_sdk_config IN LISTS _sdk_configurations)
+    execute_process(
+      COMMAND
+        "${CMAKE_COMMAND}" --install build_${arch} --component Development --config ${_sdk_config} --prefix
+        "${dependencies_dir}"
+      WORKING_DIRECTORY "${dependencies_dir}/${_obs_destination}"
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+  endforeach()
   if(OS_LINUX)
     execute_process(
       COMMAND
