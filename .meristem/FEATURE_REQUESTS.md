@@ -10,3 +10,7 @@ The `README.md` roadmap now lists additional multi-selection tools, HTTP action 
 ## Current focus
 
 For release readiness, finish the interactive OBS validation and release-readiness gates in `docs/RELEASE_CHECKLIST.md`. This is release validation, not a new feature request.
+
+## Accepted implementation program (2026-11-27)
+
+See [Timeline improvement program](TIMELINE_ROADMAP.md) for the numbered 100-item queue requested by the user and verified checkpoint status. Release validation remains a separate gate.
