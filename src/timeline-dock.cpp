@@ -18,6 +18,7 @@
 #include <QJsonDocument>
 
 #include "timeline-event-item.h"
+#include "timeline-hit-testing.h"
 #include "theme-helpers.h"
 #include "timecode-display.h"
 #include <QMouseEvent>
@@ -900,6 +901,8 @@ void TimelineDock::seekToSceneX(double x)
 	if (timeMs < 0.0)
 		timeMs = 0.0;
 	scheduler->seek(timeMs);
+	if (scheduler->isPlaying())
+		updateVisualTime(scheduler->getCurrentTime());
 }
 
 void TimelineDock::onZoomInClicked()
@@ -1129,10 +1132,19 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		if (event->type() == QEvent::Wheel) {
 			QWheelEvent *wheelEvent = static_cast<QWheelEvent *>(event);
 			if (wheelEvent->modifiers() & Qt::ControlModifier) {
-				if (wheelEvent->angleDelta().y() > 0) {
+				const QPoint cursor = wheelEvent->position().toPoint();
+				const double previousScale = pixelsPerSecond;
+				const double anchorTime = view->mapToScene(cursor).x() / previousScale;
+				if (wheelEvent->angleDelta().y() > 0)
 					onZoomInClicked();
-				} else {
+				else if (wheelEvent->angleDelta().y() < 0)
 					onZoomOutClicked();
+				if (pixelsPerSecond != previousScale) {
+					const int delta =
+						view->mapFromScene(QPointF(anchorTime * pixelsPerSecond, 0)).x() -
+						cursor.x();
+					auto *bar = view->horizontalScrollBar();
+					bar->setValue(bar->value() + delta);
 				}
 				return true;
 			} else if (wheelEvent->modifiers() & Qt::ShiftModifier &&
@@ -1162,12 +1174,18 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			if (mouseEvent->button() == Qt::LeftButton) {
 				QPoint pos = mouseEvent->pos();
 				QPointF scenePos = view->mapToScene(pos);
-				const double playheadX = (scheduler->getCurrentTime() / 1000.0) * pixelsPerSecond;
-				const bool onPlayhead = std::abs(scenePos.x() - playheadX) <= 8.0;
+				const double playheadX = playheadItem->line().x1();
+				const bool inRuler = scenePos.y() <= 20;
+				const bool onPlayhead =
+					inRuler ? TimelineHitTesting::isOnTimelineMarker(scenePos.x(), playheadX)
+						: std::abs(scenePos.x() - playheadX) <= 8.0;
 
 				const double endTimeMs = scheduler->getEndTime();
 				const double endX = (endTimeMs / 1000.0) * pixelsPerSecond;
-				const bool onEndMarker = endTimeMs > 0 && std::abs(scenePos.x() - endX) <= 8.0;
+				const bool onEndMarker =
+					inRuler ? TimelineHitTesting::isOnActiveTimelineMarker(scenePos.x(), endX,
+											       endTimeMs > 0)
+						: endTimeMs > 0 && std::abs(scenePos.x() - endX) <= 8.0;
 
 				// Check if clicking on a movable item - if so, let it handle the drag
 				QList<QGraphicsItem *> items = scene->items(scenePos);
@@ -1188,7 +1206,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					}
 				}
 
-				if (onPlayhead) {
+				if (onPlayhead && (!onEndMarker || std::abs(scenePos.x() - playheadX) <=
+									   std::abs(scenePos.x() - endX))) {
 					draggingPlayhead = true;
 					view->viewport()->setCursor(Qt::SizeHorCursor);
 					return true;
@@ -1362,6 +1381,7 @@ void TimelineDock::onPlayClicked()
 	}
 	if (scheduler->isPlaying()) {
 		scheduler->pause();
+		updateVisualTime(scheduler->getCurrentTime());
 		recordAutomationButton->setEnabled(true);
 		if (executor) {
 			executor->cancelAll();
@@ -1433,6 +1453,7 @@ void TimelineDock::onEndTimeChanged(double value)
 
 void TimelineDock::onTimelineFinished()
 {
+	updateVisualTime(scheduler->getCurrentTime());
 	recordAutomationButton->setEnabled(true);
 	updatePlayButtonIcon();
 	blog(LOG_INFO, "[Timeline] Playback finished");
@@ -1863,7 +1884,11 @@ void TimelineDock::paintTimelineBackground(QPainter *p, const QRectF &exposed) c
 
 void TimelineDock::onTick(double currentTimeMs)
 {
-	updatePlayhead(currentTimeMs);
+	const bool frozen = scheduler->isFrozen();
+	if (!scheduler->isPlaying() || !visualTickTimer.isValid() || visualTickTimer.elapsed() >= 16 ||
+	    currentTimeMs < lastVisualTimeMs || frozen != lastVisualFrozen ||
+	    (scheduler->getEndTime() > 0 && currentTimeMs >= scheduler->getEndTime()))
+		updateVisualTime(currentTimeMs);
 
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
@@ -1878,7 +1903,14 @@ void TimelineDock::onTick(double currentTimeMs)
 		}
 	}
 #endif
+}
 
+void TimelineDock::updateVisualTime(double currentTimeMs)
+{
+	visualTickTimer.start();
+	lastVisualTimeMs = currentTimeMs;
+	lastVisualFrozen = scheduler->isFrozen();
+	updatePlayhead(currentTimeMs);
 	if (timecodeDisplay) {
 		timecodeDisplay->setTimeMs(currentTimeMs);
 		timecodeDisplay->setFrozen(scheduler->isFrozen());

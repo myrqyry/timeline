@@ -4841,6 +4841,64 @@ private slots:
 		QCOMPARE(spy.count(), 1);
 	}
 
+	void testTimelineCursorAnchoredZoom()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", QJsonArray{}},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(view);
+		view->horizontalScrollBar()->setValue(500);
+		const QPoint cursor(300, 12);
+		const double before = view->mapToScene(cursor).x() / 100.0;
+		QWheelEvent wheel(QPointF(cursor), QPointF(view->viewport()->mapToGlobal(cursor)), QPoint(),
+				  QPoint(0, 120), Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+		QCoreApplication::sendEvent(view->viewport(), &wheel);
+		const double after = view->mapToScene(cursor).x() / 150.0;
+		QVERIFY2(std::abs(before - after) < 0.02, "Zoom must preserve the time under the cursor");
+	}
+
+	void testTimelineVisualTicksAreCoalescedWithoutLosingFinalPosition()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineDock dock(nullptr, dir.filePath("timeline.json"));
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && scheduler);
+		QGraphicsLineItem *playhead = nullptr;
+		for (auto *item : view->scene()->items())
+			if (auto *line = dynamic_cast<QGraphicsLineItem *>(item); line && line->zValue() == 100)
+				playhead = line;
+		QVERIFY(playhead);
+		scheduler->seek(0);
+		scheduler->start();
+		int changes = 0;
+		double previous = playhead->line().x1();
+		for (int i = 1; i <= 40; ++i) {
+			QVERIFY(QMetaObject::invokeMethod(&dock, "onTick", Qt::DirectConnection,
+							  Q_ARG(double, i * 10.0)));
+			const double next = playhead->line().x1();
+			if (next != previous)
+				++changes;
+			previous = next;
+		}
+		QVERIFY2(changes < 40, "Visual updates must coalesce rapid scheduler ticks");
+		scheduler->pause();
+		scheduler->seek(0);
+		QCOMPARE(playhead->line().x1(), 0.0);
+	}
+
 	void testTimelineGridDoesNotAllocateSceneItemsAtHighZoom()
 	{
 		QTemporaryDir dir;

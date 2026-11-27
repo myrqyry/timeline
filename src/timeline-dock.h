@@ -90,6 +90,7 @@ private:
 	void setupModeToggle();
 	void applyTimelineDocument(const TimelineDocument &doc);
 	void updatePlayhead(double timeMs);
+	void updateVisualTime(double timeMs);
 	void updateLayout();
 	void updateViewportGeometry();
 	double eventContentHeight = 0.0;
@@ -235,6 +236,9 @@ private:
 
 	void *obsWebSocketVendor = nullptr;
 	qint64 lastTickTime = 0;
+	QElapsedTimer visualTickTimer;
+	double lastVisualTimeMs = 0;
+	bool lastVisualFrozen = false;
 	bool rebuildScheduled = false;
 	QTimer *debounceSaveTimer = nullptr;
 	bool isDragging = false;
