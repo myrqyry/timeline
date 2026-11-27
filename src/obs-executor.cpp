@@ -4,6 +4,7 @@
 #include "headless-timeline.h"
 #include "scene-item-target.h"
 #include "media-target.h"
+#include "filter-target.h"
 #include "hotkey-catalog.h"
 #include <obs-module.h>
 #include <QFileInfo>
@@ -60,6 +61,8 @@ void ObsExecutor::restoreOriginalTransition()
 void ObsExecutor::setObsWebSocketVendor(void *vendor)
 {
 	this->obsWebSocketVendor = vendor;
+	for (auto *timeline : activeTimelines)
+		timeline->setObsWebSocketVendor(vendor);
 }
 
 void ObsExecutor::cancelAll()
@@ -107,22 +110,7 @@ void ObsExecutor::executeEventStart(const TimelineEvent &evt)
 	} else
 		performAction(evt, true);
 
-	// WebSocket notification
-#if OBS_TIMELINE_HAS_WEBSOCKET
-	if (obsWebSocketVendor) {
-		obs_data_t *event_data = obs_data_create();
-		obs_data_set_string(event_data, "event", "started");
-		obs_data_set_int(event_data, "type", static_cast<int>(evt.type));
-
-		// We can't easily put QVariant into obs_data_t without conversion logic
-		// For now just basic fields
-		obs_data_set_string(event_data, "sourceName", evt.sourceName.toUtf8().constData());
-		obs_data_set_double(event_data, "timeMs", evt.timeMs);
-
-		obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
-		obs_data_release(event_data);
-	}
-#endif
+	emitCueTelemetry(evt, "started");
 }
 
 void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
@@ -130,18 +118,28 @@ void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 	if (evt.type == TimelineEventType::DataConditionalScene)
 		return;
 	performAction(evt, false);
+	emitCueTelemetry(evt, "ended");
+}
 
+void ObsExecutor::emitCueTelemetry(const TimelineEvent &evt, const char *phase)
+{
 #if OBS_TIMELINE_HAS_WEBSOCKET
-	if (obsWebSocketVendor) {
-		obs_data_t *event_data = obs_data_create();
-		obs_data_set_string(event_data, "event", "ended");
-		obs_data_set_int(event_data, "type", static_cast<int>(evt.type));
-		obs_data_set_string(event_data, "sourceName", evt.sourceName.toUtf8().constData());
-		obs_data_set_double(event_data, "timeMs", evt.timeMs);
-
-		obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", event_data);
-		obs_data_release(event_data);
-	}
+	if (!obsWebSocketVendor)
+		return;
+	obs_data_t *data = obs_data_create();
+	obs_data_set_string(data, "event", phase);
+	obs_data_set_int(data, "type", static_cast<int>(evt.type));
+	obs_data_set_string(data, "sourceName", evt.sourceName.toUtf8().constData());
+	obs_data_set_double(data, "timeMs", evt.timeMs);
+	obs_data_set_string(data, "eventId", evt.id.toUtf8().constData());
+	obs_data_set_string(data, "label", evt.label.toUtf8().constData());
+	obs_data_set_double(data, "durationMs", evt.hasDuration ? evt.durationMs : 0.0);
+	obs_data_set_bool(data, "isNested", !timelineAncestry.isEmpty());
+	obs_websocket_vendor_emit_event(obsWebSocketVendor, "TimelineEvent", data);
+	obs_data_release(data);
+#else
+	(void)evt;
+	(void)phase;
 #endif
 }
 
@@ -425,6 +423,19 @@ void ObsExecutor::handleSourceVisibility(const TimelineEvent &evt, bool visible)
 
 void ObsExecutor::handleFilterEnable(const TimelineEvent &evt, bool enable)
 {
+	// An explicit UUID binding must never fall back to a name, even if
+	// the old name is now used by a different filter.
+	if (FilterTarget::isExplicit(evt.data.toString())) {
+		auto *filter = FilterTarget::resolve(evt.data.toString());
+		if (!filter) {
+			blog(LOG_WARNING, "[Timeline] Exact filter target unavailable");
+			return;
+		}
+		obs_source_set_enabled(filter, enable);
+		obs_source_release(filter);
+		return;
+	}
+
 	if (evt.sourceName.isEmpty() || evt.filterName.isEmpty()) {
 		blog(LOG_WARNING, "[Timeline] ┌─ Filter event incomplete");
 		blog(LOG_WARNING, "[Timeline] └─ Missing source or filter name");
@@ -564,11 +575,28 @@ void ObsExecutor::handleTriggerTimeline(const TimelineEvent &evt)
 		}
 	}
 
+	// Bound the entire active execution tree, not each branch individually.
+	// A chain is depth-limited; branching cannot multiply the instance budget.
+	constexpr int maxDepth = 8;
+	constexpr int maxInstances = 16;
+	auto *root = this;
+	while (auto *parentTimeline = qobject_cast<HeadlessTimeline *>(root->parent())) {
+		auto *parentExecutor = qobject_cast<ObsExecutor *>(parentTimeline->parent());
+		if (!parentExecutor)
+			break;
+		root = parentExecutor;
+	}
+	if (timelineAncestry.size() >= maxDepth || root->findChildren<HeadlessTimeline *>().size() >= maxInstances) {
+		blog(LOG_WARNING, "[Timeline] Nested timeline limit reached: %s", canonicalPath.toUtf8().constData());
+		return;
+	}
+
 	// Create headless timeline
 	HeadlessTimeline *timeline = new HeadlessTimeline(this);
 	QStringList childAncestry = timelineAncestry;
 	childAncestry.append(canonicalPath);
 	timeline->setAncestorPaths(childAncestry);
+	timeline->setObsWebSocketVendor(obsWebSocketVendor);
 	timeline->setFilePath(filePath);
 	if (timeline->loadFromFile(filePath)) {
 		activeTimelines.push_back(timeline);

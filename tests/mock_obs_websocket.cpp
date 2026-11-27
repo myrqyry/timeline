@@ -2,9 +2,11 @@
 #include <util/bmem.h>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QString>
 
 QJsonObject g_websocket_last_request;
+QJsonArray g_websocket_events;
 int g_websocket_request_count = 0;
 bool g_websocket_available = true;
 bool g_websocket_dsk_success = true;
@@ -55,7 +57,8 @@ void obs_websocket_vendor_register_request(obs_websocket_vendor vendor, const ch
 void obs_websocket_vendor_emit_event(obs_websocket_vendor vendor, const char *event_name, obs_data_t *event_data)
 {
 	(void)vendor;
-	(void)event_name;
-	(void)event_data;
+	auto event = QJsonDocument::fromJson(obs_data_get_json(event_data)).object();
+	event["eventName"] = QString::fromUtf8(event_name);
+	g_websocket_events.append(event);
 }
 }

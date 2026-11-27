@@ -5,6 +5,7 @@
 #include "plugin-integrations.h"
 #include "scene-item-target.h"
 #include "media-target.h"
+#include "filter-target.h"
 #include "macro-parameter-widget.h"
 #include <QtMath>
 
@@ -569,46 +570,27 @@ void EventEditor::populateTargets(TimelineEventType evtType)
 		}
 	} else if (evtType == TimelineEventType::FilterEnable || evtType == TimelineEventType::FilterDisable) {
 		targetLabel->setText(obs_module_text("EventEditor.TargetFilter"));
-		obs_source_t *currentScene = obs_frontend_get_current_scene();
-		if (currentScene) {
-			obs_scene_t *scene = obs_scene_from_source(currentScene);
-			if (scene) {
-				obs_scene_enum_items(
-					scene,
-					[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-						QComboBox *combo = static_cast<QComboBox *>(param);
-						obs_source_t *source = obs_sceneitem_get_source(item);
-						QString sourceName = QString::fromUtf8(obs_source_get_name(source));
-
-						auto *filterData =
-							new std::pair<QComboBox *, QString>(combo, sourceName);
-						obs_source_enum_filters(
-							source,
-							[](obs_source_t *, obs_source_t *filter, void *data) {
-								auto *info =
-									static_cast<std::pair<QComboBox *, QString> *>(
-										data);
-								QString filterName =
-									QString::fromUtf8(obs_source_get_name(filter));
-								QString displayName = QString("%1::%2")
-											      .arg(info->second)
-											      .arg(filterName);
-
-								QVariantList eventData;
-								eventData << info->second << filterName;
-								info->first->addItem(displayName, eventData);
-							},
-							filterData);
-						delete filterData;
-
-						return true;
-					},
-					targetCombo);
+		// Share the collection-wide target catalog with Macro Strip.
+		for (const auto &target : MacroParameter::targets()) {
+			if (target.filterUuid.isEmpty())
+				continue;
+			auto *owner = obs_get_source_by_uuid(target.sourceUuid.toUtf8().constData());
+			auto *filter = FilterTarget::resolveOwned(owner, target.filterUuid);
+			if (owner && filter) {
+				const QString sourceName = QString::fromUtf8(obs_source_get_name(owner));
+				const QString filterName = QString::fromUtf8(obs_source_get_name(filter));
+				targetCombo->addItem(
+					target.label,
+					QVariantList{sourceName, filterName,
+						     FilterTarget::encode(target.sourceUuid, target.filterUuid)});
 			}
-			obs_source_release(currentScene);
+			if (filter)
+				obs_source_release(filter);
+			if (owner)
+				obs_source_release(owner);
 		}
 		if (targetCombo->count() == 0) {
-			targetCombo->addItem("(No filters found in current scene)");
+			targetCombo->addItem(obs_module_text("EventEditor.NoFilters"));
 			targetCombo->setEnabled(false);
 		}
 	} else if (evtType == TimelineEventType::HotkeyTrigger) {
@@ -798,19 +780,26 @@ void EventEditor::preSelectFromEvent(const TimelineEvent &evt)
 		mediaSeekSpin->setValue(selection.positionMs / 1000.0);
 	} else if (evt.type == TimelineEventType::FilterEnable || evt.type == TimelineEventType::FilterDisable) {
 		bool found = false;
-		for (int i = 0; i < targetCombo->count(); i++) {
-			QVariantList data = targetCombo->itemData(i).toList();
-			if (data.size() >= 2 && data[0].toString() == evt.sourceName &&
-			    data[1].toString() == evt.filterName) {
+		const QString payload = evt.data.toString();
+		for (int i = 0; i < targetCombo->count(); ++i) {
+			const QVariantList data = targetCombo->itemData(i).toList();
+			const bool matches = FilterTarget::isExplicit(payload)
+						     ? data.value(2).toString() == payload
+						     : data.size() >= 2 && data[0].toString() == evt.sourceName &&
+							       data[1].toString() == evt.filterName;
+			if (matches) {
 				targetCombo->setCurrentIndex(i);
 				found = true;
 				break;
 			}
 		}
 		if (!found && !evt.sourceName.isEmpty() && !evt.filterName.isEmpty()) {
-			QVariantList data{evt.sourceName, evt.filterName};
-			targetCombo->addItem(evt.sourceName + "::" + evt.filterName, data);
+			targetCombo->addItem(
+				evt.sourceName + "::" + evt.filterName + " — " +
+					QString::fromUtf8(obs_module_text("EventEditor.SavedFilterTarget")),
+				QVariantList{evt.sourceName, evt.filterName, payload});
 			targetCombo->setCurrentIndex(targetCombo->count() - 1);
+			targetCombo->setEnabled(true);
 		}
 	} else {
 		targetCombo->setCurrentText(evt.sourceName);
@@ -1106,7 +1095,8 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 	if ((evt.type == TimelineEventType::SourceShow || evt.type == TimelineEventType::SourceHide) &&
 	    SceneItemTarget::isExplicit(evt.data.toString()))
 		evt.data = QVariant();
-	if (isMediaAction(evt.type) || evt.type == TimelineEventType::FreezeTime ||
+	if (isMediaAction(evt.type) || evt.type == TimelineEventType::FilterEnable ||
+	    evt.type == TimelineEventType::FilterDisable || evt.type == TimelineEventType::FreezeTime ||
 	    evt.type == TimelineEventType::SetParameterValue || evt.type == TimelineEventType::HotkeyTrigger)
 		evt.data = QVariant();
 	evt.type = selectedActionType();
@@ -1167,6 +1157,7 @@ void EventEditor::getUpdatedEvent(TimelineEvent &evt) const
 		if (data.size() >= 2) {
 			evt.sourceName = data[0].toString();
 			evt.filterName = data[1].toString();
+			evt.data = data.value(2);
 		} else {
 			QStringList parts = targetCombo->currentText().split("::");
 			if (parts.size() >= 2) {

@@ -64,6 +64,7 @@
 
 // Mock helpers from mock_frontend.cpp
 extern QJsonObject g_websocket_last_request;
+extern QJsonArray g_websocket_events;
 extern int g_websocket_request_count;
 extern bool g_websocket_available;
 extern bool g_websocket_dsk_success;
@@ -445,6 +446,7 @@ private slots:
 	void init()
 	{
 		g_websocket_last_request = {};
+		g_websocket_events = {};
 		g_websocket_request_count = 0;
 		g_websocket_available = true;
 		g_websocket_dsk_success = true;
@@ -1551,6 +1553,54 @@ private slots:
 		QVERIFY(!obs_source_enabled(filter)); // historical inverse
 	}
 
+	void testFilterCueKeepsExactIdentityAcrossRenamesAndReplacement()
+	{
+		QVERIFY(source_item && scene1);
+		auto *original = obs_source_create("test_filter", "Exact filter", nullptr, nullptr);
+		auto *replacement = obs_source_create("test_filter", "Other filter", nullptr, nullptr);
+		QVERIFY(original && replacement);
+		obs_source_filter_add(source_item, original);
+		obs_source_filter_add(source_item, replacement);
+		auto cleanup = qScopeGuard([&] {
+			if (obs_filter_get_parent(original))
+				obs_source_filter_remove(source_item, original);
+			obs_source_filter_remove(source_item, replacement);
+			obs_source_release(original);
+			obs_source_release(replacement);
+		});
+		TimelineEvent saved;
+		saved.type = TimelineEventType::FilterDisable;
+		saved.sourceName = "MySource";
+		saved.filterName = "Exact filter";
+		EventEditor editor(saved);
+		TimelineEvent cue = saved;
+		editor.getUpdatedEvent(cue);
+		QVERIFY(cue.data.toString().startsWith("filter:v1:"));
+		TimelineModel model, restored;
+		model.addEvent(cue);
+		restored.fromJson(model.toJson());
+		cue = restored.getEvents().front();
+		obs_source_set_name(original, "Renamed filter");
+		obs_source_set_name(replacement, "Exact filter");
+		obs_source_set_enabled(original, true);
+		obs_source_set_enabled(replacement, true);
+		ObsExecutor executor;
+		executor.executeEventStart(cue);
+		QVERIFY(!obs_source_enabled(original));
+		QVERIFY(obs_source_enabled(replacement));
+		EventEditor reopened(cue);
+		TimelineEvent edited = cue;
+		reopened.getUpdatedEvent(edited);
+		QCOMPARE(edited.data, cue.data);
+		QCOMPARE(edited.filterName, QString("Renamed filter"));
+		obs_source_filter_remove(source_item, original);
+		executor.executeEventStart(cue);
+		QVERIFY(obs_source_enabled(replacement));
+		EventEditor missing(cue);
+		missing.getUpdatedEvent(edited);
+		QCOMPARE(edited.data, cue.data);
+	}
+
 	void testDurationFilterDisableReenablesOnEnd()
 	{
 		if (!source_item)
@@ -1572,6 +1622,80 @@ private slots:
 		QVERIFY(!obs_source_enabled(filter_item));
 		executor.executeEventEnd(evt);
 		QVERIFY(obs_source_enabled(filter_item));
+	}
+
+	void testNestedTimelineEmitsIdentifiableVendorEvents()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("nested.json");
+		TimelineEvent child;
+		child.type = TimelineEventType::SceneSwitch;
+		child.sourceName = "Scene 1";
+		child.label = "Nested cue";
+		TimelineModel model;
+		model.addEvent(child);
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", model.toJson()}, {"settings", QJsonObject{{"endTime", 1.0}}}}));
+		ObsExecutor executor;
+		executor.setObsWebSocketVendor(reinterpret_cast<void *>(0x12345678));
+		TimelineEvent trigger;
+		trigger.type = TimelineEventType::TriggerTimeline;
+		trigger.data = path;
+		executor.executeEventStart(trigger);
+		QTRY_VERIFY_WITH_TIMEOUT(g_websocket_events.size() >= 2, 1000);
+		bool nestedSeen = false;
+		for (const auto &value : g_websocket_events) {
+			const auto event = value.toObject();
+			if (event["eventId"].toString() == child.id) {
+				QCOMPARE(event["label"].toString(), child.label);
+				QVERIFY(event["isNested"].toBool());
+				nestedSeen = true;
+			}
+		}
+		QVERIFY(nestedSeen);
+	}
+
+	void testNestedTimelineTreeHasDepthAndConcurrencyLimits()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto write = [&](int index, const QJsonArray &events) {
+			return TimelineSerialization::saveToFile(
+				dir.filePath(QString::number(index) + ".json"),
+				QJsonObject{{"events", events}, {"settings", QJsonObject{{"endTime", 4.0}}}});
+		};
+		for (int i = 0; i < 10; ++i) {
+			TimelineModel model;
+			if (i < 9) {
+				TimelineEvent trigger;
+				trigger.type = TimelineEventType::TriggerTimeline;
+				trigger.data = dir.filePath(QString::number(i + 1) + ".json");
+				model.addEvent(trigger);
+			}
+			QVERIFY(write(i, model.toJson()));
+		}
+		{
+			ObsExecutor executor;
+			TimelineEvent trigger;
+			trigger.type = TimelineEventType::TriggerTimeline;
+			trigger.data = dir.filePath("0.json");
+			executor.executeEventStart(trigger);
+			QTRY_VERIFY_WITH_TIMEOUT(executor.findChildren<HeadlessTimeline *>().size() >= 8, 2000);
+			QTest::qWait(150);
+			QCOMPARE(executor.findChildren<HeadlessTimeline *>().size(), 8);
+		}
+		{
+			ObsExecutor executor;
+			TimelineEvent trigger;
+			trigger.type = TimelineEventType::TriggerTimeline;
+			for (int i = 10; i < 30; ++i) {
+				QVERIFY(write(i, QJsonArray{}));
+				trigger.data = dir.filePath(QString::number(i) + ".json");
+				executor.executeEventStart(trigger);
+			}
+			QCOMPARE(executor.findChildren<HeadlessTimeline *>().size(), 16);
+		}
 	}
 
 	void testNestedTimelineCycleDoesNotCreateRecursiveChildren()

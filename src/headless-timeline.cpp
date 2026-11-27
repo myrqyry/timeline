@@ -31,6 +31,11 @@ void HeadlessTimeline::setAncestorPaths(const QStringList &paths)
 	executor->setAncestorPaths(paths);
 }
 
+void HeadlessTimeline::setObsWebSocketVendor(void *vendor)
+{
+	executor->setObsWebSocketVendor(vendor);
+}
+
 bool HeadlessTimeline::loadFromFile(const QString &filePath)
 {
 	QJsonDocument doc;
