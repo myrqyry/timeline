@@ -51,8 +51,8 @@ bool obs_module_load(void)
 
 	// Preferences belong to Timeline's writable module config, not timeline JSON.
 	char *integrationsPath = obs_module_config_path("integrations.ini");
-	PluginIntegrations::instance().setStoragePath(
-		integrationsPath ? QString::fromUtf8(integrationsPath) : QString());
+	PluginIntegrations::instance().setStoragePath(integrationsPath ? QString::fromUtf8(integrationsPath)
+								       : QString());
 	bfree(integrationsPath);
 	PluginIntegrations::instance().refreshLoadedModules();
 	g_timelineDock = new TimelineDock();

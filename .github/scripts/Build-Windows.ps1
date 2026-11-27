@@ -61,6 +61,9 @@ function Build {
     }
 
     $CmakeArgs = @('--fresh', '--preset', $ConfigurePreset, "-DTIMELINE_OBS_COMPATIBILITY=${ObsCompatibility}", '-DTIMELINE_BUILD_TESTS=OFF', "-DOBS_PLUGIN_DESTINATION=${PluginDestination}", '-DOBS_DATA_DESTINATION=timeline/data')
+    if ($ObsCompatibility -eq 'obs33' -and $Configuration -ne 'Debug') {
+        $CmakeArgs += @('-DTIMELINE_OBS_SDK_RELEASE_ONLY=ON', '-DCMAKE_CONFIGURATION_TYPES=Release;RelWithDebInfo;MinSizeRel')
+    }
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 

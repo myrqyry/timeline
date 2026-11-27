@@ -2,6 +2,8 @@
 from pathlib import Path
 import json
 import re
+import subprocess
+import sys
 
 root = Path(__file__).resolve().parents[1]
 
@@ -67,3 +69,7 @@ for name in ("Build-Windows.ps1", "Package-Windows.ps1"):
     assert "ValidateSet('obs31', 'obs32', 'obs33')" in script
 assert "$ENV{ALLUSERSPROFILE}/obs-studio/plugins/timeline" in cmake
 print("PASS: OBS33 Windows x64 pinned SDK, runner and package contracts")
+
+# The release-only SDK configuration path must not affect legacy or Debug builds.
+subprocess.run(["cmake", "-P", str(root / "tests/test_sdk_configurations.cmake")], check=True)
+subprocess.run([sys.executable, str(root / "tests/test_sdk_patch.py")], check=True)

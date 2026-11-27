@@ -107,7 +107,7 @@ void ObsExecutor::executeEventStart(const TimelineEvent &evt)
 	} else
 		performAction(evt, true);
 
-		// WebSocket notification
+	// WebSocket notification
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
 		obs_data_t *event_data = obs_data_create();
