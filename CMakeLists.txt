@@ -185,6 +185,9 @@ else()
     set(_timeline_modern_plugin_destination "${OBS_PLUGIN_DESTINATION}")
     cmake_path(GET _timeline_modern_plugin_destination PARENT_PATH _timeline_modern_plugin_destination)
     cmake_path(GET _timeline_modern_plugin_destination PARENT_PATH _timeline_modern_plugin_destination)
+    if(_timeline_modern_plugin_destination STREQUAL "")
+      set(_timeline_modern_plugin_destination ".")
+    endif()
     install(
       TARGETS ${PROJECT_NAME}
       LIBRARY DESTINATION "${_timeline_modern_plugin_destination}"
