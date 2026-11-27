@@ -9,3 +9,10 @@ locale and license bytes. Downloadable binary test artifacts are enabled; no aut
 Local existing OBS32.2.0 build: all 105 Qt functions passed, staged
 three-file archive passed checksums, module exports and architecture.
 Hosted SDK and OBS33 remain unverified for the new caller.
+
+Full matrix extension: pin e9eb704 uses the shared native SDK driver for
+Windows x64, macOS ARM64 and macOS Intel on OBS32.2.0 and 33.0.3.
+The independent native packaging workflows already build with
+TIMELINE_BUILD_TESTS=OFF; the new native legs follow that same contract.
+Linux retains all 105 Qt runtime tests. Native package layout fixtures
+passed on Linux for all six combinations; this is not hosted proof.

@@ -8,10 +8,10 @@ permissions:
   contents: read
 jobs:
   build:
-    uses: myrqyry/obs-plugin-ci/.github/workflows/build.yml@238f06a01f1469a21fe6991df7f94ef149472be1
+    uses: myrqyry/obs-plugin-ci/.github/workflows/build.yml@e9eb704437e606721ee92d7d064c4b8168fd8f53
     with:
       module: timeline
-      profile: linux
+      profile: full
       driver: caller
       minimum-tests: 105
       source-package: false
