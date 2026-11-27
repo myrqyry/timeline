@@ -95,7 +95,7 @@ private:
 	double eventContentHeight = 0.0;
 	void drawRuler();
 	void drawGrid();
-	void clearRuler();
+	void paintTimelineBackground(QPainter *painter, const QRectF &exposed) const;
 	void rebuildEventItems();
 	void clearEventItems();
 	void updateZoomLabel();
@@ -217,9 +217,6 @@ private:
 	QColor cachedPlayheadHandleColor;
 	QColor cachedEndMarkerHandleColor;
 
-	QList<QGraphicsItem *> rulerItems;
-	QList<QGraphicsItem *> gridItems;
-
 	// Event tracking
 	QHash<QString, TimelineEventItem *> eventItemMap;
 
@@ -229,6 +226,7 @@ private:
 	bool draggingEndMarker = false;
 	double manualSnapIntervalMs = 500.0;
 	bool loadingTimeline = false;
+	bool configLoadFailed = false;
 
 	// Hotkeys
 	obs_hotkey_id hotkeyIdPlayPause = OBS_INVALID_HOTKEY_ID;
@@ -241,14 +239,4 @@ private:
 	QTimer *debounceSaveTimer = nullptr;
 	bool isDragging = false;
 	QString zoomLabelCache;
-
-	// Cached values for grid/ruler rebuild avoidance
-	double cachedGridPxPerSec = -1.0;
-	double cachedGridBpm = -1.0;
-	double cachedGridNoteBeats = -1.0;
-	double cachedGridSceneHeight = -1.0;
-	bool cachedGridToBpm = false;
-	bool cachedAlternatingBg = false;
-	double cachedRulerPxPerSec = -1.0;
-	double cachedRulerSceneWidth = -1.0;
 };

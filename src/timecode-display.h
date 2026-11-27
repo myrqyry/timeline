@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QWidget>
+#include <QPixmap>
+#include <array>
 
 class TimecodeDisplay : public QWidget {
 	Q_OBJECT
@@ -38,6 +40,9 @@ protected:
 	void paintEvent(QPaintEvent *event) override;
 
 private:
+	std::array<QPixmap, 10> digitPixmaps;
+	int cachedDigitPixels = 0;
+	QColor cachedDigitColor;
 	double mTimeMs = 0.0;
 	bool mPlaying = false;
 	bool mFrozen = false;

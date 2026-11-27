@@ -40,6 +40,9 @@
 #include <QMenu>
 #include <QTimer>
 #include <QWidgetAction>
+#include <QPainter>
+#include <QFontMetricsF>
+#include <functional>
 #include "event-editor.h"
 #include "plugin-integrations.h"
 #include "timeline-serialization.h"
@@ -47,6 +50,28 @@
 // Stepped zoom levels for clean, professional increments
 static const std::vector<double> ZOOM_LEVELS = {5.0,   10.0,  15.0,  20.0,  30.0,  50.0,  75.0,
 						100.0, 150.0, 200.0, 300.0, 500.0, 750.0, 1000.0};
+
+namespace {
+class TimelineCanvasScene final : public QGraphicsScene {
+public:
+	using BackgroundPainter = std::function<void(QPainter *, const QRectF &)>;
+	TimelineCanvasScene(QObject *parent, BackgroundPainter paint)
+		: QGraphicsScene(parent),
+		  paintBackground(std::move(paint))
+	{
+	}
+
+protected:
+	void drawBackground(QPainter *painter, const QRectF &rect) override
+	{
+		QGraphicsScene::drawBackground(painter, rect);
+		paintBackground(painter, rect);
+	}
+
+private:
+	BackgroundPainter paintBackground;
+};
+} // namespace
 
 TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
 	: QWidget(parent),
@@ -122,8 +147,6 @@ TimelineDock::~TimelineDock()
 	obs_hotkey_unregister(hotkeyIdPlayPause);
 	obs_hotkey_unregister(hotkeyIdStop);
 	obs_hotkey_unregister(hotkeyIdRestart);
-
-	clearRuler();
 }
 
 void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *private_data)
@@ -240,7 +263,7 @@ void TimelineDock::save()
 	const QString configPath = configFilePath();
 	if (configPath.isEmpty())
 		return;
-	if (loadingTimeline) {
+	if (loadingTimeline || configLoadFailed) {
 		return;
 	}
 
@@ -274,6 +297,8 @@ void TimelineDock::load()
 	QJsonDocument doc;
 	QString errorMessage;
 	const QFileInfo configInfo(configPath);
+	// Protect existing unreadable data until a subsequent successful load.
+	configLoadFailed = configInfo.exists();
 	if (TimelineSerialization::loadFromFile(configPath, doc, &errorMessage)) {
 		blog(LOG_INFO, "[Timeline] Loading config: %s", configPath.toUtf8().constData());
 		TimelineDocument timelineDoc;
@@ -298,6 +323,7 @@ void TimelineDock::load()
 		// so eventItemMap is populated for snap, zoom, and layout.
 		rebuildEventItems();
 		updateLayout();
+		configLoadFailed = false;
 		blog(LOG_INFO, "[Timeline] Loaded → %s", configPath.toUtf8().constData());
 	} else if (!configInfo.exists()) {
 		QDir().mkpath(configInfo.absolutePath());
@@ -364,7 +390,7 @@ void TimelineDock::setupUi()
 
 	// Instantiate critical infrastructure early
 	view = new QGraphicsView(this);
-	scene = new QGraphicsScene(this);
+	scene = new TimelineCanvasScene(this, [this](QPainter *p, const QRectF &r) { paintTimelineBackground(p, r); });
 	view->setScene(scene);
 
 	timeModeBtn = new QPushButton(this);
@@ -1049,86 +1075,10 @@ void TimelineDock::updateLayout()
 	updatePlayhead(scheduler->getCurrentTime());
 }
 
-void TimelineDock::clearRuler()
-{
-	for (QGraphicsItem *item : rulerItems) {
-		scene->removeItem(item);
-		delete item;
-	}
-	rulerItems.clear();
-}
-
 void TimelineDock::drawRuler()
 {
-	if (!scene)
-		return;
-
-	double sceneWidth = scene->sceneRect().width();
-	if (cachedRulerPxPerSec == pixelsPerSecond && cachedRulerSceneWidth == sceneWidth)
-		return;
-
-	cachedRulerPxPerSec = pixelsPerSecond;
-	cachedRulerSceneWidth = sceneWidth;
-
-	clearRuler();
-
-	double durationSec = scene->sceneRect().width() / pixelsPerSecond;
-
-	int step = 1;
-	if (pixelsPerSecond < 50)
-		step = 5;
-	if (pixelsPerSecond < 10)
-		step = 10;
-
-	QColor rulerColor = palette().color(QPalette::Mid);
-	rulerColor.setAlpha(180);
-	QColor textColor = palette().color(QPalette::Text);
-	QColor minorColor = palette().color(QPalette::Dark);
-	minorColor.setAlpha(140);
-
-	for (int i = 0; i <= durationSec; i += step) {
-		double x = i * pixelsPerSecond;
-
-		// Major tick — full height with subtle gradient look via two stacked lines
-		QPen majorPen(rulerColor, 1);
-		majorPen.setCosmetic(true);
-		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, majorPen);
-		rulerItems.append(line);
-
-		// Highlight stroke for first/last pixel to soften edge
-		QColor hi = rulerColor.lighter(140);
-		hi.setAlpha(120);
-		QGraphicsLineItem *cap = scene->addLine(x, 0, x, 2, QPen(hi, 1));
-		rulerItems.append(cap);
-
-		QGraphicsSimpleTextItem *text = scene->addSimpleText(QString::number(i) + "s");
-		text->setPos(x + 3, 1);
-		text->setBrush(QBrush(textColor));
-		QFont markerFont = text->font();
-		markerFont.setPointSize(8);
-		markerFont.setWeight(QFont::DemiBold);
-		text->setFont(markerFont);
-		rulerItems.append(text);
-
-		if (pixelsPerSecond > 50) {
-			for (int j = 1; j < 10; j++) {
-				double xm = x + (j * pixelsPerSecond / 10.0);
-				// Alternate minor tick heights to add rhythm
-				int tickH = (j == 5) ? 14 : 8;
-				QGraphicsLineItem *minor = scene->addLine(xm, 20 - tickH, xm, 20, QPen(minorColor, 1));
-				rulerItems.append(minor);
-
-				if (pixelsPerSecond > 100 && j == 5) {
-					QGraphicsSimpleTextItem *minorText =
-						scene->addSimpleText(QString::number(i + 0.5, 'f', 1) + "s");
-					minorText->setPos(xm + 3, 1);
-					minorText->setBrush(QBrush(textColor));
-					minorText->setFont(markerFont);
-					rulerItems.append(minorText);
-				}
-			}
-		}
-	}
+	if (scene)
+		scene->invalidate(QRectF(), QGraphicsScene::BackgroundLayer);
 }
 
 bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
@@ -1705,9 +1655,6 @@ void TimelineDock::refreshTheme()
 		timecodeDisplay->setStatusColor(ThemeIcons::getThemeStatusColor(this));
 	applyThemeColorsToItems();
 	updateToolbarIcons();
-	// Cached graphics contain color as well as geometry.
-	cachedGridPxPerSec = -1;
-	cachedRulerPxPerSec = -1;
 	if (dragGuideItem) {
 		auto pen = dragGuideItem->pen();
 		pen.setColor(palette().color(QPalette::Highlight));
@@ -1819,84 +1766,99 @@ void TimelineDock::nudgeSelectedEvents(double deltaMs)
 
 void TimelineDock::drawGrid()
 {
-	if (!scene || !view)
+	if (scene)
+		scene->invalidate(QRectF(), QGraphicsScene::BackgroundLayer);
+}
+
+void TimelineDock::paintTimelineBackground(QPainter *p, const QRectF &exposed) const
+{
+	if (!scene || !snapIntervalCombo || !std::isfinite(pixelsPerSecond) || pixelsPerSecond <= 0.0)
 		return;
-
-	double sceneHeight = scene->sceneRect().height();
-	if (cachedGridPxPerSec == pixelsPerSecond && cachedGridBpm == bpm && cachedGridNoteBeats == noteLengthBeats &&
-	    cachedGridToBpm == gridToBpm && cachedAlternatingBg == alternatingBg &&
-	    cachedGridSceneHeight == sceneHeight)
+	const QRectF bounds = scene->sceneRect();
+	const QRectF visible = exposed.intersected(bounds);
+	if (visible.isEmpty())
 		return;
+	p->save();
+	p->setClipRect(visible, Qt::IntersectClip);
 
-	cachedGridPxPerSec = pixelsPerSecond;
-	cachedGridBpm = bpm;
-	cachedGridNoteBeats = noteLengthBeats;
-	cachedGridToBpm = gridToBpm;
-	cachedAlternatingBg = alternatingBg;
-	cachedGridSceneHeight = sceneHeight;
-
-	for (QGraphicsItem *item : gridItems) {
-		scene->removeItem(item);
-		delete item;
-	}
-	gridItems.clear();
-
-	double sceneRight = scene->sceneRect().right();
-	double sceneStart = std::max(0.0, scene->sceneRect().left());
-
-	double stepPx;
-
-	if (gridToBpm && bpm > 0.0) {
-		// Calculate beat interval in seconds, scaled by note length
-		double beatIntervalSec = (60.0 / bpm) * noteLengthBeats;
-		stepPx = beatIntervalSec * pixelsPerSecond;
-	} else {
-		double stepSec = getSnapIntervalMs() / 1000.0;
-		stepPx = stepSec * pixelsPerSecond;
-	}
-	if (stepPx < 1.0)
-		return;
-
-	// Alternating background sections
-	if (alternatingBg) {
-		QColor altColor = palette().color(QPalette::Mid);
-		altColor.setAlpha(100);
-		double altStepPx;
-		if (gridToBpm && bpm > 0.0) {
-			// BPM mode: one measure = 4 beats
-			double measureSec = (60.0 / bpm) * 4.0;
-			altStepPx = measureSec * pixelsPerSecond;
-		} else {
-			// Time mode: 1 second intervals
-			altStepPx = pixelsPerSecond;
+	// Paint only the visible portion of the time/beat grid. No graphics items
+	// are created for background decoration, even on a very wide scene.
+	const double origin = std::max(0.0, bounds.left());
+	const double left = std::max(origin, visible.left());
+	const double right = visible.right();
+	const double stepPx = getSnapIntervalMs() * pixelsPerSecond / 1000.0;
+	if (visible.bottom() > 20.0 && std::isfinite(stepPx) && stepPx >= 1.0 && right >= left) {
+		if (alternatingBg) {
+			const double band = gridToBpm && bpm > 0.0 ? (240.0 / bpm) * pixelsPerSecond : pixelsPerSecond;
+			if (std::isfinite(band) && band >= 1.0) {
+				QColor alt = palette().color(QPalette::Mid);
+				alt.setAlpha(100);
+				const double cycle = band * 2.0;
+				for (double x = origin + std::floor((left - origin) / cycle) * cycle; x < right;
+				     x += cycle) {
+					p->fillRect(QRectF(x, 20, std::min(band, bounds.right() - x),
+							   bounds.height() - 20),
+						    alt);
+				}
+			}
 		}
-		for (double x = sceneStart; x < sceneRight; x += altStepPx * 2.0) {
-			double rectW = altStepPx;
-			if (x + rectW > sceneRight)
-				rectW = sceneRight - x;
-			if (rectW < 0.1)
-				break;
-			QGraphicsRectItem *rect =
-				scene->addRect(x, 20, rectW, sceneHeight - 20, QPen(Qt::NoPen), QBrush(altColor));
-			rect->setZValue(-2);
-			gridItems.append(rect);
+		QColor grid = palette().color(QPalette::Text);
+		grid.setAlpha(55);
+		QPen pen(grid, 1, Qt::DotLine);
+		pen.setCosmetic(true);
+		p->setPen(pen);
+		const double start = origin + std::ceil((left - origin) / stepPx) * stepPx;
+		for (double x = start; x <= right; x += stepPx)
+			if (x >= 0.1)
+				p->drawLine(QPointF(x, 20), QPointF(x, bounds.bottom()));
+	}
+
+	if (visible.top() < 20.0 && right >= 0.0) {
+		const int step = pixelsPerSecond < 10 ? 10 : (pixelsPerSecond < 50 ? 5 : 1);
+		const double majorSpacing = step * pixelsPerSecond;
+		QColor rulerColor = palette().color(QPalette::Mid);
+		rulerColor.setAlpha(180);
+		QColor hi = rulerColor.lighter(140);
+		hi.setAlpha(120);
+		QColor minorColor = palette().color(QPalette::Dark);
+		minorColor.setAlpha(140);
+		const QColor textColor = palette().color(QPalette::Text);
+		QFont markerFont = font();
+		markerFont.setPointSize(8);
+		markerFont.setWeight(QFont::DemiBold);
+		p->setFont(markerFont);
+		const QFontMetricsF metrics(markerFont);
+		// Include a preceding major tick so labels/minor ticks scrolling in
+		// from the left are painted as well.
+		const double labelWidth =
+			metrics.horizontalAdvance(QString::number(bounds.right() / pixelsPerSecond, 'f', 1) + "s") + 3;
+		const double start = std::max(0.0, std::floor((left - labelWidth) / majorSpacing) * majorSpacing);
+		for (double x = start; x <= right; x += majorSpacing) {
+			const double seconds = x / pixelsPerSecond;
+			QPen majorPen(rulerColor, 1);
+			majorPen.setCosmetic(true);
+			p->setPen(majorPen);
+			p->drawLine(QPointF(x, 0), QPointF(x, 20));
+			p->setPen(QPen(hi, 1));
+			p->drawLine(QPointF(x, 0), QPointF(x, 2));
+			p->setPen(textColor);
+			p->drawText(QPointF(x + 3, 1 + metrics.ascent()), QString::number(qRound64(seconds)) + "s");
+			if (pixelsPerSecond > 50) {
+				for (int j = 1; j < 10; ++j) {
+					const double xm = x + j * pixelsPerSecond / 10.0;
+					const int tickH = j == 5 ? 14 : 8;
+					p->setPen(QPen(minorColor, 1));
+					p->drawLine(QPointF(xm, 20 - tickH), QPointF(xm, 20));
+					if (pixelsPerSecond > 100 && j == 5) {
+						p->setPen(textColor);
+						p->drawText(QPointF(xm + 3, 1 + metrics.ascent()),
+							    QString::number(seconds + 0.5, 'f', 1) + "s");
+					}
+				}
+			}
 		}
 	}
-
-	// Draw visible vertical grid lines above the scene background but below event items.
-	QColor gridColor = palette().color(QPalette::Text);
-	gridColor.setAlpha(55);
-	QPen gridPen(gridColor, 1, Qt::DotLine);
-	gridPen.setCosmetic(true);
-	for (double x = sceneStart; x < sceneRight; x += stepPx) {
-		// Skip x=0 (optional, but usually 0 is implied)
-		if (x < 0.1)
-			continue;
-
-		QGraphicsLineItem *line = scene->addLine(x, 20, x, sceneHeight, gridPen);
-		line->setZValue(-1);
-		gridItems.append(line);
-	}
+	p->restore();
 }
 
 void TimelineDock::onTick(double currentTimeMs)

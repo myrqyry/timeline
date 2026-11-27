@@ -8,6 +8,7 @@
 #include <QPalette>
 #include <QApplication>
 #include <QSvgRenderer>
+#include <QtMath>
 
 TimecodeDisplay::TimecodeDisplay(QWidget *parent) : QWidget(parent)
 {
@@ -135,7 +136,6 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 	QColor accent = palette().color(QPalette::Highlight);
 	if (mPlaying)
 		accent = accent.lighter(118);
-	QString colorName = textColor.name();
 
 	// Build digits
 	int totalSeconds = static_cast<int>(mTimeMs / 1000.0);
@@ -161,13 +161,28 @@ void TimecodeDisplay::paintEvent(QPaintEvent *event)
 	double startX = (r.width() - totalW) / 2.0;
 	double y = r.center().y() - digitH / 2.0;
 
-	// Draw the 7 digits using the moon bold number SVGs
+	// Rasterize the ten glyphs only when their physical size or theme color changes.
+	const int physicalPixels = qMax(1, qCeil(digitH * devicePixelRatioF()));
+	if (cachedDigitPixels != physicalPixels || cachedDigitColor != textColor) {
+		cachedDigitPixels = physicalPixels;
+		cachedDigitColor = textColor;
+		const QString colorName = textColor.name();
+		for (int i = 0; i < 10; ++i) {
+			auto &glyph = digitPixmaps[i];
+			glyph = QPixmap(physicalPixels, physicalPixels);
+			glyph.fill(Qt::transparent);
+			QPainter glyphPainter(&glyph);
+			glyphPainter.setRenderHint(QPainter::Antialiasing);
+			QSvgRenderer renderer(ThemeIcons::getMoonNumberSvg(i, colorName));
+			renderer.render(&glyphPainter, QRectF(0, 0, physicalPixels, physicalPixels));
+		}
+	}
+	p.setRenderHint(QPainter::SmoothPixmapTransform);
 	double x = startX;
 	for (int i = 0; i < 7; ++i) {
-		QByteArray svg = ThemeIcons::getMoonNumberSvg(digits[i], colorName);
-		if (!svg.isEmpty()) {
-			QSvgRenderer renderer(svg);
-			renderer.render(&p, QRectF(x, y, digitW, digitH));
+		if (digits[i] >= 0 && digits[i] < 10) {
+			const auto &glyph = digitPixmaps[digits[i]];
+			p.drawPixmap(QRectF(x, y, digitW, digitH), glyph, QRectF(glyph.rect()));
 		}
 		x += digitAdvance;
 

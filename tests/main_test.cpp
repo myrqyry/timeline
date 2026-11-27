@@ -1,4 +1,5 @@
 #include <QGraphicsScene>
+#include <QPainter>
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QScopeGuard>
@@ -2560,6 +2561,78 @@ private slots:
 		QCOMPARE(model.getEvents()[0].id, existing.id);
 	}
 
+	void testSchedulerRefreshesEndIndexAfterBlockedImport()
+	{
+		TimelineModel model;
+		TimelineScheduler scheduler(&model);
+		TimelineEvent span;
+		span.timeMs = 0;
+		span.hasDuration = true;
+		span.durationMs = 10;
+		// The real dock blocks model signals during document imports.
+		model.blockSignals(true);
+		model.addEvent(span);
+		scheduler.seek(0);
+		model.blockSignals(false);
+		scheduler.setEndTime(10);
+		QSignalSpy ends(&scheduler, &TimelineScheduler::eventEnded);
+		scheduler.start();
+		QTest::qSleep(20);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(ends.count(), 1);
+	}
+
+	void testDockPreservesMalformedStartupConfiguration()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		const QByteArray malformed = "{ not valid json";
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		QCOMPARE(file.write(malformed), qint64(malformed.size()));
+		file.close();
+		{
+			TimelineDock dock(nullptr, path);
+			dock.save();
+		}
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		QCOMPARE(file.readAll(), malformed);
+	}
+
+	void testHeadlessLoadUsesValidatedDocumentAndResetsSettings()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto valid = dir.filePath("valid.json");
+		const auto malformed = dir.filePath("malformed.json");
+		const auto legacy = dir.filePath("legacy.json");
+		QString error;
+		QVERIFY(TimelineSerialization::saveToFile(
+			valid,
+			QJsonObject{{"events", QJsonArray{}},
+				    {"settings", QJsonObject{{"loop", true}, {"endTime", 2.0}}}},
+			&error));
+		QVERIFY(TimelineSerialization::saveToFile(malformed, QJsonObject{{"settings", QJsonObject{}}}, &error));
+		QFile file(legacy);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		QCOMPARE(file.write("[]"), qint64(2));
+		file.close();
+		HeadlessTimeline nested;
+		QVERIFY(nested.loadFromFile(valid));
+		auto *scheduler = nested.findChild<TimelineScheduler *>();
+		QVERIFY(scheduler);
+		QVERIFY(scheduler->isLooping());
+		QCOMPARE(scheduler->getEndTime(), 2000.0);
+		QVERIFY(!nested.loadFromFile(malformed));
+		QCOMPARE(nested.getFilePath(), valid);
+		QVERIFY(scheduler->isLooping());
+		QCOMPARE(scheduler->getEndTime(), 2000.0);
+		QVERIFY(nested.loadFromFile(legacy));
+		QVERIFY(!scheduler->isLooping());
+		QCOMPARE(scheduler->getEndTime(), 100.0);
+	}
+
 	void testSerializationInvalidJson()
 	{
 		QTemporaryFile file;
@@ -4644,6 +4717,24 @@ private slots:
 		QCOMPARE(spy.count(), 1);
 	}
 
+	void testTimelineGridDoesNotAllocateSceneItemsAtHighZoom()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", QJsonArray{}},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 1000.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 200);
+		dock.show();
+		QCoreApplication::processEvents();
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(view && view->scene());
+		QVERIFY(view->sceneRect().width() >= 300000);
+		QVERIFY2(view->scene()->items().size() < 20, "Grid and ruler must not allocate one item per tick");
+	}
+
 	void testThemePalettePreservesDarkForegroundsAndRefreshesGrid()
 	{
 		QPalette light;
@@ -4666,21 +4757,42 @@ private slots:
 		QCoreApplication::processEvents();
 		auto *view = dock.findChild<QGraphicsView *>();
 		QVERIFY(view && view->scene());
-		int gridLines = 0;
+		// Render a region away from the playhead and empty-state hint.
+		// The grid must remain visible and react to palette changes even
+		// though it is no longer a collection of line items.
+		view->scene()->setBackgroundBrush(Qt::white);
+		auto renderGrid = [&]() {
+			QImage image(80, 40, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			view->scene()->render(&painter, QRectF(0, 0, 80, 40), QRectF(980, 22, 80, 40));
+			return image;
+		};
+		const QImage darkGrid = renderGrid();
+		int darkPixels = 0;
+		for (int y = 0; y < darkGrid.height(); ++y)
+			for (int x = 0; x < darkGrid.width(); ++x)
+				if (darkGrid.pixelColor(x, y).red() < 240)
+					++darkPixels;
+		QVERIFY(darkPixels > 0);
+		light.setColor(QPalette::Text, Qt::red);
+		dock.setPalette(light);
+		QCoreApplication::processEvents();
+		const QImage redGrid = renderGrid();
+		int redPixels = 0;
+		for (int y = 0; y < redGrid.height(); ++y)
+			for (int x = 0; x < redGrid.width(); ++x) {
+				const auto color = redGrid.pixelColor(x, y);
+				if (color.red() - color.blue() > 25)
+					++redPixels;
+			}
+		QVERIFY(redPixels > 0);
+		QVERIFY(darkGrid != redGrid);
 		for (auto *item : view->scene()->items()) {
 			auto *line = qgraphicsitem_cast<QGraphicsLineItem *>(item);
-			if (!line)
-				continue;
-			if (line->zValue() == -1) {
-				auto expected = light.color(QPalette::Text);
-				expected.setAlpha(55);
-				QCOMPARE(line->pen().color(), expected);
-				++gridLines;
-			}
-			if (line->zValue() == 100)
+			if (line && line->zValue() == 100)
 				QCOMPARE(line->pen().color(), light.color(QPalette::Link));
 		}
-		QVERIFY(gridLines > 0);
 	}
 
 	void testMacroThemeChangePreservesTextDraftAndDoesNotSave()

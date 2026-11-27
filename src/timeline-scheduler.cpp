@@ -12,6 +12,7 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 	timer->setInterval(timerIntervalMs);
 
 	if (model) {
+		rebuildEndIndex();
 		connect(model, &TimelineModel::modelChanged, this, [this]() {
 			double t = getCurrentTime();
 			const auto &evts = this->model->getEvents();
@@ -35,6 +36,7 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 
 			eventStartFired = newStartFired;
 			eventEndFired = newEndFired;
+			rebuildEndIndex();
 			rebuildParameterRamps(t);
 		});
 	}
@@ -65,6 +67,7 @@ void TimelineScheduler::stop()
 	currentOffsetMs = getCurrentTime(); // Preserve position
 	freezeMs = freezeRemainingMs();
 	nextStartIndex = 0;
+	nextEndIndex = 0;
 	++clockRevision;
 	playing = false;
 	timer->stop();
@@ -88,6 +91,7 @@ void TimelineScheduler::pause()
 	currentOffsetMs = getCurrentTime();
 	freezeMs = freezeRemainingMs();
 	nextStartIndex = 0;
+	nextEndIndex = 0;
 	++clockRevision;
 
 	playing = false;
@@ -110,6 +114,7 @@ void TimelineScheduler::seek(double timeMs)
 		eventStartFired.clear();
 		eventEndFired.clear();
 		nextStartIndex = 0;
+		rebuildEndIndex();
 		for (const auto &evt : events) {
 			if (evt.timeMs < timeMs) {
 				eventStartFired.insert(evt.id);
@@ -233,6 +238,7 @@ void TimelineScheduler::onTimerTick()
 		eventStartFired.clear();
 		eventEndFired.clear();
 		nextStartIndex = 0;
+		nextEndIndex = 0;
 		parameterRamps.clear();
 		double start = 0.0;
 		beginDueFreeze(start);
@@ -303,6 +309,23 @@ void TimelineScheduler::sampleParameterRamps(double timeMs)
 	}
 }
 
+void TimelineScheduler::rebuildEndIndex()
+{
+	endIndices.clear();
+	nextEndIndex = 0;
+	if (!model)
+		return;
+	const auto &events = model->getEvents();
+	for (size_t i = 0; i < events.size(); ++i) {
+		const auto &evt = events[i];
+		if (evt.type != TimelineEventType::FreezeTime && evt.hasDuration && evt.durationMs > 0.0)
+			endIndices.push_back(i);
+	}
+	std::stable_sort(endIndices.begin(), endIndices.end(), [&](size_t a, size_t b) {
+		return events[a].timeMs + events[a].durationMs < events[b].timeMs + events[b].durationMs;
+	});
+}
+
 void TimelineScheduler::dispatchDueCues(double timeMs)
 {
 	if (!model)
@@ -323,11 +346,14 @@ void TimelineScheduler::dispatchDueCues(double timeMs)
 		if (!eventStartFired.contains(evt.id))
 			due.push_back({evt.timeMs, false, evt});
 	}
-	for (const auto &evt : events) {
-		if (evt.type == TimelineEventType::FreezeTime || !evt.hasDuration || evt.durationMs <= 0.0)
-			continue;
+	// The end index is rebuilt only on model mutation, not on every timer tick.
+	while (nextEndIndex < endIndices.size()) {
+		const auto &evt = events[endIndices[nextEndIndex]];
 		const double end = evt.timeMs + evt.durationMs;
-		if (end <= timeMs && !eventEndFired.contains(evt.id))
+		if (end > timeMs)
+			break;
+		++nextEndIndex;
+		if (!eventEndFired.contains(evt.id))
 			due.push_back({end, true, evt});
 	}
 
