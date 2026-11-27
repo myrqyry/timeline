@@ -15,4 +15,4 @@ jobs:
       driver: caller
       minimum-tests: 105
       source-package: false
-      upload-artifacts: false
+      upload-artifacts: true
