@@ -1084,8 +1084,56 @@ void TimelineDock::drawRuler()
 		scene->invalidate(QRectF(), QGraphicsScene::BackgroundLayer);
 }
 
+void TimelineDock::previewDurationResize(double sceneX)
+{
+	if (resizingEventId.isEmpty())
+		return;
+	const double delta = (sceneX - resizePressX) * 1000.0 / pixelsPerSecond;
+	resizePreviewMs = std::abs(delta) < 1e-6
+				  ? resizeInitialMs
+				  : std::clamp(snapTimeMs(resizeStartMs + resizeInitialMs + delta) - resizeStartMs,
+					       10.0, std::max(3600000.0, resizeInitialMs));
+	if (auto *item = eventItemMap.value(resizingEventId))
+		item->setDuration(resizePreviewMs);
+	if (dragGuideItem) {
+		const double x = (resizeStartMs + resizePreviewMs) * pixelsPerSecond / 1000.0;
+		dragGuideItem->setLine(x, 0, x, scene->sceneRect().height());
+		dragGuideItem->setVisible(true);
+	}
+}
+
+void TimelineDock::finishDurationResize(bool commit)
+{
+	if (resizingEventId.isEmpty())
+		return;
+	const auto id = resizingEventId;
+	resizingEventId.clear();
+	isDragging = false;
+	if (dragGuideItem)
+		dragGuideItem->setVisible(false);
+	view->viewport()->unsetCursor();
+	const auto current = model->findEventById(id);
+	if (commit && !scheduler->isPlaying() && current && current->hasDuration && current->timeMs == resizeStartMs &&
+	    current->durationMs == resizeInitialMs && resizePreviewMs != resizeInitialMs) {
+		auto changed = *current;
+		changed.durationMs = resizePreviewMs;
+		model->replaceEventById(id, changed);
+	}
+	// Restore the committed model on cancel or concurrent edits, and apply
+	// deferred rebuilds. The drag never mutates scheduler/model state.
+	rebuildEventItems();
+	updateHistoryControls();
+}
+
 bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 {
+	if (!resizingEventId.isEmpty() && (obj == view || obj == view->viewport()) &&
+	    (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) &&
+	    static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) {
+		event->accept();
+		finishDurationResize(false);
+		return true;
+	}
 	// QGraphicsView normally consumes arrow keys for scrolling. When markers
 	// are selected, route plain/Shift arrows to the timeline's nudge command.
 	if (obj == view && event->type() == QEvent::KeyPress && !scene->selectedItems().isEmpty()) {
@@ -1097,6 +1145,22 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		}
 	}
 	if (obj == view->viewport()) {
+		if (!resizingEventId.isEmpty()) {
+			if (event->type() == QEvent::UngrabMouse || event->type() == QEvent::Hide) {
+				finishDurationResize(false);
+			} else if (event->type() == QEvent::MouseMove) {
+				auto *mouse = static_cast<QMouseEvent *>(event);
+				previewDurationResize(view->mapToScene(mouse->pos()).x());
+				return true;
+			} else if (event->type() == QEvent::MouseButtonRelease &&
+				   static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton) {
+				previewDurationResize(view->mapToScene(static_cast<QMouseEvent *>(event)->pos()).x());
+				finishDurationResize(true);
+				return true;
+			} else if (event->type() == QEvent::Wheel) {
+				return true;
+			}
+		}
 		// Right-click on empty area to add event
 		if (event->type() == QEvent::ContextMenu) {
 			QContextMenuEvent *ctxEvent = static_cast<QContextMenuEvent *>(event);
@@ -1174,6 +1238,26 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			if (mouseEvent->button() == Qt::LeftButton) {
 				QPoint pos = mouseEvent->pos();
 				QPointF scenePos = view->mapToScene(pos);
+				if (!scheduler->isPlaying()) {
+					// The ellipse's default shape excludes its duration line.
+					for (auto *graphics : scene->items(scenePos, Qt::IntersectsItemBoundingRect)) {
+						auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+						if (!item || !item->durationHandleContains(scenePos))
+							continue;
+						const auto cue = model->findEventById(item->getEventId());
+						if (!cue || !cue->hasDuration || cue->durationMs <= 0)
+							continue;
+						resizingEventId = cue->id;
+						resizeStartMs = cue->timeMs;
+						resizeInitialMs = resizePreviewMs = cue->durationMs;
+						resizePressX = scenePos.x();
+						isDragging = true;
+						view->setFocus();
+						view->viewport()->setCursor(Qt::SizeHorCursor);
+						updateHistoryControls();
+						return true;
+					}
+				}
 				const double playheadX = playheadItem->line().x1();
 				const bool inRuler = scenePos.y() <= 20;
 				const bool onPlayhead =
@@ -1252,6 +1336,20 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			QPointF scenePos = view->mapToScene(mouseEvent->pos());
 
+			if (!scheduler->isPlaying() && !draggingPlayhead && !draggingEndMarker) {
+				bool overHandle = false;
+				for (auto *graphics : scene->items(scenePos, Qt::IntersectsItemBoundingRect)) {
+					auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+					if (item && item->durationHandleContains(scenePos)) {
+						overHandle = true;
+						break;
+					}
+				}
+				if (overHandle)
+					view->viewport()->setCursor(Qt::SizeHorCursor);
+				else
+					view->viewport()->unsetCursor();
+			}
 			if (draggingPlayhead) {
 				seekToSceneX(scenePos.x());
 				return true;

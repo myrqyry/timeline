@@ -8,11 +8,13 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 - 5ae401b: #15, #41, #86; #62 partial (event ID, label, duration and nested flag).
 - UI follow-up: #56, #10 partial (cursor anchor, not fit), #60 partial (ruler hit radius shared; narrow body hit zone and handle geometry remain). See git history and test results for verification.
 
+- Fourth implementation batch: #1 and #53 implemented, #55 partial. OBS 32 Linux build, focused regressions (including cancellation and duplicate text/preset bindings) and strict full Qt/libobs suite passed. #54 signal-driven readback and #58 cross-poll schema cache remain open.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
 
-1. Direct duration-handle resizing (snapping, one undo)
+1. Direct duration-handle resizing (implemented: snap, one undo, Escape cancels)
 2. Rubber-band selection and group dragging (one transaction)
 3. Viewport-pinned time ruler
 4. Visual ramp curve and direction
@@ -79,9 +81,9 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 
 51. Digit pixmap cache (implemented)
 52. Viewport-culled grid/ruler drawing (implemented)
-53. Centralized MacroParameterMonitor
+53. Centralized MacroParameterMonitor (implemented: one GUI-thread poll, shared per-binding samples, hidden widgets skipped)
 54. Event-driven OBS signal readback
-55. Incremental dirty-item updates
+55. Incremental dirty-item updates (partial: unchanged geometry, color and renderer updates skipped)
 56. Display-rate UI tick throttling (implemented)
 57. Delta undo/redo history
 58. Signal-invalidated property schema cache; preserve validation under schema mutations

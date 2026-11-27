@@ -106,6 +106,7 @@ void setOffscreenPlatform()
 }
 
 struct ParameterProbe {
+	std::atomic<int> propertyReads{0};
 	std::atomic<double> gain{0.25};
 	std::atomic<int> count{4};
 	std::atomic<bool> enabled{true};
@@ -305,6 +306,8 @@ private slots:
 			obs_data_set_default_string(settings, "untouched", "keep");
 		};
 		parameter.get_properties = [](void *data) {
+			if (data)
+				++static_cast<ParameterProbe *>(data)->propertyReads;
 			auto *props = obs_properties_create();
 			obs_properties_add_bool(props, "enabled", "Enabled");
 			auto *group = obs_properties_create();
@@ -4289,6 +4292,53 @@ private slots:
 		QVERIFY(rec->isEnabled()); // user can record again after Stop
 	}
 
+	void testMacroMonitorDeduplicatesVisibleBindingsAndStopsHiddenReads()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Shared monitor target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		auto *probe = static_cast<ParameterProbe *>(obs_obj_get_data(source));
+		QVERIFY(probe);
+		MacroButton control;
+		control.kind = MacroControlKind::Text;
+		control.binding = {QString::fromUtf8(obs_source_get_uuid(source)),
+				   {},
+				   "untouched",
+				   MacroParameterType::Text};
+		QWidget host;
+		auto *layout = new QHBoxLayout(&host);
+		for (int i = 0; i < 8; ++i)
+			layout->addWidget(createMacroParameterWidget(control, &host));
+		MacroButton preset = control;
+		preset.kind = MacroControlKind::Toggle;
+		preset.toggleValues = MacroParameter::ToggleValues{QString("keep"), QString("external")};
+		for (int i = 0; i < 4; ++i)
+			layout->addWidget(createMacroParameterWidget(preset, &host));
+		host.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&host));
+		const auto entries = host.findChildren<QLineEdit *>();
+		const auto toggles = host.findChildren<QCheckBox *>();
+		QCOMPARE(entries.size(), 8);
+		QCOMPARE(toggles.size(), 4);
+		probe->propertyReads = 0;
+		QVERIFY(MacroParameter::writeText(control.binding, "external"));
+		probe->propertyReads = 0;
+		QTRY_VERIFY_WITH_TIMEOUT(std::all_of(entries.cbegin(), entries.cend(),
+						     [](auto *entry) { return entry->text() == "external"; }),
+					 1500);
+		QTRY_VERIFY_WITH_TIMEOUT(std::all_of(toggles.cbegin(), toggles.cend(),
+						     [](auto *toggle) { return toggle->checkState() == Qt::Checked; }),
+					 1500);
+		QVERIFY2(probe->propertyReads.load() <= 3, "One poll must share readback across duplicate bindings");
+		host.hide();
+		probe->propertyReads = 0;
+		QTest::qWait(550);
+		QCOMPARE(probe->propertyReads.load(), 0);
+	}
+
 	void testMacroParameterBindingsAndDock()
 	{
 		auto release = [](obs_source_t *s) {
@@ -4839,6 +4889,68 @@ private slots:
 		QSignalSpy spy(widgets.first(), &MacroButtonWidget::fireRequested);
 		TestTimelineMacroButtonAccessor::clickBubble(*widgets.first());
 		QCOMPARE(spy.count(), 1);
+	}
+
+	void testTimelineDurationHandleResizesWithOneUndo()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		TimelineModel initial;
+		TimelineEvent event;
+		event.type = TimelineEventType::FilterEnable;
+		event.timeMs = 1000;
+		event.hasDuration = true;
+		event.durationMs = 1000;
+		initial.addEvent(event);
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"snap", true},
+								   {"snapIntervalMs", 500.0},
+								   {"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		QVERIFY(view && model);
+		TimelineEventItem *marker = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+			    item && item->getEventId() == event.id)
+				marker = item;
+		QVERIFY(marker);
+		const QPoint begin = view->mapFromScene(QPointF(200, marker->mapToScene(marker->rect().center()).y()));
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, begin);
+		for (int offset : {20, 50, 76}) {
+			const QPoint next = begin + QPoint(offset, 0);
+			QMouseEvent move(QEvent::MouseMove, QPointF(next), QPointF(view->viewport()->mapToGlobal(next)),
+					 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+			QCoreApplication::sendEvent(view->viewport(), &move);
+			QCOMPARE(model->getEvents().front().durationMs, 1000.0);
+		}
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, begin + QPoint(76, 0));
+		QCOMPARE(model->getEvents().front().durationMs, 2000.0);
+		QCOMPARE(model->getEvents().front().timeMs, 1000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->getEvents().front().durationMs, 1000.0);
+		QVERIFY(!model->canUndo());
+		QVERIFY(model->redo());
+		QCOMPARE(model->getEvents().front().durationMs, 2000.0);
+		QCoreApplication::processEvents();
+		const QPoint second = view->mapFromScene(QPointF(300, marker->mapToScene(marker->rect().center()).y()));
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+		const QPoint moved = second + QPoint(50, 0);
+		QMouseEvent move(QEvent::MouseMove, QPointF(moved), QPointF(view->viewport()->mapToGlobal(moved)),
+				 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+		QCoreApplication::sendEvent(view->viewport(), &move);
+		QTest::keyClick(view, Qt::Key_Escape);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, moved);
+		QCOMPARE(model->getEvents().front().durationMs, 2000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->getEvents().front().durationMs, 1000.0);
+		QVERIFY(!model->canUndo());
 	}
 
 	void testTimelineCursorAnchoredZoom()

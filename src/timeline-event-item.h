@@ -32,6 +32,8 @@ public:
 	// Duration
 	void setDuration(double durationMs);
 	void setHasDuration(bool enabled);
+	bool durationHandleContains(const QPointF &scenePoint) const;
+	double durationHandleX() const;
 
 	// Type and icon
 	void setEventType(TimelineEventType type);

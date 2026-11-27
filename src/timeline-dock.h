@@ -121,6 +121,8 @@ private:
 	void updateDependentControlStates();
 	void updateZoomLabelPosition();
 	void seekToSceneX(double x);
+	void previewDurationResize(double sceneX);
+	void finishDurationResize(bool commit);
 	void applyThemeColorsToItems();
 	QColor computePlayheadColor() const;
 	void refreshPlayheadHandlePixmap();
@@ -225,6 +227,11 @@ private:
 	bool snapEnabled = false;
 	bool draggingPlayhead = false;
 	bool draggingEndMarker = false;
+	QString resizingEventId;
+	double resizeStartMs = 0;
+	double resizeInitialMs = 0;
+	double resizePreviewMs = 0;
+	double resizePressX = 0;
 	double manualSnapIntervalMs = 500.0;
 	bool loadingTimeline = false;
 	bool configLoadFailed = false;

@@ -27,7 +27,7 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
 	// Center the item horizontally on the time
 	setPos((timeMs / 1000.0 * pixelsPerSecond) - (mItemSize / 2.0), baseY);
 	setBrush(QBrush(eventColor));
-	setPen(QPen(borderColor));
+	setPen(QPen(borderColor, 1.5));
 
 	setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
 	setAcceptHoverEvents(true);
@@ -43,6 +43,20 @@ double TimelineEventItem::getTimeMs() const
 	return (x() + mItemSize / 2.0) / pixelsPerSecond * 1000.0;
 }
 
+double TimelineEventItem::durationHandleX() const
+{
+	// Keep the grip outside the bubble even at extremely short durations.
+	return std::max(mItemSize + 10.0, mItemSize / 2.0 + durationMs * pixelsPerSecond / 1000.0);
+}
+
+bool TimelineEventItem::durationHandleContains(const QPointF &scenePoint) const
+{
+	if (!hasDuration || durationMs <= 0.0)
+		return false;
+	const auto p = mapFromScene(scenePoint);
+	return std::abs(p.x() - durationHandleX()) <= 8.0 && std::abs(p.y() - mItemSize / 2.0) <= 10.0;
+}
+
 QRectF TimelineEventItem::boundingRect() const
 {
 	double padding = 8.0; // Selection ring and hover glow
@@ -50,14 +64,13 @@ QRectF TimelineEventItem::boundingRect() const
 	QRectF totalRect = baseRect.adjusted(-padding, -padding, padding, padding);
 
 	if (hasDuration && durationMs > 0) {
-		double lineLength = (durationMs / 1000.0) * pixelsPerSecond;
 		double startX = mItemSize / 2.0;
 
 		// Rect coverage for the duration line + end cap
 		// Line goes from center to center + length
 		// We need coverage from center (part of baseRect already) to end
 		// Add vertical padding for the line thickness/cap
-		QRectF lineRect(startX, mItemSize / 2.0 - 10, lineLength + 10, 20);
+		QRectF lineRect(startX, mItemSize / 2.0 - 10, durationHandleX() - startX + 10, 20);
 		totalRect = totalRect.united(lineRect);
 	}
 
@@ -83,6 +96,8 @@ void TimelineEventItem::setMaxTime(double maxTimeMs)
 
 void TimelineEventItem::setPixelsPerSecond(double pxPerSec)
 {
+	if (pixelsPerSecond == pxPerSec)
+		return;
 	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	double currentTime = getTimeMs();
 	prepareGeometryChange();
@@ -93,6 +108,8 @@ void TimelineEventItem::setPixelsPerSecond(double pxPerSec)
 
 void TimelineEventItem::setEventColor(const QColor &color)
 {
+	if (eventColor == color)
+		return;
 	eventColor = color;
 	refreshRenderer();
 	setBrush(QBrush(eventColor));
@@ -149,6 +166,8 @@ void TimelineEventItem::setEventLabel(const QString &label)
 
 void TimelineEventItem::setStackOffset(int offset)
 {
+	if (stackOffset == offset && y() == baseY + offset * (mItemSize + 4))
+		return;
 	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	stackOffset = offset;
 	setPos(x(), baseY + (stackOffset * (mItemSize + 4)));
@@ -252,9 +271,16 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		painter->setPen(linePen);
 		painter->drawLine(QPointF(startX, mItemSize / 2.0), QPointF(startX + lineLength, mItemSize / 2.0));
 
-		// Draw end cap marker
-		painter->drawLine(QPointF(startX + lineLength, mItemSize / 2.0 - 5),
-				  QPointF(startX + lineLength, mItemSize / 2.0 + 5));
+		// Draw a visible grip; short spans use a small dashed leader to
+		// avoid covering the cue bubble itself.
+		const double handleX = durationHandleX();
+		if (handleX > startX + lineLength) {
+			painter->setPen(QPen(eventColor, 1, Qt::DotLine));
+			painter->drawLine(QPointF(startX + lineLength, mItemSize / 2.0),
+					  QPointF(handleX, mItemSize / 2.0));
+		}
+		painter->setPen(QPen(eventColor, 3, Qt::SolidLine, Qt::RoundCap));
+		painter->drawLine(QPointF(handleX, mItemSize / 2.0 - 6), QPointF(handleX, mItemSize / 2.0 + 6));
 	}
 
 	// Bubble adjustments (Hover grows, Press shrinks)
@@ -379,6 +405,8 @@ void TimelineEventItem::setEventId(const QString &id)
 
 void TimelineEventItem::setBorderColor(const QColor &color)
 {
+	if (borderColor == color)
+		return;
 	borderColor = color;
 	setPen(QPen(borderColor, 1.5));
 	update();
@@ -386,18 +414,24 @@ void TimelineEventItem::setBorderColor(const QColor &color)
 
 void TimelineEventItem::setSelectionColor(const QColor &color)
 {
+	if (selectionColor == color)
+		return;
 	selectionColor = color;
 	update();
 }
 
 void TimelineEventItem::setBackgroundColor(const QColor &color)
 {
+	if (backgroundColor == color)
+		return;
 	backgroundColor = color;
 	update();
 }
 
 void TimelineEventItem::setLabelColors(const QColor &textColor, const QColor &bgColor)
 {
+	if (labelTextColor == textColor && labelBgColor == bgColor)
+		return;
 	labelTextColor = textColor;
 	labelBgColor = bgColor;
 	update();

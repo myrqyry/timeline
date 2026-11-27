@@ -30,8 +30,113 @@
 #include <QVBoxLayout>
 #include <cmath>
 #include <functional>
+#include <memory>
+#include <QHash>
 
 namespace {
+// GUI-thread only. Cache samples for one synchronous polling pass, never
+// across passes or on the write path. Widgets own the monitor so unloading
+// the plugin cannot leave a timer connected to unloaded code.
+class MacroParameterMonitor final : public std::enable_shared_from_this<MacroParameterMonitor> {
+public:
+	static std::shared_ptr<MacroParameterMonitor> acquire()
+	{
+		static std::weak_ptr<MacroParameterMonitor> weak;
+		auto monitor = weak.lock();
+		if (!monitor) {
+			monitor = std::make_shared<MacroParameterMonitor>();
+			weak = monitor;
+		}
+		return monitor;
+	}
+
+	MacroParameterMonitor()
+	{
+		timer.setInterval(250);
+		QObject::connect(&timer, &QTimer::timeout, &timer, [this] { poll(); });
+		timer.start();
+	}
+
+	void subscribe(QWidget *widget, std::function<void()> refresh)
+	{
+		subscribers.append({widget, std::move(refresh)});
+	}
+
+	std::optional<MacroParameter::Spec> describe(const MacroParameterBinding &binding)
+	{
+		return sample(specs, binding, MacroParameter::describe);
+	}
+	std::optional<double> read(const MacroParameterBinding &binding)
+	{
+		return sample(numbers, binding, MacroParameter::read);
+	}
+	std::optional<QString> readText(const MacroParameterBinding &binding)
+	{
+		return sample(strings, binding, MacroParameter::readText);
+	}
+	std::optional<int> toggleState(const MacroParameterBinding &binding, const MacroParameter::Spec &spec,
+				       const MacroParameter::ToggleValues &values)
+	{
+		if (binding.type != spec.type || !MacroParameter::toggleValuesFit(spec, values))
+			return std::nullopt;
+		if (binding.type == MacroParameterType::Text) {
+			const auto current = readText(binding);
+			return current ? MacroParameter::toggleStateForValue(spec, values, *current) : std::nullopt;
+		}
+		const auto current = read(binding);
+		return current ? MacroParameter::toggleStateForValue(spec, values, *current) : std::nullopt;
+	}
+
+private:
+	struct Subscriber {
+		QPointer<QWidget> widget;
+		std::function<void()> refresh;
+	};
+
+	template<typename T, typename Reader>
+	std::optional<T> sample(QHash<QString, std::optional<T>> &cache, const MacroParameterBinding &binding,
+				Reader reader)
+	{
+		if (!polling)
+			return reader(binding);
+		// bindingIdentity intentionally omits type for collision detection;
+		// readback must distinguish incompatible persisted binding types.
+		const auto key = MacroParameter::bindingIdentity(binding) + ':' + QString::number(int(binding.type));
+		auto it = cache.constFind(key);
+		if (it != cache.cend())
+			return it.value();
+		const auto result = reader(binding);
+		cache.insert(key, result);
+		return result;
+	}
+
+	void poll()
+	{
+		if (polling)
+			return;
+		auto keepAlive = shared_from_this();
+		polling = true;
+		// Callbacks may remove widgets or add new ones. Iterate a stable
+		// snapshot and use guarded pointers rather than retaining widgets.
+		const auto snapshot = subscribers;
+		for (const auto &entry : snapshot)
+			if (entry.widget && entry.widget->isVisible())
+				entry.refresh();
+		subscribers.removeIf([](const Subscriber &entry) { return entry.widget.isNull(); });
+		specs.clear();
+		numbers.clear();
+		strings.clear();
+		polling = false;
+	}
+
+	QTimer timer;
+	QList<Subscriber> subscribers;
+	QHash<QString, std::optional<MacroParameter::Spec>> specs;
+	QHash<QString, std::optional<double>> numbers;
+	QHash<QString, std::optional<QString>> strings;
+	bool polling = false;
+};
+
 // Retain QDial's value model and accessibility; paint a compact, themed
 // rotary control and use relative movement instead of absolute mouse angles.
 class RelativeDial final : public QDial {
@@ -448,16 +553,14 @@ public:
 		writer.setSingleShot(true);
 		writer.setInterval(80);
 		connect(&writer, &QTimer::timeout, this, [this] { flush(); });
-		reader.setInterval(250);
-		connect(&reader, &QTimer::timeout, this, [this] {
-			if (isVisible() && !pad->dragging() && !pending)
+		monitor->subscribe(this, [this] {
+			if (!pad->dragging() && !pending)
 				refresh();
 		});
 		const auto size = requiredRows();
 		setRowHeights(size.width(), size.height(),
 			      button.hasBottomCaption() ? MacroButtonWidget::kBottomHeight : 0);
 		refresh();
-		reader.start();
 	}
 	QSize requiredRows() const
 	{
@@ -520,10 +623,10 @@ private:
 	}
 	void refresh()
 	{
-		xs = MacroParameter::describe(x);
-		ys = MacroParameter::describe(y);
-		const auto xv = xs ? MacroParameter::read(x) : std::nullopt;
-		const auto yv = ys ? MacroParameter::read(y) : std::nullopt;
+		xs = monitor->describe(x);
+		ys = monitor->describe(y);
+		const auto xv = xs ? monitor->read(x) : std::nullopt;
+		const auto yv = ys ? monitor->read(y) : std::nullopt;
 		const bool valid = MacroParameter::numericPair(x, y) && xv && yv;
 		pad->setEnabled(valid);
 		if (valid)
@@ -545,7 +648,8 @@ private:
 	StableCaption *bottom;
 	QWidget *row;
 	XYPad *pad;
-	QTimer writer, reader;
+	QTimer writer;
+	std::shared_ptr<MacroParameterMonitor> monitor = MacroParameterMonitor::acquire();
 };
 
 class ParameterWidget final : public QWidget {
@@ -703,16 +807,14 @@ public:
 		writeTimer.setSingleShot(true);
 		writeTimer.setInterval(80);
 		connect(&writeTimer, &QTimer::timeout, this, [this] { flush(); });
-		readTimer.setInterval(250);
-		connect(&readTimer, &QTimer::timeout, this, [this] {
-			if (isVisible() && !pending && !(slider && slider->isSliderDown()))
+		monitor->subscribe(this, [this] {
+			if (!pending && !(slider && slider->isSliderDown()))
 				refresh(++pollCount % 8 == 0);
 		});
 		refresh(true);
 		const auto size = requiredRows();
 		setRowHeights(size.width(), size.height(),
 			      button.hasBottomCaption() ? MacroButtonWidget::kBottomHeight : 0);
-		readTimer.start();
 	}
 
 	QSize requiredRows() const
@@ -831,15 +933,15 @@ private:
 	void refresh(bool schema)
 	{
 		if (schema)
-			spec = MacroParameter::describe(binding);
+			spec = monitor->describe(binding);
 		if (toggle && toggleValues) {
-			const auto state = spec ? MacroParameter::toggleState(binding, *spec, *toggleValues)
-						: std::nullopt;
+			const auto state = spec ? monitor->toggleState(binding, *spec, *toggleValues) : std::nullopt;
 			const QSignalBlocker block(toggle);
 			toggle->setEnabled(state.has_value());
-			toggle->setCheckState(!state || *state < 0 ? Qt::PartiallyChecked
-					      : *state == 0        ? Qt::Unchecked
-								   : Qt::Checked);
+			const int position = state.value_or(-1);
+			toggle->setCheckState(position < 0    ? Qt::PartiallyChecked
+					      : position == 0 ? Qt::Unchecked
+							      : Qt::Checked);
 			auto display = [&](const QVariant &v) {
 				if (binding.type == MacroParameterType::Text)
 					return v.toString();
@@ -847,9 +949,10 @@ private:
 								 : QString::number(v.toDouble(), 'g', 7) +
 									   (spec ? spec->suffix : QString());
 			};
-			const QString shown = !state       ? tr("Unavailable")
-					      : *state < 0 ? tr("Other value")
-							   : display(*state == 0 ? toggleValues->a : toggleValues->b);
+			const QString shown = !state ? tr("Unavailable")
+					      : position < 0
+						      ? tr("Other value")
+						      : display(position == 0 ? toggleValues->a : toggleValues->b);
 			if (showValue)
 				bottom->setText(shown);
 			const QString tip = title + "\n" + tr("A: %1").arg(display(toggleValues->a)) + "\n" +
@@ -861,7 +964,7 @@ private:
 			return;
 		}
 		if (textEntry) {
-			auto value = spec ? MacroParameter::readText(binding) : std::nullopt;
+			auto value = spec ? monitor->readText(binding) : std::nullopt;
 			const bool valid = value.has_value();
 			const bool multiline = spec && spec->multiline;
 			textRow->setVisible(!multiline);
@@ -883,7 +986,7 @@ private:
 			}
 			return;
 		}
-		auto value = spec ? MacroParameter::read(binding) : std::nullopt;
+		auto value = spec ? monitor->read(binding) : std::nullopt;
 		const bool valid = spec.has_value() && value.has_value();
 		if (slider) {
 			const QSignalBlocker block(slider);
@@ -930,7 +1033,7 @@ private:
 	QWidget *controlRow = nullptr;
 	QString title, subtitle;
 	bool showValue;
-	QTimer readTimer;
+	std::shared_ptr<MacroParameterMonitor> monitor = MacroParameterMonitor::acquire();
 	QTimer writeTimer;
 	int pollCount = 0;
 };
