@@ -18,6 +18,8 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Eighth implementation batch: #72 implemented, #7 partial. Read-only target validation reuses explicit UUID filter/media/scene-item resolution; visible paused cues are checked in rotating batches of four per 750ms. Missing exact filter removal and reattachment, duration rendering at different zooms and resize regressions verified. Strict OBS 32 Linux Qt/libobs suite passed (38.96s). External vendor and nested timeline target validation, transition overrides, signal-driven invalidation and live playback health feedback remain open.
 
+- Ninth implementation batch: #8 implemented. Insert time shifts cues at/after the start; remove time deletes cues starting in the half-open interval and shifts later cues. Cue payloads/durations and playhead/end marker are preserved; cuts beginning inside duration spans or violating fixed end limits are rejected atomically. Disabled during active playback, recording and dragging. Context-menu regression failed before implementation and passed afterward; boundary, undo/redo, no-op and invalid-range checks passed. Strict OBS 32 Linux Qt/libobs suite passed (39.22s). No automatic end-marker extension, span splitting, or live OBS state rollback.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
@@ -29,7 +31,7 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 5. Per-cue mute/bypass (implemented: persistent, undoable, visibly dimmed; skips start/end/hold/ramp, preserves ending action of an already-started span)
 6. Single-cue test/run now (partial: manual point/start/end execution while paused; full timed audition and independent cancellation remain open)
 7. Broken-target health badges (partial: visible paused cues, scene/source/filter/media/parameter/hotkey checks; external/nested targets and transition overrides not validated)
-8. Ripple insert/delete
+8. Ripple insert/delete (implemented: ruler/empty-space menu, snapped start, explicit interval, atomic undo, fixed-end and crossing-span safeguards)
 9. Named ruler markers/bookmarks
 10. Cursor-anchored zoom and zoom-to-fit (implemented: fit includes duration endpoints and end marker; content-aware horizontal extent)
 

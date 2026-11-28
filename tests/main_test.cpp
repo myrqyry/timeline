@@ -2274,6 +2274,136 @@ private slots:
 		QCOMPARE(static_cast<int>(model.getEvents().size()), 1);
 	}
 
+	void testRippleTimeRejectsUnsafeBoundariesWithoutChangingHistory()
+	{
+		TimelineEvent span, hold, boundary, beyond;
+		span.timeMs = 1000;
+		span.hasDuration = true;
+		span.durationMs = 500;
+		hold.type = TimelineEventType::FreezeTime;
+		hold.timeMs = 2000;
+		hold.data = 5000.0;
+		boundary.timeMs = 2500;
+		beyond.timeMs = 4000;
+		TimelineModel model;
+		model.fromJson([&] {
+			TimelineModel initial;
+			initial.addEvents({span, hold, boundary, beyond});
+			return initial.toJson();
+		}());
+		model.setHistoryEnabled(true);
+		QSignalSpy changes(&model, &TimelineModel::modelChanged);
+		const auto original = model.toJson();
+		using Result = TimelineModel::RippleResult;
+		QCOMPARE(model.rippleTime(1200, 100, false), Result::CrossingSpan);
+		QCOMPARE(model.rippleTime(1200, 100, true), Result::CrossingSpan);
+		QCOMPARE(model.rippleTime(2500, 2000, false, 5000), Result::EndLimit);
+		QCOMPARE(model.rippleTime(4500, 1000, true, 5000), Result::EndLimit);
+		QCOMPARE(model.rippleTime(-1, 100, false), Result::InvalidRange);
+		QCOMPARE(model.rippleTime(0, 0, true), Result::InvalidRange);
+		QCOMPARE(model.rippleTime(0, std::numeric_limits<double>::infinity(), false), Result::InvalidRange);
+		QCOMPARE(model.rippleTime(4500, 100, false), Result::NoChange);
+		QCOMPARE(model.toJson(), original);
+		QCOMPARE(changes.count(), 0);
+		QVERIFY(!model.canUndo());
+
+		// A freeze is not a timeline-length span; removing its start
+		// deletes the whole hold, and the far boundary survives.
+		QCOMPARE(model.rippleTime(2000, 500, true), Result::Changed);
+		QVERIFY(!model.findEventById(hold.id));
+		QCOMPARE(model.findEventById(boundary.id)->timeMs, 2000.0);
+		QCOMPARE(model.findEventById(beyond.id)->timeMs, 3500.0);
+		QCOMPARE(model.findEventById(span.id)->durationMs, 500.0);
+		QCOMPARE(changes.count(), 1);
+		QVERIFY(model.undo());
+		QCOMPARE(model.toJson(), original);
+	}
+
+	void testTimelineRippleMenuEditsTimeAsOneUndoableTransaction()
+	{
+		TimelineEvent before, first, second, last;
+		before.timeMs = 500;
+		first.timeMs = 1500;
+		first.hasDuration = true;
+		first.durationMs = 250;
+		second.timeMs = 2000;
+		second.muted = true;
+		last.timeMs = 3500;
+		TimelineModel initial;
+		initial.addEvents({before, first, second, last});
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path,
+			QJsonObject{{"events", initial.toJson()},
+				    {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}, {"endTime", 10.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && model && scheduler);
+		auto choose = [&](const QString &name, double at, double seconds) {
+			bool found = false;
+			bool entered = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions()) {
+					if (action->objectName() != name || !action->isEnabled())
+						continue;
+					found = true;
+					QTimer::singleShot(0, &dock, [&] {
+						auto *dialog =
+							qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+						if (dialog) {
+							entered = true;
+							dialog->setDoubleValue(seconds);
+							dialog->accept();
+						}
+					});
+					QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+							  menu->actionGeometry(action).center());
+					return;
+				}
+				menu->close();
+			});
+			const QPoint pos(view->mapFromScene(QPointF(at / 10.0, 0)).x(), 10);
+			QContextMenuEvent event(QContextMenuEvent::Mouse, pos, view->viewport()->mapToGlobal(pos));
+			QCoreApplication::sendEvent(view->viewport(), &event);
+			QCoreApplication::processEvents();
+			return found && entered;
+		};
+		const auto original = model->toJson();
+		QSignalSpy changes(model, &TimelineModel::modelChanged);
+		QVERIFY(choose("timeline-ripple-insert-action", 1500, 1.0));
+		QCOMPARE(changes.count(), 1);
+		QCOMPARE(model->findEventById(before.id)->timeMs, 500.0);
+		QCOMPARE(model->findEventById(first.id)->timeMs, 2500.0);
+		QCOMPARE(model->findEventById(first.id)->durationMs, 250.0);
+		QCOMPARE(model->findEventById(second.id)->timeMs, 3000.0);
+		QVERIFY(model->findEventById(second.id)->muted);
+		QCOMPARE(model->findEventById(last.id)->timeMs, 4500.0);
+		QCOMPARE(scheduler->getEndTime(), 10000.0);
+		QCOMPARE(scheduler->getCurrentTime(), 0.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->toJson(), original);
+		QVERIFY(!model->canUndo());
+		QVERIFY(model->redo());
+		QVERIFY(choose("timeline-ripple-delete-action", 2500, 0.5));
+		QVERIFY(!model->findEventById(first.id));
+		QCOMPARE(model->findEventById(second.id)->timeMs, 2500.0);
+		QCOMPARE(model->findEventById(last.id)->timeMs, 4000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->findEventById(first.id)->timeMs, 2500.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->toJson(), original);
+	}
+
 	void testMutedCuesSkipAllPlaybackEdgesAndRampWrites()
 	{
 		TimelineEvent span, hold, ramp, step, audible;

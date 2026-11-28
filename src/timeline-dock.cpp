@@ -32,6 +32,8 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QDialogButtonBox>
+#include <QInputDialog>
+#include <QMessageBox>
 #include <QColorDialog>
 #include <QKeyEvent>
 #include <QUuid>
@@ -1439,6 +1441,17 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				QAction *addAction = menu.addAction("Add Event Here");
 				connect(addAction, &QAction::triggered,
 					[this, clickedTimeMs]() { placeNewEvent(clickedTimeMs); });
+				menu.addSeparator();
+				auto *insert = menu.addAction(obs_module_text("TimelineDock.RippleInsert"));
+				insert->setObjectName("timeline-ripple-insert-action");
+				auto *remove = menu.addAction(obs_module_text("TimelineDock.RippleDelete"));
+				remove->setObjectName("timeline-ripple-delete-action");
+				insert->setEnabled(rippleEditAllowed());
+				remove->setEnabled(rippleEditAllowed());
+				connect(insert, &QAction::triggered, this,
+					[this, clickedTimeMs] { promptRippleEdit(clickedTimeMs, false); });
+				connect(remove, &QAction::triggered, this,
+					[this, clickedTimeMs] { promptRippleEdit(clickedTimeMs, true); });
 				menu.exec(ctxEvent->globalPos());
 				return true;
 			}
@@ -2145,6 +2158,48 @@ void TimelineDock::pasteEvents()
 
 	blog(LOG_INFO, "[Timeline] Pasted %d events at %.0f ms", static_cast<int>(clipboard.size()), currentPlayhead);
 	debounceSaveTimer->start();
+}
+
+bool TimelineDock::rippleEditAllowed() const
+{
+	return !scheduler->isPlaying() && !isDragging && !loadingTimeline && !automationRecorder.active();
+}
+
+void TimelineDock::promptRippleEdit(double startMs, bool remove)
+{
+	if (!rippleEditAllowed())
+		return;
+	startMs = std::max(0.0, snapTimeMs(startMs));
+	const QString title = obs_module_text(remove ? "TimelineDock.RippleDelete" : "TimelineDock.RippleInsert");
+	const QString description = QString::fromUtf8(obs_module_text(remove ? "TimelineDock.RippleDeletePrompt"
+									     : "TimelineDock.RippleInsertPrompt"))
+					    .arg(startMs / 1000.0, 0, 'f', 3);
+	QInputDialog dialog(this);
+	dialog.setWindowTitle(title);
+	dialog.setLabelText(description);
+	dialog.setInputMode(QInputDialog::DoubleInput);
+	dialog.setDoubleDecimals(3);
+	dialog.setDoubleRange(0.001, 3600.0);
+	dialog.setDoubleValue(std::clamp(getSnapIntervalMs() / 1000.0, 0.001, 3600.0));
+	if (dialog.exec() != QDialog::Accepted || !rippleEditAllowed())
+		return;
+	const auto result = model->rippleTime(startMs, dialog.doubleValue() * 1000.0, remove, scheduler->getEndTime());
+	const char *error = nullptr;
+	switch (result) {
+	case TimelineModel::RippleResult::InvalidRange:
+		error = "TimelineDock.RippleInvalid";
+		break;
+	case TimelineModel::RippleResult::CrossingSpan:
+		error = "TimelineDock.RippleCrossing";
+		break;
+	case TimelineModel::RippleResult::EndLimit:
+		error = "TimelineDock.RippleEndLimit";
+		break;
+	default:
+		break;
+	}
+	if (error)
+		QMessageBox::warning(this, title, obs_module_text(error));
 }
 
 void TimelineDock::deleteSelectedEvents()

@@ -115,6 +115,8 @@ private:
 	void undoEdit();
 	void redoEdit();
 	void deleteSelectedEvents();
+	bool rippleEditAllowed() const;
+	void promptRippleEdit(double startMs, bool remove);
 	void copySelectedEvents();
 	void pasteEvents();
 	void nudgeSelectedEvents(double deltaMs);

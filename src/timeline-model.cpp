@@ -117,6 +117,46 @@ void TimelineModel::setEventTimes(const QHash<QString, double> &times)
 	commitEdit(std::move(next));
 }
 
+TimelineModel::RippleResult TimelineModel::rippleTime(double startMs, double lengthMs, bool remove, double endLimitMs)
+{
+	const double endMs = startMs + lengthMs;
+	if (!std::isfinite(startMs) || !std::isfinite(lengthMs) || !std::isfinite(endMs) ||
+	    !std::isfinite(endLimitMs) || startMs < 0 || lengthMs <= 0 || endMs <= startMs || endLimitMs < 0)
+		return RippleResult::InvalidRange;
+	if (endLimitMs > 0 && (startMs > endLimitMs || (remove && endMs > endLimitMs)))
+		return RippleResult::EndLimit;
+
+	EventList next;
+	next.reserve(events.size());
+	for (const auto &original : events) {
+		const double duration = original.type != TimelineEventType::FreezeTime && original.hasDuration
+						? std::max(0.0, original.durationMs)
+						: 0.0;
+		// A cut through an existing span would silently alter the action's
+		// temporal meaning. Require the user to choose a clean boundary.
+		if (original.timeMs < startMs && original.timeMs + duration > startMs)
+			return RippleResult::CrossingSpan;
+		// Remove whole cues whose start falls inside the half-open range.
+		// A cue starting exactly at the far boundary survives and shifts.
+		if (remove && original.timeMs >= startMs && original.timeMs < endMs)
+			continue;
+		auto evt = original;
+		if (evt.timeMs >= (remove ? endMs : startMs)) {
+			evt.timeMs += remove ? -lengthMs : lengthMs;
+			if (!std::isfinite(evt.timeMs) || evt.timeMs < 0)
+				return RippleResult::InvalidRange;
+			// Leave the explicit show end marker fixed and avoid silently
+			// pushing previously playable cue starts/ends beyond it.
+			if (!remove && endLimitMs > 0 &&
+			    ((original.timeMs <= endLimitMs && evt.timeMs > endLimitMs) ||
+			     (original.timeMs + duration <= endLimitMs && evt.timeMs + duration > endLimitMs)))
+				return RippleResult::EndLimit;
+		}
+		next.push_back(std::move(evt));
+	}
+	return commitEdit(std::move(next)) ? RippleResult::Changed : RippleResult::NoChange;
+}
+
 const std::vector<TimelineEvent> &TimelineModel::getEvents() const
 {
 	return events;
