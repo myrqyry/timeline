@@ -20,6 +20,8 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Ninth implementation batch: #8 implemented. Insert time shifts cues at/after the start; remove time deletes cues starting in the half-open interval and shifts later cues. Cue payloads/durations and playhead/end marker are preserved; cuts beginning inside duration spans or violating fixed end limits are rejected atomically. Disabled during active playback, recording and dragging. Context-menu regression failed before implementation and passed afterward; boundary, undo/redo, no-op and invalid-range checks passed. Strict OBS 32 Linux Qt/libobs suite passed (39.22s). No automatic end-marker extension, span splitting, or live OBS state rollback.
 
+- Interaction polish (user-requested, outside numbered feature count): shared lazy paint-only motion for cue and Macro Strip buttons, passive knob/XY readback, immediate direct input, style duration capped at 120 ms. Compact viewport clearance now uses the same visual padding as cue bounds. Focused regressions reproduced abrupt transitions; full strict OBS32 Qt/libobs suite passed (131 passed, 0 failed/skipped, 40.61 s). Native frame pacing and third-party callback costs remain unmeasured.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing

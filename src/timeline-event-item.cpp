@@ -1,6 +1,7 @@
 #include "timeline-event-item.h"
 #include <obs-module.h>
 #include <QGraphicsSceneMouseEvent>
+#include <QGraphicsScene>
 #include <QGraphicsSceneHoverEvent>
 #include <QGraphicsSceneContextMenuEvent>
 #include <QMenu>
@@ -60,7 +61,7 @@ bool TimelineEventItem::durationHandleContains(const QPointF &scenePoint) const
 
 QRectF TimelineEventItem::boundingRect() const
 {
-	double padding = 8.0; // Selection ring and hover glow
+	const double padding = VISUAL_PADDING; // Selection ring and hover glow
 	QRectF baseRect(0, 0, mItemSize, mItemSize);
 	QRectF totalRect = baseRect.adjusted(-padding, -padding, padding, padding);
 
@@ -196,7 +197,7 @@ void TimelineEventItem::mousePressEvent(QGraphicsSceneMouseEvent *event)
 	isBeingDragged = true;
 	dragStartedEmitted = false;
 	setCursor(Qt::ClosedHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::mousePressEvent(event);
 }
 
@@ -206,7 +207,7 @@ void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
 	isBeingDragged = false;
 	dragStartedEmitted = false;
 	setCursor(isHovered ? Qt::PointingHandCursor : Qt::OpenHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::mouseReleaseEvent(event);
 	if (wasDragged) {
 		emit eventMoved(getTimeMs());
@@ -257,11 +258,17 @@ void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
 	}
 }
 
+void TimelineEventItem::refreshInteractionMotion()
+{
+	motion.to(isBeingDragged ? QPointF(-1, 0) : (isHovered ? QPointF(3, 1) : QPointF()),
+		  isVisible() && scene() && !scene()->views().isEmpty());
+}
+
 void TimelineEventItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 {
 	isHovered = true;
 	setCursor(Qt::PointingHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::hoverEnterEvent(event);
 }
 
@@ -269,7 +276,7 @@ void TimelineEventItem::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
 {
 	isHovered = false;
 	setCursor(Qt::OpenHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::hoverLeaveEvent(event);
 }
 
@@ -346,15 +353,8 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 	}
 
 	// Bubble adjustments (Hover grows, Press shrinks)
-	QRectF bubbleRect = r;
-	double bubbleGrowth = 0.0;
-	if (isBeingDragged) {
-		bubbleRect.adjust(1, 1, -1, -1);
-		bubbleGrowth = -1.0;
-	} else if (isHovered) {
-		bubbleRect.adjust(-3, -3, 3, 3);
-		bubbleGrowth = 3.0;
-	}
+	const double bubbleGrowth = motion.value().x();
+	const QRectF bubbleRect = r.adjusted(-bubbleGrowth, -bubbleGrowth, bubbleGrowth, bubbleGrowth);
 
 	if (isSelected()) {
 		painter->setBrush(Qt::NoBrush);
@@ -369,9 +369,9 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 	}
 
 	// Hover glow
-	if (isHovered) {
+	if (motion.value().y() > 0) {
 		QColor glow = eventColor.lighter(150);
-		glow.setAlpha(80);
+		glow.setAlpha(qRound(80 * motion.value().y()));
 		painter->setPen(Qt::NoPen);
 		painter->setBrush(QBrush(glow));
 		painter->drawEllipse(bubbleRect.adjusted(-4, -4, 4, 4));
@@ -423,7 +423,7 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		int boxW = textW + padX * 2;
 		int boxH = textH + padY * 2;
 		int boxX = (int)(mItemSize / 2.0 - boxW / 2.0);
-		int boxY = (int)(-boxH - 3.0 + bubbleGrowth);
+		int boxY = (int)(-boxH - 3.0);
 
 		// Background pill for legibility against any color
 		QRectF box(boxX, boxY, boxW, boxH);
@@ -580,6 +580,10 @@ QString TimelineEventItem::getEventId() const
 
 QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant &value)
 {
+	if (change == ItemVisibleHasChanged && !value.toBool()) {
+		isHovered = false;
+		motion.to({}, false);
+	}
 	if (change == ItemPositionChange && scene()) {
 		QPointF newPos = value.toPointF();
 		// Keep Y at stacked position

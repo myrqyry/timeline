@@ -1119,7 +1119,7 @@ void TimelineDock::updateViewportGeometry()
 	// padding, frame and horizontal scrollbar. More lanes scroll instead
 	// of imposing an unbounded minimum height on the OBS main window.
 	const int bubble = compactMode ? TimelineEventItem::COMPACT_SIZE : TimelineEventItem::ITEM_SIZE;
-	const int minimumViewport = 30 + bubble + 8;
+	const int minimumViewport = 30 + bubble + TimelineEventItem::VISUAL_PADDING;
 	const int minHeight =
 		minimumViewport + view->horizontalScrollBar()->sizeHint().height() + 2 * view->frameWidth();
 	if (view->minimumHeight() != minHeight)

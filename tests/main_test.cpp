@@ -5,6 +5,7 @@
 #include <QScopeGuard>
 #include <QDoubleSpinBox>
 #include <QGraphicsSceneMouseEvent>
+#include <QGraphicsSceneHoverEvent>
 #include <QTest>
 #include <QSignalSpy>
 #include <QScrollArea>
@@ -3685,13 +3686,15 @@ private slots:
 						++count;
 			return count;
 		};
+		QTRY_VERIFY_WITH_TIMEOUT(accentPixels() > 20, 250);
+		QTest::qWait(130);
 		const auto full = accentPixels();
 		QVERIFY(full > 20);
 		{
 			const QSignalBlocker block(dial);
 			dial->setValue(dial->minimum());
 		}
-		QVERIFY(accentPixels() < full);
+		QTRY_VERIFY_WITH_TIMEOUT(accentPixels() < full, 250);
 		QVERIFY(MacroParameter::write(toggle.binding, 0));
 		QTRY_VERIFY(!check->isChecked());
 		QTRY_VERIFY_WITH_TIMEOUT(!dial->isEnabled() && !fader->isEnabled(), 3000);
@@ -4973,6 +4976,133 @@ private slots:
 		root["buttons"] = array;
 		QVERIFY(!MacroSerialization::fromJsonDocument(QJsonDocument(root), model));
 		QCOMPARE(model.buttons().first().binding.key, QString("gain"));
+	}
+
+	void testMacroKnobReadbackMotionDoesNotWriteInterpolatedValues()
+	{
+		auto *source =
+			obs_source_create("timeline_parameter_probe", "Readback motion target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton knob;
+		knob.kind = MacroControlKind::Knob;
+		knob.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		QWidget host;
+		host.setFocusPolicy(Qt::StrongFocus);
+		auto *control = createMacroParameterWidget(knob, &host);
+		auto *dial = control->findChild<QDial *>();
+		QVERIFY(dial);
+		host.resize(control->size());
+		host.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&host));
+		host.setFocus();
+		QVERIFY(!dial->hasFocus());
+		QTest::qWait(180);
+		const auto before = dial->grab().toImage();
+		QSignalSpy changed(dial, &QDial::valueChanged);
+		QVERIFY(MacroParameter::write(knob.binding, 1.0));
+		{
+			const QSignalBlocker block(dial);
+			dial->setValue(dial->maximum());
+		}
+		QCOMPARE(dial->value(), dial->maximum());
+		QCOMPARE(dial->grab().toImage(), before);
+		QTest::qWait(150);
+		QVERIFY(dial->grab().toImage() != before);
+		QCOMPARE(changed.count(), 0);
+		QCOMPARE(MacroParameter::read(knob.binding).value(), 1.0);
+	}
+
+	void testInteractionMotionStopsAtTargetAndCanSnap()
+	{
+		int frames = 0;
+		InteractionMotion motion([&] { ++frames; });
+		motion.to(QPointF(3, 1), true);
+		QCOMPARE(motion.value(), QPointF());
+		QTRY_VERIFY_WITH_TIMEOUT(frames > 0, 100);
+		const auto intermediate = motion.value();
+		motion.to(QPointF(-1, 0), true);
+		QCOMPARE(motion.value(), intermediate);
+		motion.snap();
+		QCOMPARE(motion.value(), QPointF(-1, 0));
+		const int stopped = frames;
+		QTest::qWait(150);
+		QCOMPARE(frames, stopped);
+		motion.to(QPointF(-1, 0), true);
+		QTest::qWait(150);
+		QCOMPARE(frames, stopped);
+	}
+
+	void testMacroActionMotionIsInterruptibleAndDoesNotDelayDispatch()
+	{
+		MacroButton button;
+		button.color = QColor(40, 130, 230);
+		button.label = "Motion";
+		MacroButtonWidget widget(button);
+		widget.resize(widget.sizeHint());
+		widget.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&widget));
+		QEvent leave(QEvent::Leave);
+		QCoreApplication::sendEvent(&widget, &leave);
+		QTest::qWait(180);
+		const auto resting = widget.grab().toImage();
+		widget.setPressedAppearance(true);
+		QCOMPARE(widget.grab().toImage(), resting);
+		QTest::qWait(180);
+		const auto pressed = widget.grab().toImage();
+		QVERIFY(pressed != resting);
+		widget.setPressedAppearance(false);
+		QCOMPARE(widget.grab().toImage(), pressed);
+		QSignalSpy fired(&widget, &MacroButtonWidget::fireRequested);
+		TestTimelineMacroButtonAccessor::clickBubble(widget);
+		QCOMPARE(fired.count(), 1);
+		QTest::qWait(180);
+		QCOMPARE(widget.grab().toImage(), resting);
+		widget.setPressedAppearance(true);
+		widget.hide();
+		QTest::qWait(180);
+		QCOMPARE(fired.count(), 1);
+	}
+
+	void testTimelineCueHoverMotionPreservesTimeAndDuration()
+	{
+		QGraphicsScene scene;
+		QGraphicsView view(&scene);
+		view.resize(640, 150);
+		view.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&view));
+		auto *item = new TimelineEventItem(2000, 100, TimelineEventType::FilterEnable, QColor(40, 130, 230));
+		scene.addItem(item);
+		item->setHasDuration(true);
+		item->setDuration(1000);
+		auto render = [&] {
+			QImage image(160, 64, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter p(&image);
+			scene.render(&p, QRectF(0, 0, 160, 64), QRectF(item->x() - 10, item->y() - 16, 160, 64));
+			return image;
+		};
+		const auto initial = render();
+		const auto pos = item->pos();
+		const double handle = item->durationHandleX();
+		QGraphicsSceneHoverEvent enter(QEvent::GraphicsSceneHoverEnter);
+		scene.sendEvent(item, &enter);
+		QCOMPARE(render(), initial);
+		QTest::qWait(180);
+		const auto hovered = render();
+		QVERIFY(hovered != initial);
+		QCOMPARE(hovered.copy(60, 0, 100, 64), initial.copy(60, 0, 100, 64));
+		QCOMPARE(item->pos(), pos);
+		QCOMPARE(item->durationHandleX(), handle);
+		QGraphicsSceneHoverEvent leave(QEvent::GraphicsSceneHoverLeave);
+		scene.sendEvent(item, &leave);
+		QCOMPARE(render(), hovered);
+		QTest::qWait(180);
+		QCOMPARE(render(), initial);
+		delete item;
 	}
 
 	void testMacroButtonHasDefaults()

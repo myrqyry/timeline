@@ -1,5 +1,6 @@
 #include "macro-parameter-widget.h"
 #include "macro-button-widget.h"
+#include "interaction-motion.h"
 #include <QDoubleSpinBox>
 #include <QFontMetrics>
 
@@ -164,11 +165,7 @@ protected:
 		const double radius = std::min(width(), height()) / 2.0;
 		const double trackRadius = radius - 3.0;
 		const QRectF arc(center.x() - trackRadius, center.y() - trackRadius, trackRadius * 2, trackRadius * 2);
-		const double fraction = maximum() > minimum()
-						? std::clamp((static_cast<double>(value()) - minimum()) /
-								     (static_cast<double>(maximum()) - minimum()),
-							     0.0, 1.0)
-						: 0.0;
+		const double fraction = valueMotion.value().x();
 		constexpr int startAngle = 225 * 16;
 		constexpr int sweep = 270 * 16;
 		// Thin, low-contrast track with a full-opacity active arc.
@@ -196,6 +193,15 @@ protected:
 	void sliderChange(SliderChange change) override
 	{
 		QDial::sliderChange(change);
+		const double fraction = maximum() > minimum()
+						? std::clamp((static_cast<double>(value()) - minimum()) /
+								     (static_cast<double>(maximum()) - minimum()),
+							     0.0, 1.0)
+						: 0.0;
+		// Only passive readback eases. The native value, accessibility and
+		// user gestures remain exact and synchronous.
+		valueMotion.to(QPointF(fraction, 0), change == SliderValueChange && isVisible() && isEnabled() &&
+							     !isSliderDown() && !hasFocus());
 		update();
 	}
 
@@ -249,6 +255,9 @@ protected:
 		    isSliderDown())
 			setSliderDown(false);
 		const bool handled = QDial::event(event);
+		if (event->type() == QEvent::Hide || event->type() == QEvent::FocusIn ||
+		    (event->type() == QEvent::EnabledChange && !isEnabled()))
+			valueMotion.snap();
 		switch (event->type()) {
 		case QEvent::HoverEnter:
 		case QEvent::HoverLeave:
@@ -306,6 +315,9 @@ protected:
 	}
 
 private:
+	InteractionMotion valueMotion{[this] {
+		update();
+	}};
 	QPointF lastPosition;
 	double dragValue = 0;
 	int wheelRemainder = 0;
@@ -378,10 +390,9 @@ public:
 	std::function<void(QPointF)> moved;
 	std::function<void()> released;
 	std::function<void(int, int)> stepped;
-	void setPosition(QPointF position)
+	void setPosition(QPointF position, bool passive = false)
 	{
-		point = position;
-		update();
+		pointMotion.to(position, passive && isVisible() && isEnabled() && !active && !hasFocus());
 	}
 	bool dragging() const { return active; }
 
@@ -403,6 +414,7 @@ protected:
 		p.setPen(QPen(grid, 1));
 		p.drawLine(QPointF(width() / 2.0, 4), QPointF(width() / 2.0, height() - 4));
 		p.drawLine(QPointF(4, height() / 2.0), QPointF(width() - 4, height() / 2.0));
+		const auto point = pointMotion.value();
 		const QPointF marker(4 + point.x() * (width() - 9), 4 + (1 - point.y()) * (height() - 9));
 		p.setPen(QPen(accent, 1, Qt::DashLine));
 		p.drawLine(QPointF(marker.x(), 4), QPointF(marker.x(), height() - 4));
@@ -473,6 +485,9 @@ protected:
 		if (e->type() == QEvent::UngrabMouse || (e->type() == QEvent::EnabledChange && !isEnabled()))
 			active = false;
 		const bool handled = QWidget::event(e);
+		if (e->type() == QEvent::Hide || e->type() == QEvent::FocusIn ||
+		    (e->type() == QEvent::EnabledChange && !isEnabled()))
+			pointMotion.snap();
 		if (e->type() == QEvent::FocusIn || e->type() == QEvent::FocusOut ||
 		    e->type() == QEvent::PaletteChange || e->type() == QEvent::EnabledChange)
 			update();
@@ -486,7 +501,7 @@ private:
 			moved({std::clamp((pos.x() - 4) / (width() - 9), 0.0, 1.0),
 			       1 - std::clamp((pos.y() - 4) / (height() - 9), 0.0, 1.0)});
 	}
-	QPointF point{0.5, 0.5};
+	InteractionMotion pointMotion{[this] { update(); }, QPointF(0.5, 0.5)};
 	bool active = false;
 };
 
@@ -583,11 +598,12 @@ public:
 	}
 
 private:
-	void display(double xv, double yv)
+	void display(double xv, double yv, bool passive = false)
 	{
 		if (!xs || !ys)
 			return;
-		pad->setPosition({double(xs->indexOf(xv)) / xs->steps(), double(ys->indexOf(yv)) / ys->steps()});
+		pad->setPosition({double(xs->indexOf(xv)) / xs->steps(), double(ys->indexOf(yv)) / ys->steps()},
+				 passive);
 		const QString value = QString::number(xv, 'g', 5) + " / " + QString::number(yv, 'g', 5);
 		if (showValue)
 			bottom->setText(value);
@@ -630,7 +646,7 @@ private:
 		const bool valid = MacroParameter::numericPair(x, y) && xv && yv;
 		pad->setEnabled(valid);
 		if (valid)
-			display(*xv, *yv);
+			display(*xv, *yv, true);
 		else {
 			if (showValue)
 				bottom->setText(tr("Unavailable"));

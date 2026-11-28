@@ -56,7 +56,7 @@ void MacroButtonWidget::rebuildRenderer()
 void MacroButtonWidget::setPressedAppearance(bool pressed)
 {
 	m_isPressed = pressed;
-	update();
+	refreshInteractionMotion();
 }
 
 QSize MacroButtonWidget::sizeHint() const
@@ -90,9 +90,8 @@ QSize MacroButtonWidget::minimumSizeHint() const
 void MacroButtonWidget::mousePressEvent(QMouseEvent *event)
 {
 	if (event->button() == Qt::LeftButton) {
-		m_isPressed = true;
+		setPressedAppearance(true);
 		setCursor(Qt::ClosedHandCursor);
-		update();
 	}
 	QWidget::mousePressEvent(event);
 }
@@ -100,9 +99,8 @@ void MacroButtonWidget::mousePressEvent(QMouseEvent *event)
 void MacroButtonWidget::mouseReleaseEvent(QMouseEvent *event)
 {
 	const bool wasPressed = m_isPressed;
-	m_isPressed = false;
+	setPressedAppearance(false);
 	setCursor(Qt::PointingHandCursor);
-	update();
 	if (wasPressed && event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())) {
 		emit fireRequested(m_button);
 	}
@@ -113,15 +111,28 @@ void MacroButtonWidget::enterEvent(QEnterEvent *event)
 {
 	m_isHovered = true;
 	setCursor(Qt::PointingHandCursor);
-	update();
+	refreshInteractionMotion();
 	QWidget::enterEvent(event);
 }
 
 void MacroButtonWidget::leaveEvent(QEvent *event)
 {
 	m_isHovered = false;
-	update();
+	refreshInteractionMotion();
 	QWidget::leaveEvent(event);
+}
+
+void MacroButtonWidget::refreshInteractionMotion()
+{
+	motion.to(m_isPressed ? QPointF(-1, 0) : (m_isHovered ? QPointF(3, 1) : QPointF()), isVisible());
+}
+
+void MacroButtonWidget::hideEvent(QHideEvent *event)
+{
+	m_isPressed = false;
+	m_isHovered = false;
+	motion.to({}, false);
+	QWidget::hideEvent(event);
 }
 
 void MacroButtonWidget::paintEvent(QPaintEvent *event)
@@ -132,14 +143,14 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	painter.setRenderHint(QPainter::TextAntialiasing);
 
 	const double bubble = kBubbleSize;
-	const double bubbleGrowth = m_isPressed ? -1.0 : (m_isHovered ? 3.0 : 0.0);
+	const double bubbleGrowth = motion.value().x();
 	const double radius = (bubble + bubbleGrowth) / 2.0;
 	const QPointF center(width() / 2.0, m_labelHeight + m_controlHeight / 2.0); // shared control row center
 
 	// Hover glow
-	if (m_isHovered && !m_isPressed) {
+	if (motion.value().y() > 0) {
 		QColor glow = m_button.color.lighter(150);
-		glow.setAlpha(80);
+		glow.setAlpha(qRound(80 * motion.value().y()));
 		painter.setPen(Qt::NoPen);
 		painter.setBrush(QBrush(glow));
 		painter.drawEllipse(center, radius + 4.0, radius + 4.0);

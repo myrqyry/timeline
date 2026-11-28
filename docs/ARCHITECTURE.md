@@ -678,6 +678,22 @@ placement, and item snapping (`src/timeline-dock.cpp`). The editor and
 context menu placement flow snap the requested time before creating the event
 (`src/timeline-dock.cpp`).
 
+### Interaction motion
+
+The shared `src/interaction-motion.h` helper uses lazy Qt variant animations
+on the unified GUI animation clock. Hover and press transitions for cue
+bubbles and Macro Strip action buttons interpolate paint state only; direct
+input, cue identity, hit geometry and execution are unchanged. Passive
+knob and XY readback may ease visually while unfocused, without issuing
+intermediate parameter writes. Focused or actively manipulated controls
+snap to their actual value. The Qt style's animation duration is respected
+and capped at 120 ms. No recurring animation tick is required after settling.
+Cue animation invalidates only the bubble's reserved visual rectangle.
+
+These are GUI-thread painting optimizations, not proof that synchronous
+third-party OBS property callbacks have bounded cost. Native OBS frame-time
+profiling remains a separate verification gate.
+
 ### Graphics item lifecycle
 
 `TimelineEventItem` combines `QObject` signals with `QGraphicsEllipseItem`

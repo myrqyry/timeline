@@ -12,6 +12,8 @@ Implement the accepted 100-item improvement program in [the roadmap](.meristem/T
 - Current code checkpoint built with the matching local OBS32 SDK; strict Xvfb Qt/libobs suite: 127 passed, 0 failed, 0 skipped (39.22 s). This is not interactive OBS or hosted cross-platform qualification.
 - Earlier documentation reconciliation has been reviewed and updated to reflect the current branch. Historical handoff remains available via `git show b8adbda:ACTIVE_WORK.md`; machine-specific evidence remains under ignored `.meristem/local/`.
 
+- Follow-up interaction polish: shared paint-only motion for cue and macro action feedback and passive knob/XY readback; direct input and OBS execution remain exact. Current strict suite: 131 passed, zero failures/skips (40.61 s). No change to numbered roadmap counts. Native frame-time profiling remains open.
+
 ## Locked decisions and constraints
 
 - The timeline and scheduled cue sequencing remain central. Keep exact targets fail-closed, edits undoable, and playback clocks independent of visual refresh.

@@ -9,6 +9,7 @@
 #include <QSvgRenderer>
 #include "event-types.h"
 #include "macro-parameter.h"
+#include "interaction-motion.h"
 #include <array>
 #include <functional>
 
@@ -23,6 +24,7 @@ public:
 	// Item dimensions for stacking calculation
 	static constexpr double ITEM_SIZE = 32.0;
 	static constexpr double COMPACT_SIZE = 22.0;
+	static constexpr int VISUAL_PADDING = 9;
 
 	// Limits
 	void setMaxTime(double maxTimeMs);
@@ -93,6 +95,7 @@ public:
 
 private:
 	void refreshRenderer();
+	void refreshInteractionMotion();
 	void refreshCueTooltip();
 	QString durationLabel() const;
 
@@ -143,6 +146,11 @@ private:
 
 	// Hover tracking
 	bool isHovered = false;
+	InteractionMotion motion{[this] {
+		// Repaint just the marker, not the potentially very long duration span.
+		update(QRectF(-VISUAL_PADDING, -VISUAL_PADDING, mItemSize + 2 * VISUAL_PADDING,
+			      mItemSize + 2 * VISUAL_PADDING));
+	}};
 
 	// Duration display
 	bool hasDuration = false;

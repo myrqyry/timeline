@@ -218,6 +218,8 @@ Missing vendors, invalid names and unavailable APIs are logged.
 - Choose Time mode for a manual snap interval or BPM mode for beat
   subdivisions. Ctrl + wheel zooms around the cursor; the settings menu has
   Fit timeline to view for longer sequences.
+- Cue hover and press feedback uses brief eased visual transitions; cue positions
+  and resizing remain immediate.
 - Drag empty timeline space to marquee-select cues; Shift adds and Ctrl
   toggles selection. Drag selected cues together or resize a duration grip;
   Escape cancels the preview. Duration labels appear when they fit.

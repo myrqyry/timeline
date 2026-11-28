@@ -5,6 +5,7 @@
 #include <QString>
 #include <QSvgRenderer>
 #include "macro-button.h"
+#include "interaction-motion.h"
 
 class TestTimelineMacroButtonAccessor;
 
@@ -55,6 +56,7 @@ protected:
 	void paintEvent(QPaintEvent *event) override;
 	void enterEvent(QEnterEvent *event) override;
 	void leaveEvent(QEvent *event) override;
+	void hideEvent(QHideEvent *event) override;
 
 public:
 	QSize sizeHint() const override;
@@ -62,6 +64,7 @@ public:
 
 private:
 	void rebuildRenderer();
+	void refreshInteractionMotion();
 
 	int m_labelHeight = kLabelHeight;
 	int m_controlHeight = kControlHeight;
@@ -71,6 +74,9 @@ private:
 
 	bool m_isHovered = false;
 	bool m_isPressed = false;
+	InteractionMotion motion{[this] {
+		update(QRect(0, m_labelHeight, width(), m_controlHeight));
+	}};
 
 	QColor m_borderColor;
 	QColor m_labelTextColor;
