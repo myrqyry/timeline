@@ -457,6 +457,13 @@ Default Linux locations:
 ~/.config/obs-studio/plugin_config/timeline/macro_buttons.json
 ```
 
+If Timeline starts with a damaged or unreadable configuration, automatic
+saving is blocked. Import a valid document using **Load Timeline** to recover.
+The original file must first be copied to a unique sibling
+`timeline.json.recovery-<uuid>`; if that copy fails, the import is rejected
+and the original remains protected. A successful recovery re-enables automatic
+saving. Invalid imports do not change the current timeline.
+
 A valid legacy installed Macro Strip file at
 `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` is imported
 if the canonical config is absent, without deleting the original.
