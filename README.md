@@ -30,7 +30,10 @@ Build reusable sequences without leaving OBS.
 - Scrub, play, pause, stop, restart or loop at a defined end marker.
 - Customize event colors, labels, SVG icons and durations.
 - Copy, paste, delete and nudge selections; undo or redo the last 100 edits.
-- Zoom, use compact mode, or scroll through stacked event lanes.
+- Zoom around the cursor, fit the timeline, or scroll stacked lanes beneath a pinned ruler.
+- Marquee-select cues, move groups together, resize duration handles and see parameter ramp curves and adaptive duration labels.
+- Mute cues without deleting them; test individual actions while paused and see warnings for unavailable local targets.
+- Insert or remove time from the ruler context menu with one undo step.
 - Save automatically, import/export JSON and trigger nested timelines.
 
 ### Available actions
@@ -163,7 +166,7 @@ Choose the build matching your OBS major version. Do not mix plugin variants.
 | --- | --- |
 | 31 | Linux, Windows and macOS builds (macOS 12+). |
 | 32 | Linux, Windows and macOS builds (macOS 13+). |
-| 33 | Linux x86_64 (Ubuntu 26.04 SDK); module load and scene-switch smoke verified in OBS33 Flatpak. Windows x64 build configured (CI verification pending); macOS not yet supported. |
+| 33 | Historical Linux x86_64 Flatpak smoke verified; Windows x64 configured in the legacy package matrix. Shared CI also configures macOS ARM64/Intel test binaries; none of these new candidate artifacts are release-qualified. See the [release checklist](docs/RELEASE_CHECKLIST.md). |
 
 Preview CI artifacts are available from [GitHub Actions](https://github.com/myrqyry/timeline/actions).
 Windows and macOS runtime installation and interactive testing remain outstanding.
@@ -171,7 +174,8 @@ Windows and macOS runtime installation and interactive testing remain outstandin
 ### Build from source (Linux)
 
 Requirements: CMake 3.28+, C++17, Qt6 development packages, Ninja and matching
-libobs development headers/libraries. Close OBS before installing.
+libobs and OBS frontend API development headers/libraries. Close OBS before
+installing.
 
 ```bash
 cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32

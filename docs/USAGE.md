@@ -216,11 +216,26 @@ Missing vendors, invalid names and unavailable APIs are logged.
 - Events can be placed at the playhead, a double-click or a right-click
   position. Exact time edits and layout changes preserve event timestamps.
 - Choose Time mode for a manual snap interval or BPM mode for beat
-  subdivisions. Zoom spans 5–1,000 pixels per second.
+  subdivisions. Ctrl + wheel zooms around the cursor; the settings menu has
+  Fit timeline to view for longer sequences.
+- Drag empty timeline space to marquee-select cues; Shift adds and Ctrl
+  toggles selection. Drag selected cues together or resize a duration grip;
+  Escape cancels the preview. Duration labels appear when they fit.
+- Right-click a cue to mute/unmute it or, while paused, run an individual
+  action. Duration cues expose separate start and end actions, not a timed
+  audition. Muted cues remain editable and do not normally dispatch; an
+  already-started span retains its ending action.
+- Amber target warnings indicate unavailable local bindings. Checks run
+  only for visible paused cues; external and nested targets are not validated.
+- Right-click the ruler or empty space to insert or remove seconds.
+  Insert shifts later cues; remove deletes cues starting within the range
+  and shifts the rest left. The playhead and explicit end marker stay fixed.
+  Edits starting inside existing duration cues or crossing the end limit
+  are rejected. Each successful edit is one undo step.
 - Drag the playhead to seek and the optional end marker to set the limit.
 - Overlapping events stack into lanes. Compact mode updates the toolbar,
   timecode and event dimensions and recalculates stacking. Extra lanes
-  scroll vertically (including the ruler); ordinary wheel scrolling remains
+  scroll vertically beneath a pinned ruler; ordinary wheel scrolling remains
   horizontal and Ctrl + wheel zooms.
 - Cues exactly at a positive end marker execute before stopping or looping.
   Delayed ticks dispatch due starts/ends in chronological order, with ends

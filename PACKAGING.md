@@ -9,7 +9,8 @@ plugin (project name: `timeline`) for local installation in OBS Studio.
 - C++17 toolchain
 - Qt6 (`Core`, `Gui`, `Widgets`, `Svg`, and `Test` for the default test build)
 - Ninja for the Ubuntu CMake presets
-- `libobs` development headers/libraries (via `pkg-config`)
+- Matching `libobs` and `obs-frontend-api` development headers and libraries
+  discoverable by CMake
 - (Optional) `obs-websocket-api.h` for WebSocket vendor support
 
 ## Configure
@@ -28,7 +29,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 ```
 
 The OBS 31.1.2 and OBS 32.2.1 targets have established cross-platform builds.
-OBS 33.0.1 is a **Linux and Windows x64 compatibility target** (Windows build verification pending): its source archive is
+OBS 33.0.1 is a **Linux x86_64 and Windows x64 compatibility target**: its source archive is
 SHA-256 pinned. The [Linux CI run on b7eb40b](https://github.com/myrqyry/timeline/actions/runs/44660008317)
 passed all 102 strict headless tests for OBS33 on Ubuntu 26.04. A separate
 module build against the installed OBS33 Flatpak's libobs and Qt 6.11.1
@@ -36,8 +37,8 @@ headers, libraries and matching moc loaded both docks and executed a
 scheduled scene change and a Macro Strip return action in a disposable
 OBS33 profile. This local probe used the host C++ compiler, not the
 complete Flatpak SDK; it is not a distributable Flatpak package build.
-Windows OBS33 x64 CI compilation and actual runtime loading, macOS builds,
-and native Ubuntu33 package installation remain separate verification work.
+Hosted build status and remaining native checks are tracked in the
+[release checklist](docs/RELEASE_CHECKLIST.md).
 
 Use Ubuntu 26.04 or a matching SDK environment, not Qt 6.4 host libraries
 with OBS33. The Linux CI workflow builds the selected pinned OBS SDK
@@ -85,17 +86,18 @@ From a developer PowerShell:
     cmake --build --preset windows-obs33-x64
     cmake --install build_obs33_x64 --config RelWithDebInfo
 
-The default target is %ProgramData%/obs-studio/plugins/timeline with
-timeline.dll next to data/locale/en-US.ini. Installing there may require
+The default target is `%ALLUSERSPROFILE%/obs-studio/plugins/timeline`
+(normally under `%ProgramData%`), with `timeline.dll` next to `data/`.
+Installing there may require
 administrator privileges. Close OBS and back up any existing Timeline
 installation first; do not leave an older DLL in another discoverable
 plugin location. CI stages each major separately and produces a
 major-labeled ZIP; it checks the actual archive for the expected layout.
-OBS33 ZIPs contain only the modern DLL path. Existing OBS31/32 packaging
-is unchanged apart from separate staging directories.
+OBS33 ZIPs contain only the modern DLL path. OBS31/32 ZIPs include both
+the legacy `bin/64bit` DLL and the modern root DLL.
 
-The Windows build has not yet passed hosted CI or a real OBS33 load test.
-No ARM64 or macOS OBS33 support is claimed.
+See the [release checklist](docs/RELEASE_CHECKLIST.md) for verification gates.
+The legacy release-package matrix has no macOS OBS33 or Windows ARM64 target. The additive shared qualification workflow separately configures OBS33 macOS ARM64 and Intel test binaries; hosted qualification remains open.
 
 ## Install
 
@@ -110,10 +112,14 @@ Default user install layouts (Linux, use a fresh build directory per major):
 
 | Target | Binary relative to the user plugin directory | User plugin directory |
 | --- | --- | --- |
-| OBS31/32 | `timeline/bin/64bit/timeline.so` | `~/.config/obs-studio/plugins` |
+| OBS31/32 | `timeline/bin/64bit/timeline.so` and `timeline/timeline.so` | `~/.config/obs-studio/plugins` |
 | OBS33 | `timeline/timeline.so` | `$XDG_DATA_HOME/obs-studio/plugins` (fallback `~/.local/share/obs-studio/plugins`) |
 
-Both layouts use `timeline/data/locale/en-US.ini` and preserve writable
+On Windows, OBS31/32 default to `%APPDATA%/obs-studio/plugins/timeline` and
+also install both binary paths. See [Windows OBS33 x64](#windows-obs33-x64)
+for the system-wide OBS33 default.
+
+These plugin layouts use `timeline/data/locale/en-US.ini` and preserve writable
 configuration in the OBS module config directory. OBS33 Flatpak uses
 its sandbox data directory (normally
 `~/.var/app/com.obsproject.Studio/data/obs-studio/plugins` on the host).
@@ -127,12 +133,18 @@ macOS 13 or newer.
 ### CI artifacts and release-mode packages
 
 GitHub Actions builds **separate OBS 31 and OBS 32 variants** for Linux,
-Windows x64 and macOS universal. The Linux packaging matrix includes OBS33
-on Ubuntu 26.04 (CI run 44664678938 passed). The Windows x64 matrix now
-includes OBS33 on windows-2025-vs2026 (verification pending). Each target
-provides a labeled archive or Debian package. The
+Windows x64 and macOS universal. The packaging matrix also includes OBS33
+on Ubuntu 26.04 and on the `windows-2025-vs2026` x64 runner. Each target
+provides a major-labeled archive or Debian package. The
 CI matrix also exercises the Debian `package` target during pull requests so
 release-only packaging failures are caught before tagging.
+
+The additive [shared qualification workflow](.github/workflows/shared-ci.yml)
+also configures OBS 32.2.0 and 33.0.3 test binaries for Linux x86_64, Windows
+x64, macOS ARM64 and macOS Intel. These use a separate pinned SDK driver and
+verified payload format, not the legacy release archives. See
+[shared CI details](.github/scripts/SHARED-CI.md). Current candidate hosted
+results and native runtime loading remain unverified.
 
 - OBS31/32 Debian packages retain `/usr/lib/obs-plugins/` and
   `/usr/share/obs/obs-plugins/timeline/`. OBS33 uses
