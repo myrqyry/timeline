@@ -5343,6 +5343,93 @@ private slots:
 		QVERIFY(ruler->grab().toImage() != before);
 	}
 
+	void testTimelineTargetHealthTracksExactFilterRemovalAndRecovery()
+	{
+		QVERIFY(source_item);
+		auto *filter = obs_source_create("test_filter", "Health original", nullptr, nullptr);
+		auto *replacement = obs_source_create("test_filter", "Health replacement", nullptr, nullptr);
+		QVERIFY(filter && replacement);
+		obs_source_filter_add(source_item, filter);
+		obs_source_filter_add(source_item, replacement);
+		auto cleanup = qScopeGuard([&] {
+			if (obs_filter_get_parent(filter))
+				obs_source_filter_remove(source_item, filter);
+			obs_source_filter_remove(source_item, replacement);
+			obs_source_release(filter);
+			obs_source_release(replacement);
+		});
+		TimelineEvent cue;
+		cue.timeMs = 1000;
+		cue.type = TimelineEventType::FilterEnable;
+		cue.sourceName = QString::fromUtf8(obs_source_get_name(source_item));
+		cue.filterName = "Health original";
+		EventEditor editor(cue);
+		editor.getUpdatedEvent(cue);
+		QVERIFY(cue.data.toString().startsWith("filter:v1:"));
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		initial.addEvent(cue);
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(path, QJsonObject{{"events", initial.toJson()}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		QVERIFY(view && model);
+		TimelineEventItem *marker = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				marker = item;
+		QVERIFY(marker);
+		QVERIFY(!marker->toolTip().contains("TargetMissing"));
+		obs_source_set_name(filter, "Health renamed");
+		obs_source_set_name(replacement, "Health original");
+		obs_source_filter_remove(source_item, filter);
+		QTRY_VERIFY_WITH_TIMEOUT(marker->toolTip().contains("TargetMissing"), 2500);
+		QVERIFY(!model->canUndo());
+		obs_source_filter_add(source_item, filter);
+		QTRY_VERIFY_WITH_TIMEOUT(!marker->toolTip().contains("TargetMissing"), 2500);
+		QVERIFY(!model->canUndo());
+	}
+
+	void testTimelineInlineDurationLabelAdaptsToZoomAndResize()
+	{
+		QGraphicsScene scene;
+		auto *marker = new TimelineEventItem(1000, 100, TimelineEventType::FilterEnable, Qt::red);
+		scene.addItem(marker);
+		marker->setLabelColors(Qt::black, Qt::white);
+		marker->setHasDuration(true);
+		marker->setDuration(3000);
+		auto render = [&](double length) {
+			QImage image(int(length), 36, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			const auto center = marker->mapToScene(marker->rect().center());
+			scene.render(&painter, QRectF(0, 0, length, 36),
+				     QRectF(center.x() + 18, center.y() - 18, length, 36));
+			return image;
+		};
+		auto ink = [](const QImage &image) {
+			int count = 0;
+			for (int y = 0; y < image.height(); ++y)
+				for (int x = 0; x < image.width(); ++x) {
+					const auto c = image.pixelColor(x, y);
+					if (c.red() < 100 && c.green() < 100 && c.blue() < 100)
+						++count;
+				}
+			return count;
+		};
+		const auto wide = render(270);
+		QVERIFY2(ink(wide) > 10, "Wide spans show a readable duration label");
+		marker->setDuration(2500);
+		QVERIFY(wide != render(270));
+		marker->setPixelsPerSecond(5);
+		QCOMPARE(ink(render(270)), 0);
+	}
+
 	void testTimelineRampRenderingShowsDirectionAndEasing()
 	{
 		QTemporaryDir dir;

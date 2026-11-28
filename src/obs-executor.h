@@ -19,6 +19,7 @@ public:
 	ObsExecutor(QObject *parent = nullptr);
 	~ObsExecutor();
 	void setObsWebSocketVendor(void *vendor);
+	static bool hasMissingTarget(const TimelineEvent &evt);
 	void setAncestorPaths(const QStringList &paths) { timelineAncestry = paths; }
 
 public slots:

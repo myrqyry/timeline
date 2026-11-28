@@ -16,6 +16,8 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Seventh implementation batch: #5 implemented, #6 partial. Actual context-menu actions exercised against a real libobs filter; mute round-trip/undo, scheduler bypass of point/duration/freeze/parameter cues, seek behavior and orphan-ending regression verified. Strict OBS 32 Linux Qt/libobs suite passed (37.56s). Manual duration actions explicitly fire individual edges; ramp end samples its endpoint. No automatic timed audition or standalone freeze action. UI blocks these actions during playback/recording and inside paused duration spans. Existing seek/stop semantics are unchanged; no claim of global state rollback. Older builds ignore the new mute field.
 
+- Eighth implementation batch: #72 implemented, #7 partial. Read-only target validation reuses explicit UUID filter/media/scene-item resolution; visible paused cues are checked in rotating batches of four per 750ms. Missing exact filter removal and reattachment, duration rendering at different zooms and resize regressions verified. Strict OBS 32 Linux Qt/libobs suite passed (38.96s). External vendor and nested timeline target validation, transition overrides, signal-driven invalidation and live playback health feedback remain open.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
@@ -26,7 +28,7 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 4. Visual ramp curve and direction (implemented: shared playback easing, bounded normalized samples; short spans retain line and grip)
 5. Per-cue mute/bypass (implemented: persistent, undoable, visibly dimmed; skips start/end/hold/ramp, preserves ending action of an already-started span)
 6. Single-cue test/run now (partial: manual point/start/end execution while paused; full timed audition and independent cancellation remain open)
-7. Broken-target health badges
+7. Broken-target health badges (partial: visible paused cues, scene/source/filter/media/parameter/hotkey checks; external/nested targets and transition overrides not validated)
 8. Ripple insert/delete
 9. Named ruler markers/bookmarks
 10. Cursor-anchored zoom and zoom-to-fit (implemented: fit includes duration endpoints and end marker; content-aware horizontal extent)
@@ -112,7 +114,7 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 ## 71–80: UX and accessibility
 
 71. Optional categorized track view
-72. Zoom-adaptive inline duration labels
+72. Zoom-adaptive inline duration labels (implemented: fit-aware, live resize updates, separate placement for ramp curves)
 73. Native HiDPI SVG rasterization
 74. Keyboard and screen-reader support
 75. Interactive minimap

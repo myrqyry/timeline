@@ -35,6 +35,8 @@ public:
 	// Duration
 	void setDuration(double durationMs);
 	void setMuted(bool muted);
+	void setCueTooltip(const QString &text);
+	void setTargetMissing(bool missing);
 	void setCueMenuAvailability(std::function<bool(bool)> check) { cueMenuAvailability = std::move(check); }
 	void setManualCueType(bool canRun, bool canEnd)
 	{
@@ -91,6 +93,8 @@ public:
 
 private:
 	void refreshRenderer();
+	void refreshCueTooltip();
+	QString durationLabel() const;
 
 	QRectF boundingRect() const override;
 
@@ -143,6 +147,8 @@ private:
 	// Duration display
 	bool hasDuration = false;
 	bool muted = false;
+	bool targetMissing = false;
+	QString cueTooltip;
 	bool manualCanRun = false;
 	bool manualCanEnd = false;
 	std::function<bool(bool)> cueMenuAvailability;

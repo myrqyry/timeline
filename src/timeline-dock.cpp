@@ -172,6 +172,13 @@ TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
 	// Register frontend event callback
 	obs_frontend_add_event_callback(frontendEventCallback, this);
 
+	// Bounded read-only checks, independent of scheduler ticks. Never probe
+	// while playing, recording, hidden or in a direct manipulation gesture.
+	auto *cueHealthTimer = new QTimer(this);
+	cueHealthTimer->setInterval(750);
+	connect(cueHealthTimer, &QTimer::timeout, this, &TimelineDock::refreshVisibleCueHealth);
+	cueHealthTimer->start();
+
 	// Initial Load
 	blog(LOG_INFO, "[Timeline] ├─ Loading data");
 	load();
@@ -2523,6 +2530,32 @@ void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &ev
 	});
 }
 
+void TimelineDock::refreshVisibleCueHealth()
+{
+	if (!isVisible() || !view || !view->isVisible() || scheduler->isPlaying() || isDragging || loadingTimeline ||
+	    automationRecorder.active())
+		return;
+	const auto visible = scene->items(view->mapToScene(view->viewport()->rect()), Qt::IntersectsItemBoundingRect);
+	QList<TimelineEventItem *> cues;
+	for (auto *graphics : visible)
+		if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+			cues.append(item);
+	if (cues.isEmpty()) {
+		cueHealthCursor = 0;
+		return;
+	}
+	// Probe at most four bindings per interval, rotating through visible
+	// cues. In particular, OBS property enumeration is not a paint operation.
+	const int count = std::min(4, int(cues.size()));
+	cueHealthCursor %= cues.size();
+	for (int i = 0; i < count; ++i) {
+		auto *item = cues[(cueHealthCursor + i) % cues.size()];
+		if (const auto evt = model->findEventById(item->getEventId()))
+			item->setTargetMissing(ObsExecutor::hasMissingTarget(*evt));
+	}
+	cueHealthCursor = (cueHealthCursor + count) % cues.size();
+}
+
 void TimelineDock::rebuildEventItems()
 {
 	rebuildScheduled = false;
@@ -2708,7 +2741,7 @@ void TimelineDock::rebuildEventItems()
 				.arg(ms / 10, 2, 10, QChar('0'));
 		if (evt.muted)
 			tooltip.prepend(QString::fromUtf8(obs_module_text("TimelineDock.MutedCue")) + "\n");
-		item->setToolTip(tooltip);
+		item->setCueTooltip(tooltip);
 		if (evt.type == TimelineEventType::FreezeTime)
 			item->setEventLabel(evt.showLabel && !evt.label.isEmpty() ? evt.label : targetDisplay);
 		else

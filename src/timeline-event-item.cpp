@@ -71,7 +71,7 @@ QRectF TimelineEventItem::boundingRect() const
 		// Line goes from center to center + length
 		// We need coverage from center (part of baseRect already) to end
 		// Add vertical padding for the line thickness/cap
-		QRectF lineRect(startX, mItemSize / 2.0 - 10, durationHandleX() - startX + 10, 20);
+		QRectF lineRect(startX, -8, durationHandleX() - startX + 10, mItemSize + 28);
 		totalRect = totalRect.united(lineRect);
 	}
 
@@ -319,6 +319,30 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		}
 		painter->setPen(QPen(eventColor, 3, Qt::SolidLine, Qt::RoundCap));
 		painter->drawLine(QPointF(handleX, mItemSize / 2.0 - 6), QPointF(handleX, mItemSize / 2.0 + 6));
+
+		// Only display a label when it fits between the bubble and the grip.
+		// The pill sits above the line (below for ramps, to preserve the curve).
+		painter->save();
+		QFont font = painter->font();
+		font.setPointSize(8);
+		painter->setFont(font);
+		const QString text = durationLabel();
+		const QFontMetricsF metrics(font);
+		const double width = metrics.horizontalAdvance(text) + 8.0;
+		const double height = metrics.height() + 2.0;
+		const double left = mItemSize + 6.0;
+		const double right = startX + lineLength - 9.0;
+		if (right - left >= width && height <= mItemSize + 4.0) {
+			const QRectF pill((left + right - width) / 2.0,
+					  rampSamples ? mItemSize / 2.0 + 8.0 : mItemSize / 2.0 - height - 2.0, width,
+					  height);
+			painter->setPen(Qt::NoPen);
+			painter->setBrush(labelBgColor.isValid() ? labelBgColor : backgroundColor);
+			painter->drawRoundedRect(pill, 3, 3);
+			painter->setPen(labelTextColor.isValid() ? labelTextColor : borderColor);
+			painter->drawText(pill, Qt::AlignCenter, text);
+		}
+		painter->restore();
 	}
 
 	// Bubble adjustments (Hover grows, Press shrinks)
@@ -363,6 +387,17 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		double pad = compactMode ? 4.0 : 6.0;
 		QRectF iconRect = bubbleRect.adjusted(pad, pad, -pad, -pad);
 		renderer->render(painter, iconRect);
+	}
+
+	// A small status mark stays within the existing selection-ring bounds.
+	if (targetMissing) {
+		const QPointF center(mItemSize - 2, 2);
+		painter->setPen(QPen(backgroundColor, 1.5));
+		painter->setBrush(QColor("#e5a43b"));
+		painter->drawEllipse(center, 6.0, 6.0);
+		painter->setPen(QPen(QColor("#21180c"), 1.5, Qt::SolidLine, Qt::RoundCap));
+		painter->drawLine(center + QPointF(0, -3), center + QPointF(0, 1));
+		painter->drawPoint(center + QPointF(0, 3));
 	}
 
 	// Draw event label centered above the bubble
@@ -430,6 +465,36 @@ void TimelineEventItem::setRampVisualization(const std::optional<MacroParameter:
 	for (size_t i = 0; i < rampSamples->size(); ++i)
 		(*rampSamples)[i] = MacroParameter::rampValue(normalized, double(i) / (rampSamples->size() - 1));
 	update();
+}
+
+QString TimelineEventItem::durationLabel() const
+{
+	if (durationMs < 1000.0)
+		return QString::number(durationMs, 'g', 4) + QStringLiteral(" ms");
+	return QString::number(durationMs / 1000.0, 'g', 5) + QStringLiteral(" s");
+}
+
+void TimelineEventItem::setCueTooltip(const QString &text)
+{
+	if (cueTooltip == text)
+		return;
+	cueTooltip = text;
+	refreshCueTooltip();
+}
+
+void TimelineEventItem::setTargetMissing(bool missing)
+{
+	if (targetMissing == missing)
+		return;
+	targetMissing = missing;
+	refreshCueTooltip();
+	update();
+}
+
+void TimelineEventItem::refreshCueTooltip()
+{
+	setToolTip(targetMissing ? QString::fromUtf8(obs_module_text("TimelineDock.TargetMissing")) + "\n" + cueTooltip
+				 : cueTooltip);
 }
 
 void TimelineEventItem::setMuted(bool value)

@@ -291,6 +291,83 @@ static obs_source_t *find_transition(const char *name)
 	return found;
 }
 
+// Read-only validation. Unknown/external targets are deliberately not
+// declared healthy or broken based on a speculative vendor request.
+bool ObsExecutor::hasMissingTarget(const TimelineEvent &evt)
+{
+	auto available = [](obs_source_t *source) {
+		const bool valid = source && !obs_source_removed(source);
+		if (source)
+			obs_source_release(source);
+		return valid;
+	};
+	const QString payload = evt.data.toString();
+	switch (evt.type) {
+	case TimelineEventType::SceneSwitch:
+	case TimelineEventType::DataConditionalScene: {
+		auto *source = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
+		const bool valid = source && !obs_source_removed(source) && obs_source_is_scene(source);
+		if (source)
+			obs_source_release(source);
+		return !valid;
+	}
+	case TimelineEventType::FilterEnable:
+	case TimelineEventType::FilterDisable: {
+		if (FilterTarget::isExplicit(payload))
+			return !available(FilterTarget::resolve(payload));
+		auto *source = obs_get_source_by_name(evt.sourceName.toUtf8().constData());
+		auto *filter = source && !obs_source_removed(source)
+				       ? obs_source_get_filter_by_name(source, evt.filterName.toUtf8().constData())
+				       : nullptr;
+		if (source)
+			obs_source_release(source);
+		return !available(filter);
+	}
+	case TimelineEventType::SourceShow:
+	case TimelineEventType::SourceHide: {
+		if (SceneItemTarget::isExplicit(payload))
+			return !SceneItemTarget::exists(payload);
+		if (evt.sourceName.isEmpty())
+			return true;
+		const auto name = evt.sourceName.toUtf8();
+		auto exists = [&](obs_source_t *source) {
+			auto *scene = source ? obs_scene_from_source(source) : nullptr;
+			return scene && obs_scene_find_source(scene, name.constData());
+		};
+		auto *current = obs_frontend_get_current_scene();
+		bool found = exists(current);
+		if (current)
+			obs_source_release(current);
+		if (found)
+			return false;
+		obs_frontend_source_list scenes = {};
+		obs_frontend_get_scenes(&scenes);
+		for (size_t i = 0; i < scenes.sources.num && !found; ++i)
+			found = exists(scenes.sources.array[i]);
+		obs_frontend_source_list_free(&scenes);
+		return !found;
+	}
+	case TimelineEventType::MediaStart:
+	case TimelineEventType::MediaStop:
+	case TimelineEventType::MediaPause:
+	case TimelineEventType::MediaResume:
+	case TimelineEventType::MediaSeekTo:
+		return (evt.type == TimelineEventType::MediaSeekTo && !MediaTarget::isExplicit(payload)) ||
+		       !available(MediaTarget::resolve(evt.sourceName, MediaTarget::decode(payload)));
+	case TimelineEventType::SetParameterValue:
+		if (const auto step = MacroParameter::decodeValue(payload))
+			return !MacroParameter::describe(step->binding);
+		if (const auto ramp = MacroParameter::decodeRamp(payload))
+			return !MacroParameter::describe(ramp->start.binding);
+		return true;
+	case TimelineEventType::HotkeyTrigger:
+		return HotkeyCatalog::resolve(evt.sourceName, payload.startsWith("hotkey:") ? payload : QString()) ==
+		       OBS_INVALID_HOTKEY_ID;
+	default:
+		return false;
+	}
+}
+
 void ObsExecutor::handleSceneSwitch(const TimelineEvent &evt)
 {
 	if (evt.sourceName.isEmpty())

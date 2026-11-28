@@ -110,6 +110,7 @@ private:
 	void updatePlayButtonIcon();
 	void updateToolbarIcons();
 	void refreshTheme();
+	void refreshVisibleCueHealth();
 	void updateHistoryControls();
 	void undoEdit();
 	void redoEdit();
@@ -271,6 +272,7 @@ private:
 	bool lastVisualFrozen = false;
 	bool rebuildScheduled = false;
 	QTimer *debounceSaveTimer = nullptr;
+	int cueHealthCursor = 0;
 	bool isDragging = false;
 	QString zoomLabelCache;
 };
