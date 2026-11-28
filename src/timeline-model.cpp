@@ -16,8 +16,8 @@ bool sameEvent(const TimelineEvent &a, const TimelineEvent &b)
 	return a.id == b.id && a.timeMs == b.timeMs && a.type == b.type && a.sourceName == b.sourceName &&
 	       a.filterName == b.filterName && a.data == b.data && a.color == b.color &&
 	       a.customIconPath == b.customIconPath && a.label == b.label && a.showLabel == b.showLabel &&
-	       a.hasDuration == b.hasDuration && a.durationMs == b.durationMs && a.endAction == b.endAction &&
-	       a.endScene == b.endScene;
+	       a.muted == b.muted && a.hasDuration == b.hasDuration && a.durationMs == b.durationMs &&
+	       a.endAction == b.endAction && a.endScene == b.endScene;
 }
 } // namespace
 
@@ -187,6 +187,8 @@ QJsonArray TimelineModel::toJson() const
 		QJsonObject obj;
 		obj["id"] = evt.id;
 		obj["time"] = evt.timeMs;
+		if (evt.muted)
+			obj["muted"] = true;
 		obj["type"] = static_cast<int>(evt.type);
 		obj["source"] = evt.sourceName;
 		if (!evt.filterName.isEmpty()) {
@@ -231,6 +233,7 @@ void TimelineModel::fromJson(const QJsonArray &json)
 			evt.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
 		}
 		evt.timeMs = obj["time"].toDouble();
+		evt.muted = obj["muted"].toBool(false);
 		int typeInt = obj["type"].toInt(-1);
 		constexpr int maxTypeValue = static_cast<int>(TimelineEventType::DataConditionalScene);
 		if (typeInt < 0 || typeInt > maxTypeValue) {

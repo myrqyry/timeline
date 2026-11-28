@@ -90,6 +90,8 @@ void ObsExecutor::cancelAll()
 
 void ObsExecutor::executeEventStart(const TimelineEvent &evt)
 {
+	if (evt.muted)
+		return;
 	if (evt.type == TimelineEventType::DataConditionalScene) {
 		const auto condition = DataCondition::decode(evt.data.toString());
 		if (!condition || !DataCondition::evaluate(*condition)) {
@@ -115,6 +117,8 @@ void ObsExecutor::executeEventStart(const TimelineEvent &evt)
 
 void ObsExecutor::executeEventEnd(const TimelineEvent &evt)
 {
+	if (evt.muted)
+		return;
 	if (evt.type == TimelineEventType::DataConditionalScene)
 		return;
 	performAction(evt, false);
@@ -145,8 +149,8 @@ void ObsExecutor::emitCueTelemetry(const TimelineEvent &evt, const char *phase)
 
 void ObsExecutor::executeParameterProgress(const TimelineEvent &evt, double progress)
 {
-	if (evt.type != TimelineEventType::SetParameterValue || !evt.hasDuration || !std::isfinite(progress) ||
-	    !std::isfinite(evt.durationMs) || evt.durationMs <= 0)
+	if (evt.muted || evt.type != TimelineEventType::SetParameterValue || !evt.hasDuration ||
+	    !std::isfinite(progress) || !std::isfinite(evt.durationMs) || evt.durationMs <= 0)
 		return;
 	if (const auto ramp = MacroParameter::decodeRamp(evt.data.toString()))
 		MacroParameter::write(ramp->start.binding, MacroParameter::rampValue(*ramp, progress),

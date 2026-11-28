@@ -70,6 +70,8 @@ private:
 	bool looping = false;
 	QSet<QString> eventStartFired;
 	QSet<QString> eventEndFired;
+	QHash<QString, TimelineEvent> startedSpans;
+	QSet<QString> bypassedStarts;
 	size_t nextStartIndex = 0;
 	std::vector<size_t> endIndices;
 	size_t nextEndIndex = 0;

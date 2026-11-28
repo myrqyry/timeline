@@ -14,6 +14,8 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Sixth implementation batch: #3 and #4 implemented. Pinned ruler handles horizontal and vertical scroll, hit priority and repaint; ramp direction/easing uses cached samples of the actual playback interpolation. Both new regressions failed before implementation, then passed along with strict OBS 32 Linux Qt/libobs suite (35.12s). Very short ramps keep the standard duration line and grip; interactive OBS rendering and cross-platform verification remain open.
 
+- Seventh implementation batch: #5 implemented, #6 partial. Actual context-menu actions exercised against a real libobs filter; mute round-trip/undo, scheduler bypass of point/duration/freeze/parameter cues, seek behavior and orphan-ending regression verified. Strict OBS 32 Linux Qt/libobs suite passed (37.56s). Manual duration actions explicitly fire individual edges; ramp end samples its endpoint. No automatic timed audition or standalone freeze action. UI blocks these actions during playback/recording and inside paused duration spans. Existing seek/stop semantics are unchanged; no claim of global state rollback. Older builds ignore the new mute field.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
@@ -22,8 +24,8 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 2. Rubber-band selection and group dragging (implemented: modifier selection, shared snapped delta, one undo, Escape cancels)
 3. Viewport-pinned time ruler (implemented: stays visible through vertical scrolling, horizontal time alignment, marker scrubbing)
 4. Visual ramp curve and direction (implemented: shared playback easing, bounded normalized samples; short spans retain line and grip)
-5. Per-cue mute/bypass
-6. Single-cue test/run now
+5. Per-cue mute/bypass (implemented: persistent, undoable, visibly dimmed; skips start/end/hold/ramp, preserves ending action of an already-started span)
+6. Single-cue test/run now (partial: manual point/start/end execution while paused; full timed audition and independent cancellation remain open)
 7. Broken-target health badges
 8. Ripple insert/delete
 9. Named ruler markers/bookmarks

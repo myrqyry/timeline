@@ -2438,8 +2438,46 @@ void TimelineDock::onAddEventClicked()
 	placeNewEvent(scheduler ? scheduler->getCurrentTime() : 0.0);
 }
 
+bool TimelineDock::cueMenuAllowed(const QString &id, bool mute) const
+{
+	if (scheduler->isPlaying() || isDragging || loadingTimeline || automationRecorder.active())
+		return false;
+	const auto evt = model->findEventById(id);
+	if (!evt)
+		return false;
+	const double t = scheduler->getCurrentTime();
+	// Don't change eligibility or manually override a span halfway through
+	// paused playback. Rewind or seek outside the span before editing it.
+	if (evt->hasDuration && t > evt->timeMs && t < evt->timeMs + evt->durationMs)
+		return false;
+	return mute || (!evt->muted && evt->type != TimelineEventType::FreezeTime);
+}
+
 void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &eventId)
 {
+	item->setCueMenuAvailability([this, eventId](bool mute) { return cueMenuAllowed(eventId, mute); });
+	connect(item, &TimelineEventItem::muteRequested, this, [this, eventId] {
+		if (!cueMenuAllowed(eventId, true))
+			return;
+		auto evt = model->findEventById(eventId);
+		evt->muted = !evt->muted;
+		model->replaceEventById(eventId, *evt);
+	});
+	connect(item, &TimelineEventItem::manualExecutionRequested, this, [this, eventId](bool end) {
+		if (!cueMenuAllowed(eventId, false))
+			return;
+		const auto evt = model->findEventById(eventId);
+		if (end) {
+			if (!evt->hasDuration || evt->durationMs <= 0)
+				return;
+			if (evt->type == TimelineEventType::SetParameterValue)
+				executor->executeParameterProgress(*evt, 1.0);
+			else
+				executor->executeEventEnd(*evt);
+		} else {
+			executor->executeEventStart(*evt);
+		}
+	});
 	connect(item, &TimelineEventItem::dragStarted, [this, item]() {
 		isDragging = true;
 		updateHistoryControls();
@@ -2575,6 +2613,10 @@ void TimelineDock::rebuildEventItems()
 
 		item->setHasDuration(evt.hasDuration && evt.type != TimelineEventType::FreezeTime);
 		item->setDuration(evt.durationMs);
+		item->setMuted(evt.muted);
+		item->setManualCueType(evt.type != TimelineEventType::FreezeTime,
+				       evt.hasDuration && evt.durationMs > 0 &&
+					       evt.type != TimelineEventType::FreezeTime);
 		item->setRampVisualization(evt.type == TimelineEventType::SetParameterValue && evt.hasDuration
 						   ? MacroParameter::decodeRamp(evt.data.toString())
 						   : std::nullopt);
@@ -2664,6 +2706,8 @@ void TimelineDock::rebuildEventItems()
 				.arg(minutes, 2, 10, QChar('0'))
 				.arg(seconds, 2, 10, QChar('0'))
 				.arg(ms / 10, 2, 10, QChar('0'));
+		if (evt.muted)
+			tooltip.prepend(QString::fromUtf8(obs_module_text("TimelineDock.MutedCue")) + "\n");
 		item->setToolTip(tooltip);
 		if (evt.type == TimelineEventType::FreezeTime)
 			item->setEventLabel(evt.showLabel && !evt.label.isEmpty() ? evt.label : targetDisplay);

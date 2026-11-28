@@ -19,11 +19,17 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 			nextStartIndex = 0;
 			QSet<QString> newStartFired;
 			QSet<QString> newEndFired;
+			QSet<QString> newBypassed;
+			QSet<QString> currentIds;
 
 			for (const auto &evt : evts) {
+				currentIds.insert(evt.id);
 				if (evt.timeMs < t ||
 				    (isFrozen() && evt.timeMs == t && eventStartFired.contains(evt.id))) {
 					newStartFired.insert(evt.id);
+					if (bypassedStarts.contains(evt.id) ||
+					    (evt.muted && !startedSpans.contains(evt.id)))
+						newBypassed.insert(evt.id);
 				}
 				if (evt.type != TimelineEventType::FreezeTime && evt.hasDuration &&
 				    evt.durationMs > 0) {
@@ -36,6 +42,13 @@ TimelineScheduler::TimelineScheduler(TimelineModel *model, QObject *parent) : QO
 
 			eventStartFired = newStartFired;
 			eventEndFired = newEndFired;
+			bypassedStarts = newBypassed;
+			for (auto it = startedSpans.begin(); it != startedSpans.end();) {
+				if (!currentIds.contains(it.key()) || eventEndFired.contains(it.key()))
+					it = startedSpans.erase(it);
+				else
+					++it;
+			}
 			rebuildEndIndex();
 			rebuildParameterRamps(t);
 		});
@@ -113,11 +126,15 @@ void TimelineScheduler::seek(double timeMs)
 		const auto &events = model->getEvents();
 		eventStartFired.clear();
 		eventEndFired.clear();
+		startedSpans.clear();
+		bypassedStarts.clear();
 		nextStartIndex = 0;
 		rebuildEndIndex();
 		for (const auto &evt : events) {
 			if (evt.timeMs < timeMs) {
 				eventStartFired.insert(evt.id);
+				if (evt.muted)
+					bypassedStarts.insert(evt.id);
 			}
 			// Only duration events have an "end" to track —
 			// instant events never emit eventEnded.
@@ -178,7 +195,7 @@ void TimelineScheduler::beginDueFreeze(double &timeMs)
 	double wait = 0.0;
 	for (size_t i = nextStartIndex; i < events.size() && events[i].timeMs <= timeMs; ++i) {
 		const auto &evt = events[i];
-		if (eventStartFired.contains(evt.id))
+		if (evt.muted || eventStartFired.contains(evt.id))
 			continue;
 		const double duration = freezeDurationMs(evt);
 		if (duration <= 0.0)
@@ -237,6 +254,8 @@ void TimelineScheduler::onTimerTick()
 		startTime = std::chrono::steady_clock::now();
 		eventStartFired.clear();
 		eventEndFired.clear();
+		startedSpans.clear();
+		bypassedStarts.clear();
 		nextStartIndex = 0;
 		nextEndIndex = 0;
 		parameterRamps.clear();
@@ -255,7 +274,7 @@ void TimelineScheduler::onTimerTick()
 
 void TimelineScheduler::registerParameterCue(const TimelineEvent &evt)
 {
-	if (evt.type != TimelineEventType::SetParameterValue)
+	if (evt.muted || evt.type != TimelineEventType::SetParameterValue)
 		return;
 	if (const auto step = MacroParameter::decodeValue(evt.data.toString())) {
 		parameterRamps.remove(MacroParameter::bindingIdentity(step->binding));
@@ -273,7 +292,7 @@ void TimelineScheduler::rebuildParameterRamps(double timeMs)
 	for (const auto &evt : model->getEvents()) {
 		if (evt.timeMs > timeMs)
 			break;
-		if (eventStartFired.contains(evt.id))
+		if (eventStartFired.contains(evt.id) && !bypassedStarts.contains(evt.id))
 			registerParameterCue(evt);
 	}
 	// Do not replay completed animations on a seek.
@@ -376,12 +395,27 @@ void TimelineScheduler::dispatchDueCues(double timeMs)
 		if (!playing || clockRevision != revision)
 			return;
 		fired.insert(cue.event.id);
-		if (!cue.isEnd)
+		if (cue.isEnd) {
+			// A duration that really started before being muted still owns its
+			// original ending action. Muted-from-start cues have no such edge.
+			std::optional<TimelineEvent> active;
+			if (auto it = startedSpans.find(cue.event.id); it != startedSpans.end()) {
+				active = it.value();
+				startedSpans.erase(it);
+			}
+			if (!cue.event.muted && !bypassedStarts.contains(cue.event.id))
+				emit eventEnded(cue.event);
+			else if (active)
+				emit eventEnded(*active);
+		} else if (cue.event.muted) {
+			bypassedStarts.insert(cue.event.id);
+		} else {
+			if (cue.event.hasDuration && cue.event.durationMs > 0 &&
+			    cue.event.type != TimelineEventType::FreezeTime)
+				startedSpans.insert(cue.event.id, cue.event);
 			registerParameterCue(cue.event);
-		if (cue.isEnd)
-			emit eventEnded(cue.event);
-		else
 			emit eventStarted(cue.event);
+		}
 	}
 	if (playing && clockRevision == revision)
 		sampleParameterRamps(timeMs);

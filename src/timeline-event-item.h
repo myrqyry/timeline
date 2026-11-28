@@ -10,6 +10,7 @@
 #include "event-types.h"
 #include "macro-parameter.h"
 #include <array>
+#include <functional>
 
 class TimelineEventItem : public QObject, public QGraphicsEllipseItem {
 	Q_OBJECT
@@ -33,6 +34,13 @@ public:
 
 	// Duration
 	void setDuration(double durationMs);
+	void setMuted(bool muted);
+	void setCueMenuAvailability(std::function<bool(bool)> check) { cueMenuAvailability = std::move(check); }
+	void setManualCueType(bool canRun, bool canEnd)
+	{
+		manualCanRun = canRun;
+		manualCanEnd = canEnd;
+	}
 	void setRampVisualization(const std::optional<MacroParameter::Ramp> &ramp);
 	void setHasDuration(bool enabled);
 	bool durationHandleContains(const QPointF &scenePoint) const;
@@ -93,6 +101,8 @@ signals:
 	void doubleClicked();
 	void deleteRequested();
 	void colorChangeRequested();
+	void muteRequested();
+	void manualExecutionRequested(bool end);
 
 protected:
 	void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
@@ -132,6 +142,10 @@ private:
 
 	// Duration display
 	bool hasDuration = false;
+	bool muted = false;
+	bool manualCanRun = false;
+	bool manualCanEnd = false;
+	std::function<bool(bool)> cueMenuAvailability;
 	double durationMs = 0.0;
 	std::optional<std::array<double, 33>> rampSamples;
 	QString rampEasing;

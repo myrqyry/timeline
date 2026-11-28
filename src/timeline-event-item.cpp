@@ -225,10 +225,30 @@ void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
 	QAction *editAction = menu.addAction(obs_module_text("TimelineDock.EditEventLabel"));
 	QAction *colorAction = menu.addAction(obs_module_text("TimelineDock.SetColor"));
 	menu.addSeparator();
+	auto *muteAction = menu.addAction(obs_module_text(muted ? "TimelineDock.UnmuteCue" : "TimelineDock.MuteCue"));
+	muteAction->setObjectName("timeline-cue-mute-action");
+	muteAction->setEnabled(cueMenuAvailability && cueMenuAvailability(true));
+	auto *runAction =
+		menu.addAction(obs_module_text(hasDuration ? "TimelineDock.RunCueStart" : "TimelineDock.RunCueNow"));
+	runAction->setObjectName("timeline-cue-run-start-action");
+	runAction->setEnabled(manualCanRun && !muted && cueMenuAvailability && cueMenuAvailability(false));
+	QAction *endAction = nullptr;
+	if (hasDuration && manualCanEnd) {
+		endAction = menu.addAction(obs_module_text("TimelineDock.RunCueEnd"));
+		endAction->setObjectName("timeline-cue-run-end-action");
+		endAction->setEnabled(!muted && cueMenuAvailability && cueMenuAvailability(false));
+	}
+	menu.addSeparator();
 	QAction *deleteAction = menu.addAction(obs_module_text("TimelineDock.DeleteEventLabel"));
 
 	QAction *selected = menu.exec(event->screenPos());
-	if (selected == deleteAction) {
+	if (!selected)
+		return;
+	if (selected == muteAction) {
+		emit muteRequested();
+	} else if (selected == runAction || selected == endAction) {
+		emit manualExecutionRequested(selected == endAction);
+	} else if (selected == deleteAction) {
 		emit deleteRequested();
 	} else if (selected == editAction) {
 		emit doubleClicked();
@@ -409,6 +429,15 @@ void TimelineEventItem::setRampVisualization(const std::optional<MacroParameter:
 	rampSamples.emplace();
 	for (size_t i = 0; i < rampSamples->size(); ++i)
 		(*rampSamples)[i] = MacroParameter::rampValue(normalized, double(i) / (rampSamples->size() - 1));
+	update();
+}
+
+void TimelineEventItem::setMuted(bool value)
+{
+	if (muted == value)
+		return;
+	muted = value;
+	setOpacity(muted ? 0.45 : 1.0);
 	update();
 }
 

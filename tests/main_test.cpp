@@ -2274,6 +2274,171 @@ private slots:
 		QCOMPARE(static_cast<int>(model.getEvents().size()), 1);
 	}
 
+	void testMutedCuesSkipAllPlaybackEdgesAndRampWrites()
+	{
+		TimelineEvent span, hold, ramp, step, audible;
+		span.hasDuration = true;
+		span.durationMs = 30;
+		hold.type = TimelineEventType::FreezeTime;
+		hold.timeMs = 5;
+		hold.data = 500.0;
+		MacroParameterBinding binding{"source", {}, "gain", MacroParameterType::Float};
+		ramp.type = TimelineEventType::SetParameterValue;
+		ramp.hasDuration = true;
+		ramp.durationMs = 50;
+		ramp.data = MacroParameter::encodeRamp({{binding, 0.0}, 1.0, "linear"});
+		step.type = TimelineEventType::SetParameterValue;
+		step.timeMs = 10;
+		step.data = MacroParameter::encodeValue({binding, 0.5});
+		audible.timeMs = 20;
+		TimelineModel initial, model;
+		initial.addEvents({span, hold, ramp, step, audible});
+		auto json = initial.toJson();
+		for (int i = 0; i < json.size(); ++i) {
+			auto obj = json[i].toObject();
+			if (obj["id"].toString() != audible.id)
+				obj["muted"] = true;
+			json[i] = obj;
+		}
+		model.fromJson(json);
+		TimelineScheduler scheduler(&model);
+		QStringList starts, ends, samples;
+		connect(&scheduler, &TimelineScheduler::eventStarted, this,
+			[&](const TimelineEvent &e) { starts << e.id; });
+		connect(&scheduler, &TimelineScheduler::eventEnded, this,
+			[&](const TimelineEvent &e) { ends << e.id; });
+		connect(&scheduler, &TimelineScheduler::parameterProgress, this,
+			[&](const TimelineEvent &e, double) { samples << e.id; });
+		scheduler.setEndTime(60);
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 250);
+		QCOMPARE(starts, QStringList{audible.id});
+		QVERIFY(ends.isEmpty());
+		QVERIFY(samples.isEmpty());
+		scheduler.seek(15);
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 250);
+		QCOMPARE(starts, (QStringList{audible.id, audible.id}));
+		QVERIFY(ends.isEmpty());
+		QVERIFY(samples.isEmpty());
+		const auto roundTrip = model.toJson();
+		for (const auto &v : roundTrip)
+			if (v.toObject()["id"].toString() != audible.id)
+				QVERIFY(v.toObject()["muted"].toBool());
+	}
+
+	void testMutedSpanPreservesAnAlreadyStartedEndingButNeverCreatesOrphanEnd()
+	{
+		TimelineEvent span;
+		span.type = TimelineEventType::FilterEnable;
+		span.hasDuration = true;
+		span.durationMs = 1000;
+		TimelineModel model;
+		model.setHistoryEnabled(true);
+		model.addEvent(span);
+		TimelineScheduler scheduler(&model);
+		QStringList starts, ends;
+		connect(&scheduler, &TimelineScheduler::eventStarted, this,
+			[&](const TimelineEvent &e) { starts << e.id; });
+		connect(&scheduler, &TimelineScheduler::eventEnded, this,
+			[&](const TimelineEvent &e) { ends << e.id; });
+		scheduler.start();
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		scheduler.pause();
+		QCOMPARE(starts, QStringList{span.id});
+		auto muted = span;
+		muted.muted = true;
+		QVERIFY(model.replaceEventById(span.id, muted));
+		scheduler.setEndTime(1000);
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 1600);
+		QCOMPARE(ends, QStringList{span.id});
+		scheduler.restart();
+		scheduler.start();
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QTest::qSleep(5);
+		scheduler.pause();
+		QVERIFY(model.replaceEventById(span.id, span));
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 1600);
+		QCOMPARE(starts, QStringList{span.id});
+		QCOMPARE(ends, QStringList{span.id});
+	}
+
+	void testTimelineCueMenuMuteAndManualExecution()
+	{
+		auto *filter = obs_source_create("test_filter", "Manual cue filter", nullptr, nullptr);
+		QVERIFY(filter && source_item);
+		obs_source_filter_add(source_item, filter);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_filter_remove(source_item, filter);
+			obs_source_remove(filter);
+			obs_source_release(filter);
+		});
+		obs_source_set_enabled(filter, false);
+		TimelineEvent cue;
+		cue.type = TimelineEventType::FilterEnable;
+		cue.sourceName = QString::fromUtf8(obs_source_get_name(source_item));
+		cue.filterName = "Manual cue filter";
+		cue.timeMs = 2000;
+		cue.hasDuration = true;
+		cue.durationMs = 500;
+		TimelineModel initial;
+		initial.addEvent(cue);
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(path, QJsonObject{{"events", initial.toJson()}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(model && scheduler && view);
+		TimelineEventItem *marker = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				marker = item;
+		QVERIFY(marker);
+		auto choose = [&](const QString &name) {
+			bool found = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions())
+					if (action->objectName() == name && action->isEnabled()) {
+						found = true;
+						QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+								  menu->actionGeometry(action).center());
+						return;
+					}
+				menu->close();
+			});
+			const auto center = marker->mapToScene(marker->rect().center());
+			const auto pos = view->mapFromScene(center);
+			QContextMenuEvent event(QContextMenuEvent::Mouse, pos, view->viewport()->mapToGlobal(pos));
+			QCoreApplication::sendEvent(view->viewport(), &event);
+			QCoreApplication::processEvents();
+			return found;
+		};
+		QVERIFY(choose("timeline-cue-mute-action"));
+		QVERIFY(model->toJson().first().toObject()["muted"].toBool());
+		QVERIFY(marker->opacity() < 1.0);
+		QVERIFY(model->undo());
+		QCoreApplication::processEvents();
+		QVERIFY(!model->toJson().first().toObject()["muted"].toBool());
+		QCOMPARE(marker->opacity(), 1.0);
+		QVERIFY(choose("timeline-cue-run-start-action"));
+		QVERIFY(obs_source_enabled(filter));
+		QVERIFY(choose("timeline-cue-run-end-action"));
+		QVERIFY(!obs_source_enabled(filter));
+		QCOMPARE(scheduler->getCurrentTime(), 0.0);
+		QVERIFY(!model->canUndo());
+	}
+
 	void testSchedulerStartEndSignalsAndSeek()
 	{
 		TimelineModel model;
