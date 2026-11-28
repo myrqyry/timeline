@@ -1,12 +1,15 @@
 #include <QGraphicsScene>
+#include <QPainter>
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QScopeGuard>
 #include <QDoubleSpinBox>
 #include <QGraphicsSceneMouseEvent>
+#include <QGraphicsSceneHoverEvent>
 #include <QTest>
 #include <QSignalSpy>
 #include <QScrollArea>
+#include <QTabBar>
 #include <QScrollBar>
 #include <QFontMetrics>
 #include <QMetaObject>
@@ -63,6 +66,7 @@
 
 // Mock helpers from mock_frontend.cpp
 extern QJsonObject g_websocket_last_request;
+extern QJsonArray g_websocket_events;
 extern int g_websocket_request_count;
 extern bool g_websocket_available;
 extern bool g_websocket_dsk_success;
@@ -104,6 +108,7 @@ void setOffscreenPlatform()
 }
 
 struct ParameterProbe {
+	std::atomic<int> propertyReads{0};
 	std::atomic<double> gain{0.25};
 	std::atomic<int> count{4};
 	std::atomic<bool> enabled{true};
@@ -303,6 +308,8 @@ private slots:
 			obs_data_set_default_string(settings, "untouched", "keep");
 		};
 		parameter.get_properties = [](void *data) {
+			if (data)
+				++static_cast<ParameterProbe *>(data)->propertyReads;
 			auto *props = obs_properties_create();
 			obs_properties_add_bool(props, "enabled", "Enabled");
 			auto *group = obs_properties_create();
@@ -444,6 +451,7 @@ private slots:
 	void init()
 	{
 		g_websocket_last_request = {};
+		g_websocket_events = {};
 		g_websocket_request_count = 0;
 		g_websocket_available = true;
 		g_websocket_dsk_success = true;
@@ -1550,6 +1558,54 @@ private slots:
 		QVERIFY(!obs_source_enabled(filter)); // historical inverse
 	}
 
+	void testFilterCueKeepsExactIdentityAcrossRenamesAndReplacement()
+	{
+		QVERIFY(source_item && scene1);
+		auto *original = obs_source_create("test_filter", "Exact filter", nullptr, nullptr);
+		auto *replacement = obs_source_create("test_filter", "Other filter", nullptr, nullptr);
+		QVERIFY(original && replacement);
+		obs_source_filter_add(source_item, original);
+		obs_source_filter_add(source_item, replacement);
+		auto cleanup = qScopeGuard([&] {
+			if (obs_filter_get_parent(original))
+				obs_source_filter_remove(source_item, original);
+			obs_source_filter_remove(source_item, replacement);
+			obs_source_release(original);
+			obs_source_release(replacement);
+		});
+		TimelineEvent saved;
+		saved.type = TimelineEventType::FilterDisable;
+		saved.sourceName = "MySource";
+		saved.filterName = "Exact filter";
+		EventEditor editor(saved);
+		TimelineEvent cue = saved;
+		editor.getUpdatedEvent(cue);
+		QVERIFY(cue.data.toString().startsWith("filter:v1:"));
+		TimelineModel model, restored;
+		model.addEvent(cue);
+		restored.fromJson(model.toJson());
+		cue = restored.getEvents().front();
+		obs_source_set_name(original, "Renamed filter");
+		obs_source_set_name(replacement, "Exact filter");
+		obs_source_set_enabled(original, true);
+		obs_source_set_enabled(replacement, true);
+		ObsExecutor executor;
+		executor.executeEventStart(cue);
+		QVERIFY(!obs_source_enabled(original));
+		QVERIFY(obs_source_enabled(replacement));
+		EventEditor reopened(cue);
+		TimelineEvent edited = cue;
+		reopened.getUpdatedEvent(edited);
+		QCOMPARE(edited.data, cue.data);
+		QCOMPARE(edited.filterName, QString("Renamed filter"));
+		obs_source_filter_remove(source_item, original);
+		executor.executeEventStart(cue);
+		QVERIFY(obs_source_enabled(replacement));
+		EventEditor missing(cue);
+		missing.getUpdatedEvent(edited);
+		QCOMPARE(edited.data, cue.data);
+	}
+
 	void testDurationFilterDisableReenablesOnEnd()
 	{
 		if (!source_item)
@@ -1571,6 +1627,80 @@ private slots:
 		QVERIFY(!obs_source_enabled(filter_item));
 		executor.executeEventEnd(evt);
 		QVERIFY(obs_source_enabled(filter_item));
+	}
+
+	void testNestedTimelineEmitsIdentifiableVendorEvents()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("nested.json");
+		TimelineEvent child;
+		child.type = TimelineEventType::SceneSwitch;
+		child.sourceName = "Scene 1";
+		child.label = "Nested cue";
+		TimelineModel model;
+		model.addEvent(child);
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", model.toJson()}, {"settings", QJsonObject{{"endTime", 1.0}}}}));
+		ObsExecutor executor;
+		executor.setObsWebSocketVendor(reinterpret_cast<void *>(0x12345678));
+		TimelineEvent trigger;
+		trigger.type = TimelineEventType::TriggerTimeline;
+		trigger.data = path;
+		executor.executeEventStart(trigger);
+		QTRY_VERIFY_WITH_TIMEOUT(g_websocket_events.size() >= 2, 1000);
+		bool nestedSeen = false;
+		for (const auto &value : g_websocket_events) {
+			const auto event = value.toObject();
+			if (event["eventId"].toString() == child.id) {
+				QCOMPARE(event["label"].toString(), child.label);
+				QVERIFY(event["isNested"].toBool());
+				nestedSeen = true;
+			}
+		}
+		QVERIFY(nestedSeen);
+	}
+
+	void testNestedTimelineTreeHasDepthAndConcurrencyLimits()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		auto write = [&](int index, const QJsonArray &events) {
+			return TimelineSerialization::saveToFile(
+				dir.filePath(QString::number(index) + ".json"),
+				QJsonObject{{"events", events}, {"settings", QJsonObject{{"endTime", 4.0}}}});
+		};
+		for (int i = 0; i < 10; ++i) {
+			TimelineModel model;
+			if (i < 9) {
+				TimelineEvent trigger;
+				trigger.type = TimelineEventType::TriggerTimeline;
+				trigger.data = dir.filePath(QString::number(i + 1) + ".json");
+				model.addEvent(trigger);
+			}
+			QVERIFY(write(i, model.toJson()));
+		}
+		{
+			ObsExecutor executor;
+			TimelineEvent trigger;
+			trigger.type = TimelineEventType::TriggerTimeline;
+			trigger.data = dir.filePath("0.json");
+			executor.executeEventStart(trigger);
+			QTRY_VERIFY_WITH_TIMEOUT(executor.findChildren<HeadlessTimeline *>().size() >= 8, 2000);
+			QTest::qWait(150);
+			QCOMPARE(executor.findChildren<HeadlessTimeline *>().size(), 8);
+		}
+		{
+			ObsExecutor executor;
+			TimelineEvent trigger;
+			trigger.type = TimelineEventType::TriggerTimeline;
+			for (int i = 10; i < 30; ++i) {
+				QVERIFY(write(i, QJsonArray{}));
+				trigger.data = dir.filePath(QString::number(i) + ".json");
+				executor.executeEventStart(trigger);
+			}
+			QCOMPARE(executor.findChildren<HeadlessTimeline *>().size(), 16);
+		}
 	}
 
 	void testNestedTimelineCycleDoesNotCreateRecursiveChildren()
@@ -1678,6 +1808,69 @@ private slots:
 	{
 		QCOMPARE(TimelineHitTesting::kMarkerHandleSizePx,
 			 static_cast<int>(TimelineHitTesting::kMarkerGrabRadiusPx * 2.0));
+	}
+
+	void testTimelineRecoveryImportPreservesOriginalAndResumesPersistence()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		const auto imported = dir.filePath("import.json");
+		const QByteArray corrupt = "{broken config";
+		{
+			QFile file(path);
+			QVERIFY(file.open(QIODevice::WriteOnly));
+			QCOMPARE(file.write(corrupt), corrupt.size());
+		}
+		TimelineModel initial;
+		TimelineEvent cue;
+		cue.id = "recovered";
+		cue.type = TimelineEventType::SceneSwitch;
+		cue.timeMs = 1234;
+		initial.addEvent(cue);
+		QVERIFY(TimelineSerialization::saveToFile(imported, QJsonObject{{"events", initial.toJson()}}));
+		{
+			TimelineDock dock(nullptr, path);
+			auto *model = dock.findChild<TimelineModel *>();
+			QVERIFY(model);
+			dock.save();
+			{
+				QFile original(path);
+				QVERIFY(original.open(QIODevice::ReadOnly));
+				QCOMPARE(original.readAll(), corrupt);
+			}
+			QString error;
+			QVERIFY(!dock.importTimelineFile(path, &error));
+			QVERIFY(QDir(dir.path()).entryList({"timeline.json.recovery-*"}, QDir::Files).isEmpty());
+			QVERIFY2(dock.importTimelineFile(imported, &error), qPrintable(error));
+			QCOMPARE(model->getEvents().size(), 1);
+			const auto backups = QDir(dir.path()).entryList({"timeline.json.recovery-*"}, QDir::Files);
+			QCOMPARE(backups.size(), 1);
+			QFile backup(dir.filePath(backups.first()));
+			QVERIFY(backup.open(QIODevice::ReadOnly));
+			QCOMPARE(backup.readAll(), corrupt);
+			cue.id = "later-edit";
+			cue.timeMs = 2345;
+			model->addEvent(cue);
+			dock.save();
+		}
+		TimelineDock restored(nullptr, path);
+		auto *model = restored.findChild<TimelineModel *>();
+		QVERIFY(model);
+		QCOMPARE(model->getEvents().size(), 2);
+		QCOMPARE(model->getEvents().back().id, QString("later-edit"));
+
+		// A recovery which cannot preserve the original must not import or
+		// clear the guard.
+		const auto blockedPath = dir.filePath("blocked.json");
+		QVERIFY(QDir().mkdir(blockedPath));
+		TimelineDock blocked(nullptr, blockedPath);
+		QString error;
+		QVERIFY(!blocked.importTimelineFile(imported, &error));
+		QVERIFY(!error.isEmpty());
+		QVERIFY(blocked.findChild<TimelineModel *>()->getEvents().empty());
+		blocked.save();
+		QVERIFY(QFileInfo(blockedPath).isDir());
 	}
 
 	void testTimelineCenteredDefaultAndClockDivider()
@@ -2146,6 +2339,301 @@ private slots:
 		QCOMPARE(static_cast<int>(model.getEvents().size()), 1);
 	}
 
+	void testRippleTimeRejectsUnsafeBoundariesWithoutChangingHistory()
+	{
+		TimelineEvent span, hold, boundary, beyond;
+		span.timeMs = 1000;
+		span.hasDuration = true;
+		span.durationMs = 500;
+		hold.type = TimelineEventType::FreezeTime;
+		hold.timeMs = 2000;
+		hold.data = 5000.0;
+		boundary.timeMs = 2500;
+		beyond.timeMs = 4000;
+		TimelineModel model;
+		model.fromJson([&] {
+			TimelineModel initial;
+			initial.addEvents({span, hold, boundary, beyond});
+			return initial.toJson();
+		}());
+		model.setHistoryEnabled(true);
+		QSignalSpy changes(&model, &TimelineModel::modelChanged);
+		const auto original = model.toJson();
+		using Result = TimelineModel::RippleResult;
+		QCOMPARE(model.rippleTime(1200, 100, false), Result::CrossingSpan);
+		QCOMPARE(model.rippleTime(1200, 100, true), Result::CrossingSpan);
+		QCOMPARE(model.rippleTime(2500, 2000, false, 5000), Result::EndLimit);
+		QCOMPARE(model.rippleTime(4500, 1000, true, 5000), Result::EndLimit);
+		QCOMPARE(model.rippleTime(-1, 100, false), Result::InvalidRange);
+		QCOMPARE(model.rippleTime(0, 0, true), Result::InvalidRange);
+		QCOMPARE(model.rippleTime(0, std::numeric_limits<double>::infinity(), false), Result::InvalidRange);
+		QCOMPARE(model.rippleTime(4500, 100, false), Result::NoChange);
+		QCOMPARE(model.toJson(), original);
+		QCOMPARE(changes.count(), 0);
+		QVERIFY(!model.canUndo());
+
+		// A freeze is not a timeline-length span; removing its start
+		// deletes the whole hold, and the far boundary survives.
+		QCOMPARE(model.rippleTime(2000, 500, true), Result::Changed);
+		QVERIFY(!model.findEventById(hold.id));
+		QCOMPARE(model.findEventById(boundary.id)->timeMs, 2000.0);
+		QCOMPARE(model.findEventById(beyond.id)->timeMs, 3500.0);
+		QCOMPARE(model.findEventById(span.id)->durationMs, 500.0);
+		QCOMPARE(changes.count(), 1);
+		QVERIFY(model.undo());
+		QCOMPARE(model.toJson(), original);
+	}
+
+	void testTimelineRippleMenuEditsTimeAsOneUndoableTransaction()
+	{
+		TimelineEvent before, first, second, last;
+		before.timeMs = 500;
+		first.timeMs = 1500;
+		first.hasDuration = true;
+		first.durationMs = 250;
+		second.timeMs = 2000;
+		second.muted = true;
+		last.timeMs = 3500;
+		TimelineModel initial;
+		initial.addEvents({before, first, second, last});
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path,
+			QJsonObject{{"events", initial.toJson()},
+				    {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}, {"endTime", 10.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && model && scheduler);
+		auto choose = [&](const QString &name, double at, double seconds) {
+			bool found = false;
+			bool entered = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions()) {
+					if (action->objectName() != name || !action->isEnabled())
+						continue;
+					found = true;
+					QTimer::singleShot(0, &dock, [&] {
+						auto *dialog =
+							qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+						if (dialog) {
+							entered = true;
+							dialog->setDoubleValue(seconds);
+							dialog->accept();
+						}
+					});
+					QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+							  menu->actionGeometry(action).center());
+					return;
+				}
+				menu->close();
+			});
+			const QPoint pos(view->mapFromScene(QPointF(at / 10.0, 0)).x(), 10);
+			QContextMenuEvent event(QContextMenuEvent::Mouse, pos, view->viewport()->mapToGlobal(pos));
+			QCoreApplication::sendEvent(view->viewport(), &event);
+			QCoreApplication::processEvents();
+			return found && entered;
+		};
+		const auto original = model->toJson();
+		QSignalSpy changes(model, &TimelineModel::modelChanged);
+		QVERIFY(choose("timeline-ripple-insert-action", 1500, 1.0));
+		QCOMPARE(changes.count(), 1);
+		QCOMPARE(model->findEventById(before.id)->timeMs, 500.0);
+		QCOMPARE(model->findEventById(first.id)->timeMs, 2500.0);
+		QCOMPARE(model->findEventById(first.id)->durationMs, 250.0);
+		QCOMPARE(model->findEventById(second.id)->timeMs, 3000.0);
+		QVERIFY(model->findEventById(second.id)->muted);
+		QCOMPARE(model->findEventById(last.id)->timeMs, 4500.0);
+		QCOMPARE(scheduler->getEndTime(), 10000.0);
+		QCOMPARE(scheduler->getCurrentTime(), 0.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->toJson(), original);
+		QVERIFY(!model->canUndo());
+		QVERIFY(model->redo());
+		QVERIFY(choose("timeline-ripple-delete-action", 2500, 0.5));
+		QVERIFY(!model->findEventById(first.id));
+		QCOMPARE(model->findEventById(second.id)->timeMs, 2500.0);
+		QCOMPARE(model->findEventById(last.id)->timeMs, 4000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->findEventById(first.id)->timeMs, 2500.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->toJson(), original);
+	}
+
+	void testMutedCuesSkipAllPlaybackEdgesAndRampWrites()
+	{
+		TimelineEvent span, hold, ramp, step, audible;
+		span.hasDuration = true;
+		span.durationMs = 30;
+		hold.type = TimelineEventType::FreezeTime;
+		hold.timeMs = 5;
+		hold.data = 500.0;
+		MacroParameterBinding binding{"source", {}, "gain", MacroParameterType::Float};
+		ramp.type = TimelineEventType::SetParameterValue;
+		ramp.hasDuration = true;
+		ramp.durationMs = 50;
+		ramp.data = MacroParameter::encodeRamp({{binding, 0.0}, 1.0, "linear"});
+		step.type = TimelineEventType::SetParameterValue;
+		step.timeMs = 10;
+		step.data = MacroParameter::encodeValue({binding, 0.5});
+		audible.timeMs = 20;
+		TimelineModel initial, model;
+		initial.addEvents({span, hold, ramp, step, audible});
+		auto json = initial.toJson();
+		for (int i = 0; i < json.size(); ++i) {
+			auto obj = json[i].toObject();
+			if (obj["id"].toString() != audible.id)
+				obj["muted"] = true;
+			json[i] = obj;
+		}
+		model.fromJson(json);
+		TimelineScheduler scheduler(&model);
+		QStringList starts, ends, samples;
+		connect(&scheduler, &TimelineScheduler::eventStarted, this,
+			[&](const TimelineEvent &e) { starts << e.id; });
+		connect(&scheduler, &TimelineScheduler::eventEnded, this,
+			[&](const TimelineEvent &e) { ends << e.id; });
+		connect(&scheduler, &TimelineScheduler::parameterProgress, this,
+			[&](const TimelineEvent &e, double) { samples << e.id; });
+		scheduler.setEndTime(60);
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 250);
+		QCOMPARE(starts, QStringList{audible.id});
+		QVERIFY(ends.isEmpty());
+		QVERIFY(samples.isEmpty());
+		scheduler.seek(15);
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 250);
+		QCOMPARE(starts, (QStringList{audible.id, audible.id}));
+		QVERIFY(ends.isEmpty());
+		QVERIFY(samples.isEmpty());
+		const auto roundTrip = model.toJson();
+		for (const auto &v : roundTrip)
+			if (v.toObject()["id"].toString() != audible.id)
+				QVERIFY(v.toObject()["muted"].toBool());
+	}
+
+	void testMutedSpanPreservesAnAlreadyStartedEndingButNeverCreatesOrphanEnd()
+	{
+		TimelineEvent span;
+		span.type = TimelineEventType::FilterEnable;
+		span.hasDuration = true;
+		span.durationMs = 1000;
+		TimelineModel model;
+		model.setHistoryEnabled(true);
+		model.addEvent(span);
+		TimelineScheduler scheduler(&model);
+		QStringList starts, ends;
+		connect(&scheduler, &TimelineScheduler::eventStarted, this,
+			[&](const TimelineEvent &e) { starts << e.id; });
+		connect(&scheduler, &TimelineScheduler::eventEnded, this,
+			[&](const TimelineEvent &e) { ends << e.id; });
+		scheduler.start();
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		scheduler.pause();
+		QCOMPARE(starts, QStringList{span.id});
+		auto muted = span;
+		muted.muted = true;
+		QVERIFY(model.replaceEventById(span.id, muted));
+		scheduler.setEndTime(1000);
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 1600);
+		QCOMPARE(ends, QStringList{span.id});
+		scheduler.restart();
+		scheduler.start();
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QTest::qSleep(5);
+		scheduler.pause();
+		QVERIFY(model.replaceEventById(span.id, span));
+		scheduler.start();
+		QTRY_VERIFY_WITH_TIMEOUT(!scheduler.isPlaying(), 1600);
+		QCOMPARE(starts, QStringList{span.id});
+		QCOMPARE(ends, QStringList{span.id});
+	}
+
+	void testTimelineCueMenuMuteAndManualExecution()
+	{
+		auto *filter = obs_source_create("test_filter", "Manual cue filter", nullptr, nullptr);
+		QVERIFY(filter && source_item);
+		obs_source_filter_add(source_item, filter);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_filter_remove(source_item, filter);
+			obs_source_remove(filter);
+			obs_source_release(filter);
+		});
+		obs_source_set_enabled(filter, false);
+		TimelineEvent cue;
+		cue.type = TimelineEventType::FilterEnable;
+		cue.sourceName = QString::fromUtf8(obs_source_get_name(source_item));
+		cue.filterName = "Manual cue filter";
+		cue.timeMs = 2000;
+		cue.hasDuration = true;
+		cue.durationMs = 500;
+		TimelineModel initial;
+		initial.addEvent(cue);
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(path, QJsonObject{{"events", initial.toJson()}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(model && scheduler && view);
+		TimelineEventItem *marker = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				marker = item;
+		QVERIFY(marker);
+		auto choose = [&](const QString &name) {
+			bool found = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions())
+					if (action->objectName() == name && action->isEnabled()) {
+						found = true;
+						QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+								  menu->actionGeometry(action).center());
+						return;
+					}
+				menu->close();
+			});
+			const auto center = marker->mapToScene(marker->rect().center());
+			const auto pos = view->mapFromScene(center);
+			QContextMenuEvent event(QContextMenuEvent::Mouse, pos, view->viewport()->mapToGlobal(pos));
+			QCoreApplication::sendEvent(view->viewport(), &event);
+			QCoreApplication::processEvents();
+			return found;
+		};
+		QVERIFY(choose("timeline-cue-mute-action"));
+		QVERIFY(model->toJson().first().toObject()["muted"].toBool());
+		QVERIFY(marker->opacity() < 1.0);
+		QVERIFY(model->undo());
+		QCoreApplication::processEvents();
+		QVERIFY(!model->toJson().first().toObject()["muted"].toBool());
+		QCOMPARE(marker->opacity(), 1.0);
+		QVERIFY(choose("timeline-cue-run-start-action"));
+		QVERIFY(obs_source_enabled(filter));
+		QVERIFY(choose("timeline-cue-run-end-action"));
+		QVERIFY(!obs_source_enabled(filter));
+		QCOMPARE(scheduler->getCurrentTime(), 0.0);
+		QVERIFY(!model->canUndo());
+	}
+
 	void testSchedulerStartEndSignalsAndSeek()
 	{
 		TimelineModel model;
@@ -2558,6 +3046,78 @@ private slots:
 		QVERIFY(!error.isEmpty());
 		QCOMPARE(model.getEvents().size(), size_t(1));
 		QCOMPARE(model.getEvents()[0].id, existing.id);
+	}
+
+	void testSchedulerRefreshesEndIndexAfterBlockedImport()
+	{
+		TimelineModel model;
+		TimelineScheduler scheduler(&model);
+		TimelineEvent span;
+		span.timeMs = 0;
+		span.hasDuration = true;
+		span.durationMs = 10;
+		// The real dock blocks model signals during document imports.
+		model.blockSignals(true);
+		model.addEvent(span);
+		scheduler.seek(0);
+		model.blockSignals(false);
+		scheduler.setEndTime(10);
+		QSignalSpy ends(&scheduler, &TimelineScheduler::eventEnded);
+		scheduler.start();
+		QTest::qSleep(20);
+		QVERIFY(QMetaObject::invokeMethod(&scheduler, "onTimerTick", Qt::DirectConnection));
+		QCOMPARE(ends.count(), 1);
+	}
+
+	void testDockPreservesMalformedStartupConfiguration()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		const QByteArray malformed = "{ not valid json";
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		QCOMPARE(file.write(malformed), qint64(malformed.size()));
+		file.close();
+		{
+			TimelineDock dock(nullptr, path);
+			dock.save();
+		}
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		QCOMPARE(file.readAll(), malformed);
+	}
+
+	void testHeadlessLoadUsesValidatedDocumentAndResetsSettings()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto valid = dir.filePath("valid.json");
+		const auto malformed = dir.filePath("malformed.json");
+		const auto legacy = dir.filePath("legacy.json");
+		QString error;
+		QVERIFY(TimelineSerialization::saveToFile(
+			valid,
+			QJsonObject{{"events", QJsonArray{}},
+				    {"settings", QJsonObject{{"loop", true}, {"endTime", 2.0}}}},
+			&error));
+		QVERIFY(TimelineSerialization::saveToFile(malformed, QJsonObject{{"settings", QJsonObject{}}}, &error));
+		QFile file(legacy);
+		QVERIFY(file.open(QIODevice::WriteOnly));
+		QCOMPARE(file.write("[]"), qint64(2));
+		file.close();
+		HeadlessTimeline nested;
+		QVERIFY(nested.loadFromFile(valid));
+		auto *scheduler = nested.findChild<TimelineScheduler *>();
+		QVERIFY(scheduler);
+		QVERIFY(scheduler->isLooping());
+		QCOMPARE(scheduler->getEndTime(), 2000.0);
+		QVERIFY(!nested.loadFromFile(malformed));
+		QCOMPARE(nested.getFilePath(), valid);
+		QVERIFY(scheduler->isLooping());
+		QCOMPARE(scheduler->getEndTime(), 2000.0);
+		QVERIFY(nested.loadFromFile(legacy));
+		QVERIFY(!scheduler->isLooping());
+		QCOMPARE(scheduler->getEndTime(), 100.0);
 	}
 
 	void testSerializationInvalidJson()
@@ -3190,13 +3750,15 @@ private slots:
 						++count;
 			return count;
 		};
+		QTRY_VERIFY_WITH_TIMEOUT(accentPixels() > 20, 250);
+		QTest::qWait(130);
 		const auto full = accentPixels();
 		QVERIFY(full > 20);
 		{
 			const QSignalBlocker block(dial);
 			dial->setValue(dial->minimum());
 		}
-		QVERIFY(accentPixels() < full);
+		QTRY_VERIFY_WITH_TIMEOUT(accentPixels() < full, 250);
 		QVERIFY(MacroParameter::write(toggle.binding, 0));
 		QTRY_VERIFY(!check->isChecked());
 		QTRY_VERIFY_WITH_TIMEOUT(!dial->isEnabled() && !fader->isEnabled(), 3000);
@@ -4092,6 +4654,53 @@ private slots:
 		QVERIFY(rec->isEnabled()); // user can record again after Stop
 	}
 
+	void testMacroMonitorDeduplicatesVisibleBindingsAndStopsHiddenReads()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Shared monitor target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		auto *probe = static_cast<ParameterProbe *>(obs_obj_get_data(source));
+		QVERIFY(probe);
+		MacroButton control;
+		control.kind = MacroControlKind::Text;
+		control.binding = {QString::fromUtf8(obs_source_get_uuid(source)),
+				   {},
+				   "untouched",
+				   MacroParameterType::Text};
+		QWidget host;
+		auto *layout = new QHBoxLayout(&host);
+		for (int i = 0; i < 8; ++i)
+			layout->addWidget(createMacroParameterWidget(control, &host));
+		MacroButton preset = control;
+		preset.kind = MacroControlKind::Toggle;
+		preset.toggleValues = MacroParameter::ToggleValues{QString("keep"), QString("external")};
+		for (int i = 0; i < 4; ++i)
+			layout->addWidget(createMacroParameterWidget(preset, &host));
+		host.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&host));
+		const auto entries = host.findChildren<QLineEdit *>();
+		const auto toggles = host.findChildren<QCheckBox *>();
+		QCOMPARE(entries.size(), 8);
+		QCOMPARE(toggles.size(), 4);
+		probe->propertyReads = 0;
+		QVERIFY(MacroParameter::writeText(control.binding, "external"));
+		probe->propertyReads = 0;
+		QTRY_VERIFY_WITH_TIMEOUT(std::all_of(entries.cbegin(), entries.cend(),
+						     [](auto *entry) { return entry->text() == "external"; }),
+					 1500);
+		QTRY_VERIFY_WITH_TIMEOUT(std::all_of(toggles.cbegin(), toggles.cend(),
+						     [](auto *toggle) { return toggle->checkState() == Qt::Checked; }),
+					 1500);
+		QVERIFY2(probe->propertyReads.load() <= 3, "One poll must share readback across duplicate bindings");
+		host.hide();
+		probe->propertyReads = 0;
+		QTest::qWait(550);
+		QCOMPARE(probe->propertyReads.load(), 0);
+	}
+
 	void testMacroParameterBindingsAndDock()
 	{
 		auto release = [](obs_source_t *s) {
@@ -4433,6 +5042,133 @@ private slots:
 		QCOMPARE(model.buttons().first().binding.key, QString("gain"));
 	}
 
+	void testMacroKnobReadbackMotionDoesNotWriteInterpolatedValues()
+	{
+		auto *source =
+			obs_source_create("timeline_parameter_probe", "Readback motion target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton knob;
+		knob.kind = MacroControlKind::Knob;
+		knob.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		QWidget host;
+		host.setFocusPolicy(Qt::StrongFocus);
+		auto *control = createMacroParameterWidget(knob, &host);
+		auto *dial = control->findChild<QDial *>();
+		QVERIFY(dial);
+		host.resize(control->size());
+		host.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&host));
+		host.setFocus();
+		QVERIFY(!dial->hasFocus());
+		QTest::qWait(180);
+		const auto before = dial->grab().toImage();
+		QSignalSpy changed(dial, &QDial::valueChanged);
+		QVERIFY(MacroParameter::write(knob.binding, 1.0));
+		{
+			const QSignalBlocker block(dial);
+			dial->setValue(dial->maximum());
+		}
+		QCOMPARE(dial->value(), dial->maximum());
+		QCOMPARE(dial->grab().toImage(), before);
+		QTest::qWait(150);
+		QVERIFY(dial->grab().toImage() != before);
+		QCOMPARE(changed.count(), 0);
+		QCOMPARE(MacroParameter::read(knob.binding).value(), 1.0);
+	}
+
+	void testInteractionMotionStopsAtTargetAndCanSnap()
+	{
+		int frames = 0;
+		InteractionMotion motion([&] { ++frames; });
+		motion.to(QPointF(3, 1), true);
+		QCOMPARE(motion.value(), QPointF());
+		QTRY_VERIFY_WITH_TIMEOUT(frames > 0, 100);
+		const auto intermediate = motion.value();
+		motion.to(QPointF(-1, 0), true);
+		QCOMPARE(motion.value(), intermediate);
+		motion.snap();
+		QCOMPARE(motion.value(), QPointF(-1, 0));
+		const int stopped = frames;
+		QTest::qWait(150);
+		QCOMPARE(frames, stopped);
+		motion.to(QPointF(-1, 0), true);
+		QTest::qWait(150);
+		QCOMPARE(frames, stopped);
+	}
+
+	void testMacroActionMotionIsInterruptibleAndDoesNotDelayDispatch()
+	{
+		MacroButton button;
+		button.color = QColor(40, 130, 230);
+		button.label = "Motion";
+		MacroButtonWidget widget(button);
+		widget.resize(widget.sizeHint());
+		widget.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&widget));
+		QEvent leave(QEvent::Leave);
+		QCoreApplication::sendEvent(&widget, &leave);
+		QTest::qWait(180);
+		const auto resting = widget.grab().toImage();
+		widget.setPressedAppearance(true);
+		QCOMPARE(widget.grab().toImage(), resting);
+		QTest::qWait(180);
+		const auto pressed = widget.grab().toImage();
+		QVERIFY(pressed != resting);
+		widget.setPressedAppearance(false);
+		QCOMPARE(widget.grab().toImage(), pressed);
+		QSignalSpy fired(&widget, &MacroButtonWidget::fireRequested);
+		TestTimelineMacroButtonAccessor::clickBubble(widget);
+		QCOMPARE(fired.count(), 1);
+		QTest::qWait(180);
+		QCOMPARE(widget.grab().toImage(), resting);
+		widget.setPressedAppearance(true);
+		widget.hide();
+		QTest::qWait(180);
+		QCOMPARE(fired.count(), 1);
+	}
+
+	void testTimelineCueHoverMotionPreservesTimeAndDuration()
+	{
+		QGraphicsScene scene;
+		QGraphicsView view(&scene);
+		view.resize(640, 150);
+		view.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&view));
+		auto *item = new TimelineEventItem(2000, 100, TimelineEventType::FilterEnable, QColor(40, 130, 230));
+		scene.addItem(item);
+		item->setHasDuration(true);
+		item->setDuration(1000);
+		auto render = [&] {
+			QImage image(160, 64, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter p(&image);
+			scene.render(&p, QRectF(0, 0, 160, 64), QRectF(item->x() - 10, item->y() - 16, 160, 64));
+			return image;
+		};
+		const auto initial = render();
+		const auto pos = item->pos();
+		const double handle = item->durationHandleX();
+		QGraphicsSceneHoverEvent enter(QEvent::GraphicsSceneHoverEnter);
+		scene.sendEvent(item, &enter);
+		QCOMPARE(render(), initial);
+		QTest::qWait(180);
+		const auto hovered = render();
+		QVERIFY(hovered != initial);
+		QCOMPARE(hovered.copy(60, 0, 100, 64), initial.copy(60, 0, 100, 64));
+		QCOMPARE(item->pos(), pos);
+		QCOMPARE(item->durationHandleX(), handle);
+		QGraphicsSceneHoverEvent leave(QEvent::GraphicsSceneHoverLeave);
+		scene.sendEvent(item, &leave);
+		QCOMPARE(render(), hovered);
+		QTest::qWait(180);
+		QCOMPARE(render(), initial);
+		delete item;
+	}
+
 	void testMacroButtonHasDefaults()
 	{
 		MacroButton b;
@@ -4543,6 +5279,392 @@ private slots:
 		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
 	}
 
+	void testIndividualMacroStripMenusMoveBankWithoutDuplicatingControls()
+	{
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		QJsonObject main{{"id", "main"},
+				 {"name", "Main"},
+				 {"orientation", "horizontal"},
+				 {"buttons", QJsonArray{}}};
+		QJsonObject tab{
+			{"id", "tab"},
+			{"name", "Audio"},
+			{"orientation", "vertical"},
+			{"buttons",
+			 QJsonArray{QJsonObject{{"id", "unique"}, {"label", "One"}, {"type", 0}, {"gapBefore", 55}}}}};
+		QVERIFY(dock.fromJson({{"version", 2}, {"activeStrip", "tab"}, {"strips", QJsonArray{main, tab}}}));
+		dock.resize(500, 250);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto choose = [&](MacroStripDock *strip, const QString &name, const QString &dialogText = QString()) {
+			auto *add = strip->findChild<QPushButton *>("macro-strip-add");
+			if (!add)
+				return false;
+			bool found = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions())
+					if (action->objectName() == name && action->isEnabled()) {
+						found = true;
+						if (!dialogText.isEmpty())
+							QTimer::singleShot(0, &dock, [&] {
+								if (auto *dialog = qobject_cast<QInputDialog *>(
+									    QApplication::activeModalWidget())) {
+									dialog->setTextValue(dialogText);
+									dialog->accept();
+								}
+							});
+						QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+								  menu->actionGeometry(action).center());
+						return;
+					}
+				menu->close();
+			});
+			QTest::mouseClick(add, Qt::LeftButton);
+			QCoreApplication::processEvents();
+			return found;
+		};
+		extern QHash<QString, QWidget *> g_mockMacroDocks;
+		QVERIFY(choose(&dock, "macro-add-individual", "New dock"));
+		QCOMPARE(g_mockMacroDocks.size(), 1);
+		QVERIFY(choose(&dock, "macro-detach-strip"));
+		QCOMPARE(g_mockMacroDocks.size(), 2);
+		QCOMPARE(dock.buttonModel()->count(), 0);
+		MacroStripDock *detached = nullptr;
+		for (auto *widget : g_mockMacroDocks) {
+			auto *strip = qobject_cast<MacroStripDock *>(widget);
+			if (strip && strip->buttonModel()->count() == 1)
+				detached = strip;
+		}
+		QVERIFY(detached);
+		QCOMPARE(detached->buttonModel()->buttons().first().id, QString("unique"));
+		QCOMPARE(detached->buttonModel()->buttons().first().gapBefore, 55);
+		QVERIFY(choose(detached, "macro-reattach-strip"));
+		QTRY_COMPARE(g_mockMacroDocks.size(), 1);
+		auto *tabs = dock.findChild<QTabBar *>("macro-strip-tabs");
+		QCOMPARE(tabs->count(), 2);
+		tabs->setCurrentIndex(1);
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("unique"));
+		QCOMPARE(dock.buttonModel()->buttons().first().gapBefore, 55);
+		QCOMPARE(dock.toJson()["individualStrips"].toArray().size(), 1);
+	}
+
+	void testIndividualMacroStripsRegisterPersistAndShareExecutor()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("macro.json");
+		auto *source =
+			obs_source_create("timeline_parameter_probe", "Individual strip target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)),
+					      {},
+					      "gain",
+					      MacroParameterType::Float};
+		QJsonObject action{{"id", "a"},
+				   {"label", "Set"},
+				   {"type", int(TimelineEventType::SetParameterValue)},
+				   {"data", MacroParameter::encodeValue({binding, 1.0})}};
+		QJsonObject one{{"id", "one"},
+				{"name", "Audio"},
+				{"orientation", "vertical"},
+				{"buttons", QJsonArray{action}}};
+		QJsonObject two{{"id", "two"},
+				{"name", "Scenes"},
+				{"orientation", "horizontal"},
+				{"buttons", QJsonArray{}}};
+		QJsonObject root{{"version", 1}, {"buttons", QJsonArray{}}, {"individualStrips", QJsonArray{one, two}}};
+		ObsExecutor executor;
+		MacroStripDock dock(nullptr, path);
+		dock.setObsExecutor(&executor);
+		QVERIFY(dock.fromJson(root));
+		extern QHash<QString, QWidget *> g_mockMacroDocks;
+		QCOMPARE(g_mockMacroDocks.size(), 2);
+		const auto registered = g_mockMacroDocks;
+		MacroStripDock *audio = nullptr;
+		MacroStripDock *scenes = nullptr;
+		for (auto *widget : registered) {
+			auto *strip = qobject_cast<MacroStripDock *>(widget);
+			QVERIFY(strip);
+			if (strip->buttonModel()->count() == 1)
+				audio = strip;
+			else
+				scenes = strip;
+		}
+		QVERIFY(audio && scenes);
+		TestTimelineMacroButtonAccessor::clickBubble(*audio->findChild<MacroButtonWidget *>());
+		QCOMPARE(MacroParameter::read(binding).value(), 1.0);
+		MacroButton added;
+		added.label = "Independent";
+		scenes->buttonModel()->addButton(added);
+		QCOMPARE(dock.buttonModel()->count(), 0);
+		QVERIFY(dock.saveNow());
+		QJsonDocument saved;
+		QVERIFY(MacroSerialization::loadFromFile(path, saved));
+		QCOMPARE(saved.object()["individualStrips"].toArray().size(), 2);
+		QVERIFY(dock.loadNow());
+		QCOMPARE(g_mockMacroDocks, registered);
+		QCOMPARE(scenes->buttonModel()->count(), 1);
+		auto bad = root;
+		bad["individualStrips"] = QJsonArray{one, one};
+		QVERIFY(!dock.fromJson(bad));
+		QCOMPARE(g_mockMacroDocks, registered);
+		QCOMPARE(scenes->buttonModel()->count(), 1);
+		// Closing a dock is not deleting its configuration.
+		audio->hide();
+		QCOMPARE(dock.toJson()["individualStrips"].toArray().size(), 2);
+		QVERIFY(dock.fromJson(QJsonObject{{"version", 1}, {"buttons", QJsonArray{}}}));
+		QVERIFY(g_mockMacroDocks.isEmpty());
+	}
+
+	void testMacroStripEditModeDragsSpacingAndOrderWithoutFiring()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		ObsExecutor executor;
+		dock.setObsExecutor(&executor);
+		MacroButton first, second;
+		first.id = "first";
+		first.label = "First";
+		first.type = TimelineEventType::SceneSwitch;
+		first.sourceName = "Scene 2";
+		second.id = "second";
+		second.label = "Second";
+		second.type = TimelineEventType::SceneSwitch;
+		second.sourceName = "Scene 1";
+		dock.buttonModel()->addButton(first);
+		dock.buttonModel()->addButton(second);
+		dock.resize(600, 170);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		auto *add = dock.findChild<QPushButton *>("macro-strip-add");
+		QVERIFY(add);
+		auto choose = [&](const QString &name) {
+			bool found = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions()) {
+					if (action->objectName() == name) {
+						found = true;
+						QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+								  menu->actionGeometry(action).center());
+						return;
+					}
+				}
+				menu->close();
+			});
+			QTest::mouseClick(add, Qt::LeftButton);
+			QCoreApplication::processEvents();
+			return found;
+		};
+		QVERIFY(choose("macro-strip-edit-layout"));
+		auto *grip = dock.findChild<QWidget *>("macro-layout-grip-second");
+		QVERIFY(grip && grip->isVisible());
+		const auto actions = dock.findChildren<MacroButtonWidget *>();
+		QCOMPARE(actions.size(), 2);
+		QVERIFY(!actions[0]->isEnabled() && !actions[1]->isEnabled());
+		QSignalSpy edits(dock.buttonModel(), &MacroButtonModel::modelChanged);
+		auto drag = [&](QWidget *handle, int dx, bool cancel = false,
+				Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+			const QPoint local = handle->rect().center();
+			const QPoint global = handle->mapToGlobal(local);
+			QTest::mousePress(handle, Qt::LeftButton, modifiers, local);
+			QMouseEvent move(QEvent::MouseMove, QPointF(local + QPoint(dx, 0)),
+					 QPointF(global + QPoint(dx, 0)), Qt::NoButton, Qt::LeftButton, modifiers);
+			QCoreApplication::sendEvent(handle, &move);
+			QCOMPARE(edits.count(), 0);
+			if (cancel) {
+				QTest::keyClick(handle, Qt::Key_Escape);
+				return;
+			}
+			QMouseEvent release(QEvent::MouseButtonRelease, QPointF(local + QPoint(dx, 0)),
+					    QPointF(global + QPoint(dx, 0)), Qt::LeftButton, Qt::NoButton,
+					    Qt::NoModifier);
+			QCoreApplication::sendEvent(handle, &release);
+		};
+		drag(grip, 80);
+		QCOMPARE(edits.count(), 1);
+		QCOMPARE(dock.toJson()["buttons"].toArray()[1].toObject()["gapBefore"].toInt(), 80);
+		QCOMPARE(dock.findChild<QWidget *>("macro-layout-grip-second"), grip);
+		// Shift-drag can open a large gap before a middle/first control
+		// without crossing its neighbor's logical ordering.
+		edits.clear();
+		auto *firstGrip = dock.findChild<QWidget *>("macro-layout-grip-first");
+		QVERIFY(firstGrip);
+		drag(firstGrip, 220, false, Qt::ShiftModifier);
+		QCOMPARE(edits.count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("first"));
+		QCOMPARE(dock.toJson()["buttons"].toArray()[0].toObject()["gapBefore"].toInt(), 220);
+		edits.clear();
+		drag(grip, 40, true);
+		QCOMPARE(edits.count(), 0);
+		QCOMPARE(dock.toJson()["buttons"].toArray()[1].toObject()["gapBefore"].toInt(), 80);
+		drag(grip, -250);
+		QCOMPARE(edits.count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("second"));
+		const auto moved = dock.toJson();
+		auto verifyVisualOrder = [&](const QString &leftId, const QString &rightId) {
+			QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+			QCoreApplication::processEvents();
+			auto *left = dock.findChild<QWidget *>("macro-layout-grip-" + leftId);
+			auto *right = dock.findChild<QWidget *>("macro-layout-grip-" + rightId);
+			return left && right && left->isVisible() && right->isVisible() &&
+			       left->mapTo(&dock, QPoint()).x() < right->mapTo(&dock, QPoint()).x();
+		};
+
+		if (dock.style()->styleHint(QStyle::SH_Widget_Animation_Duration) > 0) {
+			auto *overlay = dock.findChild<QWidget *>("macro-layout-motion");
+			QVERIFY(overlay && overlay->isVisible());
+			QTRY_VERIFY_WITH_TIMEOUT(!dock.findChild<QWidget *>("macro-layout-motion"), 400);
+		}
+		QVERIFY(verifyVisualOrder("second", "first"));
+		QVERIFY(choose("macro-layout-undo"));
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("first"));
+		QCOMPARE(dock.toJson()["buttons"].toArray()[1].toObject()["gapBefore"].toInt(), 80);
+		QVERIFY(verifyVisualOrder("first", "second"));
+		QVERIFY(choose("macro-layout-redo"));
+		QVERIFY(verifyVisualOrder("second", "first"));
+		QCOMPARE(dock.toJson(), moved);
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QVERIFY(choose("macro-strip-edit-layout"));
+		for (auto *action : dock.findChildren<MacroButtonWidget *>())
+			QVERIFY(action->isEnabled());
+		QVERIFY(dock.saveNow());
+		MacroStripDock restored(nullptr, dir.filePath("macro.json"));
+		QVERIFY(restored.loadNow());
+		QCOMPARE(restored.toJson(), dock.toJson());
+	}
+
+	void testMacroStripBanksOrientationAndActionGridRoundTrip()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Bank target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton slider;
+		slider.id = "fader";
+		slider.kind = MacroControlKind::Slider;
+		slider.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		MacroButtonModel single;
+		single.addButton(slider);
+		auto fader = MacroSerialization::toJsonObject(single)["buttons"].toArray().first().toObject();
+		QJsonObject fixed = fader;
+		fixed["id"] = "fixed";
+		fixed["orientation"] = "horizontal";
+		QJsonObject on{{"id", "on"},
+			       {"label", "On"},
+			       {"type", int(TimelineEventType::SetParameterValue)},
+			       {"data", MacroParameter::encodeValue({slider.binding, 1.0})}};
+		QJsonObject off{{"id", "off"},
+				{"label", "Off"},
+				{"type", int(TimelineEventType::SetParameterValue)},
+				{"data", MacroParameter::encodeValue({slider.binding, -1.0})}};
+		QJsonObject grid{{"id", "grid"},
+				 {"label", "Levels"},
+				 {"type", -1},
+				 {"control", "button-grid"},
+				 {"slots", QJsonArray{on, off, QJsonValue(), QJsonValue()}}};
+		QJsonObject first{{"id", "first"},
+				  {"name", "Main"},
+				  {"orientation", "horizontal"},
+				  {"buttons", QJsonArray{fader}}};
+		QJsonObject second{{"id", "second"},
+				   {"name", "Audio"},
+				   {"orientation", "vertical"},
+				   {"buttons", QJsonArray{fader, fixed, grid}}};
+		QJsonObject root{{"version", 2}, {"activeStrip", "first"}, {"strips", QJsonArray{first, second}}};
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("macro.json");
+		MacroStripDock dock(nullptr, path);
+		ObsExecutor executor;
+		dock.setObsExecutor(&executor);
+		QVERIFY(dock.fromJson(root));
+		dock.resize(350, 260);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *tabs = dock.findChild<QTabBar *>("macro-strip-tabs");
+		QVERIFY(tabs && tabs->isVisible());
+		QCOMPARE(tabs->count(), 2);
+		QCOMPARE(tabs->tabText(1), QString("Audio"));
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QCOMPARE(dock.findChild<QSlider *>("macro-parameter-slider")->orientation(), Qt::Horizontal);
+		tabs->setCurrentIndex(1);
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QCoreApplication::processEvents();
+		QCOMPARE(dock.buttonModel()->count(), 3);
+		const auto faders = dock.findChildren<QSlider *>("macro-parameter-slider");
+		QCOMPARE(faders.size(), 2);
+		QCOMPARE(faders[0]->orientation(), Qt::Vertical);
+		QCOMPARE(faders[1]->orientation(), Qt::Horizontal);
+		auto *cluster = dock.findChild<QWidget *>("macro-button-grid");
+		QVERIFY(cluster);
+		const auto cells = cluster->findChildren<MacroButtonWidget *>();
+		QCOMPARE(cells.size(), 4);
+		QVERIFY(cells[0]->y() == cells[1]->y() && cells[0]->x() < cells[1]->x());
+		QVERIFY(cells[0]->y() < cells[2]->y());
+		TestTimelineMacroButtonAccessor::clickBubble(*cells[0]);
+		QCOMPARE(MacroParameter::read(slider.binding).value(), 1.0);
+		TestTimelineMacroButtonAccessor::clickBubble(*cells[1]);
+		QCOMPARE(MacroParameter::read(slider.binding).value(), -1.0);
+		QVERIFY(dock.saveNow());
+		MacroStripDock restored(nullptr, path);
+		QVERIFY(restored.loadNow());
+		QCOMPARE(restored.toJson()["activeStrip"].toString(), QString("second"));
+		QCOMPARE(restored.buttonModel()->count(), 3);
+		QCOMPARE(restored.toJson()["strips"].toArray().size(), 2);
+		const auto saved = restored.toJson();
+		QJsonObject invalid = second;
+		invalid["buttons"] = QJsonArray{QJsonObject{{"control", "button-grid"}, {"slots", QJsonArray{on}}}};
+		root["strips"] = QJsonArray{first, invalid};
+		QVERIFY(!restored.fromJson(root));
+		QCOMPARE(restored.toJson(), saved);
+		// Older single-strip documents still load in their original form.
+		QVERIFY(restored.fromJson(MacroSerialization::toJsonObject(single)));
+		QCOMPARE(restored.buttonModel()->count(), 1);
+		QCOMPARE(restored.toJson()["buttons"].toArray().size(), 1);
+	}
+
+	void testMacroStripShortCaptionsFitThemePadding()
+	{
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		dock.setStyleSheet("QLabel { padding: 5px; }");
+		MacroButton fader;
+		fader.kind = MacroControlKind::Slider;
+		fader.orientation = MacroOrientation::Vertical;
+		fader.label = "Volume";
+		dock.buttonModel()->addButton(fader);
+		MacroButton xy;
+		xy.kind = MacroControlKind::XY;
+		xy.label = "Position";
+		dock.buttonModel()->addButton(xy);
+		dock.resize(500, 220);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		const auto captions = dock.findChildren<QLabel *>("macro-parameter-caption");
+		QCOMPARE(captions.size(), 2);
+		for (auto *caption : captions)
+			QVERIFY2(caption->contentsRect().width() - 12 >=
+					 QFontMetricsF(caption->font(), caption).horizontalAdvance(caption->text()),
+				 qPrintable(caption->text()));
+	}
+
 	void testMacroStripFitsThemeSizedControls()
 	{
 		QTemporaryDir dir;
@@ -4644,6 +5766,452 @@ private slots:
 		QCOMPARE(spy.count(), 1);
 	}
 
+	void testTimelineMarqueeAndGroupDragPreserveOffsets()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		TimelineEvent a, b, c;
+		a.timeMs = 1000;
+		b.timeMs = 2750;
+		c.timeMs = 5000;
+		initial.addEvents({a, b, c});
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"snap", true},
+								   {"snapIntervalMs", 500.0},
+								   {"zoomPixelsPerSecond", 100.0},
+								   {"endTime", 6.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(850, 260);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && model && scheduler);
+		QHash<QString, TimelineEventItem *> markers;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				markers.insert(item->getEventId(), item);
+		QCOMPARE(markers.size(), 3);
+		auto center = [&](const QString &id) {
+			return view->mapFromScene(markers[id]->mapToScene(markers[id]->rect().center()));
+		};
+		auto move = [&](QPoint point, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+			QMouseEvent event(QEvent::MouseMove, QPointF(point),
+					  QPointF(view->viewport()->mapToGlobal(point)), Qt::NoButton, Qt::LeftButton,
+					  modifiers);
+			QCoreApplication::sendEvent(view->viewport(), &event);
+		};
+		const QPoint start = center(a.id) - QPoint(25, 18);
+		const QPoint end = center(b.id) + QPoint(25, 18);
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, start);
+		move(end);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, end);
+		QVERIFY(markers[a.id]->isSelected());
+		QVERIFY(markers[b.id]->isSelected());
+		QVERIFY(!markers[c.id]->isSelected());
+		QCOMPARE(scheduler->getCurrentTime(), 0.0);
+		const QPoint press = center(a.id);
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, press);
+		move(press + QPoint(76, 0));
+		QCOMPARE(model->findEventById(a.id)->timeMs, 1000.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 2750.0);
+		QCOMPARE(markers[a.id]->getTimeMs(), 2000.0);
+		QCOMPARE(markers[b.id]->getTimeMs(), 3750.0);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, press + QPoint(76, 0));
+		QCOMPARE(model->findEventById(a.id)->timeMs, 2000.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 3750.0);
+		QCOMPARE(model->findEventById(c.id)->timeMs, 5000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->findEventById(a.id)->timeMs, 1000.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 2750.0);
+		QVERIFY(!model->canUndo());
+		QCoreApplication::processEvents();
+		// Ctrl click toggles membership, Shift click extends it.
+		QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::ControlModifier, center(b.id));
+		QVERIFY(!markers[b.id]->isSelected());
+		QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::ShiftModifier, center(b.id));
+		QVERIFY(markers[b.id]->isSelected());
+		const QPoint second = center(a.id);
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+		move(second - QPoint(200, 0));
+		QCOMPARE(markers[a.id]->getTimeMs(), 0.0);
+		QCOMPARE(markers[b.id]->getTimeMs(), 1750.0);
+		QTest::keyClick(view, Qt::Key_Escape);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, second - QPoint(200, 0));
+		QCOMPARE(markers[a.id]->getTimeMs(), 1000.0);
+		QCOMPARE(markers[b.id]->getTimeMs(), 2750.0);
+		QVERIFY(!model->canUndo());
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+		move(second + QPoint(450, 0));
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, second + QPoint(450, 0));
+		QCOMPARE(model->findEventById(a.id)->timeMs, 4250.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 6000.0);
+		QVERIFY(model->undo());
+		QVERIFY(!model->canUndo());
+	}
+
+	void testTimelineDurationHandleResizesWithOneUndo()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		TimelineModel initial;
+		TimelineEvent event;
+		event.type = TimelineEventType::FilterEnable;
+		event.timeMs = 1000;
+		event.hasDuration = true;
+		event.durationMs = 1000;
+		initial.addEvent(event);
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"snap", true},
+								   {"snapIntervalMs", 500.0},
+								   {"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		QVERIFY(view && model);
+		TimelineEventItem *marker = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+			    item && item->getEventId() == event.id)
+				marker = item;
+		QVERIFY(marker);
+		const QPoint begin = view->mapFromScene(QPointF(200, marker->mapToScene(marker->rect().center()).y()));
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, begin);
+		for (int offset : {20, 50, 76}) {
+			const QPoint next = begin + QPoint(offset, 0);
+			QMouseEvent move(QEvent::MouseMove, QPointF(next), QPointF(view->viewport()->mapToGlobal(next)),
+					 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+			QCoreApplication::sendEvent(view->viewport(), &move);
+			QCOMPARE(model->getEvents().front().durationMs, 1000.0);
+		}
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, begin + QPoint(76, 0));
+		QCOMPARE(model->getEvents().front().durationMs, 2000.0);
+		QCOMPARE(model->getEvents().front().timeMs, 1000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->getEvents().front().durationMs, 1000.0);
+		QVERIFY(!model->canUndo());
+		QVERIFY(model->redo());
+		QCOMPARE(model->getEvents().front().durationMs, 2000.0);
+		QCoreApplication::processEvents();
+		const QPoint second = view->mapFromScene(QPointF(300, marker->mapToScene(marker->rect().center()).y()));
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+		const QPoint moved = second + QPoint(50, 0);
+		QMouseEvent move(QEvent::MouseMove, QPointF(moved), QPointF(view->viewport()->mapToGlobal(moved)),
+				 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+		QCoreApplication::sendEvent(view->viewport(), &move);
+		QTest::keyClick(view, Qt::Key_Escape);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, moved);
+		QCOMPARE(model->getEvents().front().durationMs, 2000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->getEvents().front().durationMs, 1000.0);
+		QVERIFY(!model->canUndo());
+	}
+
+	void testTimelineZoomFitIncludesLongDurationAndEndMarker()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		TimelineEvent cue;
+		cue.timeMs = 800000;
+		cue.hasDuration = true;
+		cue.durationMs = 200000;
+		cue.type = TimelineEventType::FilterEnable;
+		initial.addEvent(cue);
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path,
+			QJsonObject{{"events", initial.toJson()},
+				    {"settings", QJsonObject{{"endTime", 900.0}, {"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(view);
+		QVERIFY2(view->sceneRect().right() >= 100000, "Long cues must remain reachable before zoom fit");
+		auto *fit = dock.findChild<QAction *>("timeline-zoom-fit-action");
+		QVERIFY(fit);
+		fit->trigger();
+		QCoreApplication::processEvents();
+		TimelineEventItem *item = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *candidate = dynamic_cast<TimelineEventItem *>(graphics))
+				item = candidate;
+		QVERIFY(item);
+		const QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
+		QVERIFY(visible.left() <= 0.0);
+		QVERIFY(visible.right() >= item->sceneBoundingRect().right());
+		QVERIFY(visible.right() - item->sceneBoundingRect().right() < 150.0);
+		QCOMPARE(item->getTimeMs(), cue.timeMs);
+	}
+
+	void testTimelineCursorAnchoredZoom()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", QJsonArray{}},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(view);
+		view->horizontalScrollBar()->setValue(500);
+		const QPoint cursor(300, 12);
+		const double before = view->mapToScene(cursor).x() / 100.0;
+		QWheelEvent wheel(QPointF(cursor), QPointF(view->viewport()->mapToGlobal(cursor)), QPoint(),
+				  QPoint(0, 120), Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+		QCoreApplication::sendEvent(view->viewport(), &wheel);
+		const double after = view->mapToScene(cursor).x() / 150.0;
+		QVERIFY2(std::abs(before - after) < 0.02, "Zoom must preserve the time under the cursor");
+	}
+
+	void testTimelineVisualTicksAreCoalescedWithoutLosingFinalPosition()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineDock dock(nullptr, dir.filePath("timeline.json"));
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && scheduler);
+		QGraphicsLineItem *playhead = nullptr;
+		for (auto *item : view->scene()->items())
+			if (auto *line = dynamic_cast<QGraphicsLineItem *>(item); line && line->zValue() == 100)
+				playhead = line;
+		QVERIFY(playhead);
+		scheduler->seek(0);
+		scheduler->start();
+		int changes = 0;
+		double previous = playhead->line().x1();
+		for (int i = 1; i <= 40; ++i) {
+			QVERIFY(QMetaObject::invokeMethod(&dock, "onTick", Qt::DirectConnection,
+							  Q_ARG(double, i * 10.0)));
+			const double next = playhead->line().x1();
+			if (next != previous)
+				++changes;
+			previous = next;
+		}
+		QVERIFY2(changes < 40, "Visual updates must coalesce rapid scheduler ticks");
+		scheduler->pause();
+		scheduler->seek(0);
+		QCOMPARE(playhead->line().x1(), 0.0);
+	}
+
+	void testTimelineRulerStaysPinnedAndScrubsWhileVerticallyScrolled()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		for (int i = 0; i < 15; ++i) {
+			TimelineEvent event;
+			event.timeMs = 2000;
+			initial.addEvent(event);
+		}
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 180);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && scheduler);
+		auto *ruler = view->viewport()->findChild<QWidget *>("timeline-pinned-ruler");
+		QVERIFY(ruler && ruler->isVisible());
+		QCOMPARE(ruler->geometry().top(), 0);
+		QCOMPARE(ruler->height(), 20);
+		const QImage before = ruler->grab().toImage();
+		QVERIFY(view->verticalScrollBar()->maximum() > 100);
+		view->verticalScrollBar()->setValue(100);
+		QCoreApplication::processEvents();
+		QCOMPARE(ruler->geometry().top(), 0);
+		QCOMPARE(ruler->grab().toImage(), before);
+		const QPoint seek = view->mapFromScene(QPointF(350, 0));
+		QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(seek.x(), 10));
+		QCOMPARE(scheduler->getCurrentTime(), 3500.0);
+		QCOMPARE(view->verticalScrollBar()->value(), 100);
+		view->horizontalScrollBar()->setValue(100);
+		QCoreApplication::processEvents();
+		QVERIFY(ruler->grab().toImage() != before);
+	}
+
+	void testTimelineTargetHealthTracksExactFilterRemovalAndRecovery()
+	{
+		QVERIFY(source_item);
+		auto *filter = obs_source_create("test_filter", "Health original", nullptr, nullptr);
+		auto *replacement = obs_source_create("test_filter", "Health replacement", nullptr, nullptr);
+		QVERIFY(filter && replacement);
+		obs_source_filter_add(source_item, filter);
+		obs_source_filter_add(source_item, replacement);
+		auto cleanup = qScopeGuard([&] {
+			if (obs_filter_get_parent(filter))
+				obs_source_filter_remove(source_item, filter);
+			obs_source_filter_remove(source_item, replacement);
+			obs_source_release(filter);
+			obs_source_release(replacement);
+		});
+		TimelineEvent cue;
+		cue.timeMs = 1000;
+		cue.type = TimelineEventType::FilterEnable;
+		cue.sourceName = QString::fromUtf8(obs_source_get_name(source_item));
+		cue.filterName = "Health original";
+		EventEditor editor(cue);
+		editor.getUpdatedEvent(cue);
+		QVERIFY(cue.data.toString().startsWith("filter:v1:"));
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		initial.addEvent(cue);
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(path, QJsonObject{{"events", initial.toJson()}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		QVERIFY(view && model);
+		TimelineEventItem *marker = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				marker = item;
+		QVERIFY(marker);
+		QVERIFY(!marker->toolTip().contains("TargetMissing"));
+		obs_source_set_name(filter, "Health renamed");
+		obs_source_set_name(replacement, "Health original");
+		obs_source_filter_remove(source_item, filter);
+		QTRY_VERIFY_WITH_TIMEOUT(marker->toolTip().contains("TargetMissing"), 2500);
+		QVERIFY(!model->canUndo());
+		obs_source_filter_add(source_item, filter);
+		QTRY_VERIFY_WITH_TIMEOUT(!marker->toolTip().contains("TargetMissing"), 2500);
+		QVERIFY(!model->canUndo());
+	}
+
+	void testTimelineInlineDurationLabelAdaptsToZoomAndResize()
+	{
+		QGraphicsScene scene;
+		auto *marker = new TimelineEventItem(1000, 100, TimelineEventType::FilterEnable, Qt::red);
+		scene.addItem(marker);
+		marker->setLabelColors(Qt::black, Qt::white);
+		marker->setHasDuration(true);
+		marker->setDuration(3000);
+		auto render = [&](double length) {
+			QImage image(int(length), 36, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			const auto center = marker->mapToScene(marker->rect().center());
+			scene.render(&painter, QRectF(0, 0, length, 36),
+				     QRectF(center.x() + 18, center.y() - 18, length, 36));
+			return image;
+		};
+		auto ink = [](const QImage &image) {
+			int count = 0;
+			for (int y = 0; y < image.height(); ++y)
+				for (int x = 0; x < image.width(); ++x) {
+					const auto c = image.pixelColor(x, y);
+					if (c.red() < 100 && c.green() < 100 && c.blue() < 100)
+						++count;
+				}
+			return count;
+		};
+		const auto wide = render(270);
+		QVERIFY2(ink(wide) > 10, "Wide spans show a readable duration label");
+		marker->setDuration(2500);
+		QVERIFY(wide != render(270));
+		marker->setPixelsPerSecond(5);
+		QCOMPARE(ink(render(270)), 0);
+	}
+
+	void testTimelineRampRenderingShowsDirectionAndEasing()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		TimelineEvent cue;
+		cue.type = TimelineEventType::SetParameterValue;
+		cue.timeMs = 1000;
+		cue.hasDuration = true;
+		cue.durationMs = 3000;
+		cue.color = Qt::red;
+		MacroParameterBinding binding{"source", {}, "gain", MacroParameterType::Float};
+		auto payload = [&](double start, double end, const QString &ease) {
+			return MacroParameter::encodeRamp({{binding, start}, end, ease});
+		};
+		cue.data = payload(0, 1, "linear");
+		initial.addEvent(cue);
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		QVERIFY(view && model);
+		TimelineEventItem *marker = nullptr;
+		for (auto *item : view->scene()->items())
+			if (auto *candidate = dynamic_cast<TimelineEventItem *>(item))
+				marker = candidate;
+		QVERIFY(marker);
+		auto render = [&] {
+			QImage image(280, 20, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			const auto center = marker->mapToScene(marker->rect().center());
+			view->scene()->render(&painter, QRectF(0, 0, 280, 20),
+					      QRectF(center.x() + 20, center.y() - 10, 280, 20));
+			return image;
+		};
+		const QImage ascending = render();
+		cue.data = payload(1, 0, "linear");
+		QVERIFY(model->replaceEventById(cue.id, cue));
+		QCoreApplication::processEvents();
+		const QImage descending = render();
+		QVERIFY(ascending != descending);
+		cue.data = payload(0, 1, "ease-in");
+		QVERIFY(model->replaceEventById(cue.id, cue));
+		QCoreApplication::processEvents();
+		QVERIFY(ascending != render());
+	}
+
+	void testTimelineGridDoesNotAllocateSceneItemsAtHighZoom()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", QJsonArray{}},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 1000.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 200);
+		dock.show();
+		QCoreApplication::processEvents();
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(view && view->scene());
+		QVERIFY(view->sceneRect().width() >= 300000);
+		QVERIFY2(view->scene()->items().size() < 20, "Grid and ruler must not allocate one item per tick");
+	}
+
 	void testThemePalettePreservesDarkForegroundsAndRefreshesGrid()
 	{
 		QPalette light;
@@ -4666,21 +6234,42 @@ private slots:
 		QCoreApplication::processEvents();
 		auto *view = dock.findChild<QGraphicsView *>();
 		QVERIFY(view && view->scene());
-		int gridLines = 0;
+		// Render a region away from the playhead and empty-state hint.
+		// The grid must remain visible and react to palette changes even
+		// though it is no longer a collection of line items.
+		view->scene()->setBackgroundBrush(Qt::white);
+		auto renderGrid = [&]() {
+			QImage image(80, 40, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			view->scene()->render(&painter, QRectF(0, 0, 80, 40), QRectF(980, 22, 80, 40));
+			return image;
+		};
+		const QImage darkGrid = renderGrid();
+		int darkPixels = 0;
+		for (int y = 0; y < darkGrid.height(); ++y)
+			for (int x = 0; x < darkGrid.width(); ++x)
+				if (darkGrid.pixelColor(x, y).red() < 240)
+					++darkPixels;
+		QVERIFY(darkPixels > 0);
+		light.setColor(QPalette::Text, Qt::red);
+		dock.setPalette(light);
+		QCoreApplication::processEvents();
+		const QImage redGrid = renderGrid();
+		int redPixels = 0;
+		for (int y = 0; y < redGrid.height(); ++y)
+			for (int x = 0; x < redGrid.width(); ++x) {
+				const auto color = redGrid.pixelColor(x, y);
+				if (color.red() - color.blue() > 25)
+					++redPixels;
+			}
+		QVERIFY(redPixels > 0);
+		QVERIFY(darkGrid != redGrid);
 		for (auto *item : view->scene()->items()) {
 			auto *line = qgraphicsitem_cast<QGraphicsLineItem *>(item);
-			if (!line)
-				continue;
-			if (line->zValue() == -1) {
-				auto expected = light.color(QPalette::Text);
-				expected.setAlpha(55);
-				QCOMPARE(line->pen().color(), expected);
-				++gridLines;
-			}
-			if (line->zValue() == 100)
+			if (line && line->zValue() == 100)
 				QCOMPARE(line->pen().color(), light.color(QPalette::Link));
 		}
-		QVERIFY(gridLines > 0);
 	}
 
 	void testMacroThemeChangePreservesTextDraftAndDoesNotSave()

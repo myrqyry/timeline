@@ -91,9 +91,10 @@ implementing different OBS action semantics (`src/plugin-main.cpp`).
 The build requires CMake 3.28+, C++17, Qt6 Core/Gui/Widgets/Svg, and the OBS
 libraries exposed through the official OBS plugin-template CMake targets
 (`CMakeLists.txt`). Tests default to enabled and also require Qt6 Test; the
-Ubuntu presets use Ninja. Select `obs31` or `obs32` (or experimental Linux `obs33`) with
+Ubuntu presets use Ninja. Select `obs31`, `obs32`, or `obs33` with
 `TIMELINE_OBS_COMPATIBILITY`; the corresponding SDK inputs are pinned in
-`buildspec.json`. CI can build that SDK from source with
+`buildspec.json`. See [PACKAGING.md](../PACKAGING.md) for target availability
+and toolchains, including OBS33 on Linux and Windows x64. Linux CI builds the SDK with
 `TIMELINE_BUILD_OBS_FROM_SOURCE=ON`. WebSocket vendor support is optional. When
 `ENABLE_OBS_WEBSOCKET_VENDOR` is enabled and `obs-websocket-api.h` is found,
 CMake defines `OBS_TIMELINE_HAS_WEBSOCKET=1`; otherwise it compiles the
@@ -119,6 +120,7 @@ lifetime, and callback teardown must remain easy to trace.
 | `macro-strip-dock.cpp/.h` | Macro action and parameter-control UI, separate persistence | `MacroButtonModel`, shared executor, parameter bindings |
 | `macro-parameter.cpp/.h` | Source/filter identity, live property discovery, typed read/write | libobs source/property/settings API |
 | `macro-parameter-widget.cpp/.h` | Parameter editor and live slider/knob/toggle/text entry/XY pad | Qt Widgets, MacroParameter |
+| `macro-automation-recorder.cpp/.h` | Convert captured Macro Strip writes into editable timeline cues | Typed parameter writes in, timeline events out |
 | `macro-serialization.cpp/.h` | Macro button JSON format and atomic file I/O | `QJsonDocument`, `QSaveFile` (writes), `QFile` (reads) |
 | `theme-helpers.h` | Theme-aware SVG paths and default colors | Qt palette and OBS theme widgets |
 | `timecode-display.cpp/.h` | Theme-aware playback clock | Qt custom widget |
@@ -189,6 +191,7 @@ generated during default construction.
 | `customIconPath` | Optional user-supplied SVG path |
 | `label` | Optional event label |
 | `showLabel` | Whether the label is rendered |
+| `muted` | Optional playback bypass; absent means false |
 | `hasDuration` | Whether the scheduler emits an end event |
 | `durationMs` | Duration in milliseconds |
 | `endAction` | Optional explicit ending operation; empty means historical default |
@@ -443,8 +446,8 @@ render smoothness depend on each plugin and have not been benchmarked.
 
 The model is sorted by start time, so the scheduler maintains
 `nextStartIndex`. Each tick advances that cursor only through events whose
-start time has arrived. Duration end times are not sorted by start time, so
-the scheduler retains a separate scan for end events. Due start and end cues
+start time has arrived. A separately sorted index of duration endpoints is
+rebuilt on model changes and seek, with its own advancing cursor. Due start and end cues
 are copied into a small batch, ordered by cue timestamp, and dispatched in
 that order. At equal timestamps, duration ends precede new starts. A delayed
 tick can recover cue ordering, but cannot recreate time that has already elapsed.
@@ -564,10 +567,12 @@ request creates a child `HeadlessTimeline`, passes on its ancestry, stores it in
 `cancelAll()` stops active children and schedules them for deletion before
 restoring its own pending temporary transition. This unwinds nested transition
 overrides child-first (`src/obs-executor.cpp`). The child owns its model, scheduler, and executor
-through Qt parent ownership (`src/headless-timeline.cpp`).
+through Qt parent ownership (`src/headless-timeline.cpp`). Children inherit
+the WebSocket vendor. Nested execution is capped at depth eight and sixteen
+live descendants per tree, including deferred deletions.
 
-Headless loading accepts event arrays and object documents directly, without
-using `TimelineSerialization::fromJsonDocument()`. It reads only loop and end
+Headless loading uses the same validated `TimelineSerialization::fromJsonDocument()`
+path as the dock, preserving the previous document on invalid input. It applies loop and end
 settings; `endTime` is in seconds and is converted to scheduler milliseconds.
 When no positive end time is supplied, it uses the latest event end plus 100 ms,
 or 100 ms for an empty timeline (`HeadlessTimeline::loadFromFile()`).
@@ -607,8 +612,11 @@ keyed by UUID so multiple events at the same time remain distinct.
 
 The viewport event filter implements:
 
-- Context-menu event insertion at a clicked time.
-- Control-wheel stepped zoom.
+- Context-menu event insertion and ripple time insertion/removal.
+- Cursor-anchored Control-wheel stepped zoom and content-aware fit.
+- Marquee selection, atomic group drag, and duration-handle resize; Escape cancels previews.
+- Persistent mute and explicit individual start/end actions while paused.
+- Bounded read-only target-health checks for visible paused cues.
 - Horizontal wheel scrolling, with Shift-wheel scrolling additional lanes
   vertically when needed.
 - Playhead scrubbing.
@@ -628,8 +636,9 @@ while preserving item identity and exact timestamps. The minimum graphics
 viewport reserves the ruler, one complete event bubble and decoration, plus
 horizontal scrollbar/frame space. Scene height is the larger of the viewport
 and event content height; additional lanes become vertically scrollable
-instead of imposing an unbounded minimum dock height. The ruler currently
-scrolls with the scene. Playhead, grid and end marker use the scene height.
+instead of imposing an unbounded minimum dock height. A viewport child
+keeps the ruler pinned during vertical scrolling. Horizontal bounds include
+duration endpoints and the end marker. Playhead, grid and end marker use the scene height.
 
 Macro Strip uses shared top-caption, control and optional bottom-caption rows derived from caption font
 metrics, native slider/toggle/text-entry/button size hints and the fixed dial size. The inner
@@ -668,6 +677,22 @@ Time mode uses the selected manual interval. BPM mode computes the interval as
 placement, and item snapping (`src/timeline-dock.cpp`). The editor and
 context menu placement flow snap the requested time before creating the event
 (`src/timeline-dock.cpp`).
+
+### Interaction motion
+
+The shared `src/interaction-motion.h` helper uses lazy Qt variant animations
+on the unified GUI animation clock. Hover and press transitions for cue
+bubbles and Macro Strip action buttons interpolate paint state only; direct
+input, cue identity, hit geometry and execution are unchanged. Passive
+knob and XY readback may ease visually while unfocused, without issuing
+intermediate parameter writes. Focused or actively manipulated controls
+snap to their actual value. The Qt style's animation duration is respected
+and capped at 120 ms. No recurring animation tick is required after settling.
+Cue animation invalidates only the bubble's reserved visual rectangle.
+
+These are GUI-thread painting optimizations, not proof that synchronous
+third-party OBS property callbacks have bounded cost. Native OBS frame-time
+profiling remains a separate verification gate.
 
 ### Graphics item lifecycle
 
@@ -752,8 +777,33 @@ and type-specific data (`src/timeline-model.cpp`).
 
 ### Macro Strip JSON
 
-Macro data uses an object with `buttons` and `version`. Each button stores its
-ID, label, type, source, optional filter, optional data, and color.
+Legacy macro data uses an object with `buttons` and `version` (1).
+Named, vertical or multiple strips use version 2 with `activeStrip` and
+`strips`; each strip has a stable ID, name, orientation and its own buttons.
+The optional `individualStrips` array stores separately registered docks
+using the same definition format. The decoder validates all definitions
+and rejects duplicate workspace strip IDs before replacing the active
+model. Only the selected tab and each independent dock have instantiated
+controls. Independent docks share the primary dock's executor, parameter
+recording signal and single canonical save path. Stable hashed OBS dock
+IDs allow the frontend to restore the dock positions on startup; dock
+registration precedes frontend layout restore. Closing an individual
+dock is distinct from removing its saved definition.
+Each button stores its ID, label, type, source, optional filter, optional
+data, and color. Optional `gapBefore` stores bounded logical-pixel spacing;
+sliders may override orientation. A `button-grid` control has exactly four
+action-only or null slots, using type -1 on the enclosing record. No recursive
+grids are accepted. In layout-edit mode a grip previews spacing without
+writing the model; release commits a single change, or reorders the model.
+Shift preserves order, and Escape or lost mouse grab cancels. Layout editing
+does not execute actions. Up to 32 order/spacing snapshots per strip are
+kept in session-local undo/redo history; model replacement or ordinary
+control editing invalidates that history. Animated reordering uses one
+bounded GUI animation and a maximum of sixteen visible control pixmaps;
+the actual layout is already at its committed geometry. The overlay
+restores the real widgets on completion, interruption, resize or hide.
+No animation frames write the model or OBS settings.
+Downgrading to older versions is not supported for new document types.
 Parameter records also store `control` and `binding` (sourceUuid, filterUuid,
 key, type, optional domain), and use the reserved invalid numeric event type -1 so old builds
 cannot execute them as actions. Invalid/unknown parameter records reject the
@@ -846,20 +896,24 @@ must define validation, authorization, and disclosure rules before implementatio
 ## Performance characteristics
 
 The scheduler uses an 8 ms timer and a monotonic start cursor. Start detection
-advances through each event once per forward pass; duration end detection remains
-O(n) per tick because end times are not ordered by start time. Only due cues
-are copied and sorted. This is appropriate for the expected
-small-to-medium timeline sizes, but duration-heavy timelines remain the first
-candidate for profiling.
+advances through each event once per forward pass; duration end detection
+uses the separately sorted endpoint index. Only due cues are copied and sorted.
+Muted cues bypass start, end, freeze and ramp dispatch; an already-started span
+retains its ending action. These algorithmic changes are not a measured
+performance benchmark.
 
 The dock avoids unnecessary graphics work in three ways:
 
 - `modelChanged()` coalesces rebuilds through a queued invocation
   (`src/timeline-dock.cpp`).
-- Ruler and grid caches skip redraws when their relevant dimensions and settings
-  are unchanged (`src/timeline-dock.cpp`, `src/timeline-dock.cpp`).
-- Playhead and end-marker pixmaps are cached by color
-  (`src/timeline-dock.h`, `src/timeline-dock.cpp`).
+- Grid and ruler are painted for the exposed rectangle, rather than allocating
+  scene items per grid line.
+- Visual ticks are coalesced independently of scheduler dispatch; playhead,
+  end-marker and timecode glyph pixmaps are cached.
+- Visible Macro Strip controls share a 250 ms readback monitor that deduplicates
+  identical bindings within a polling pass. Hidden controls skip readback.
+- Target-health checks probe at most four visible cues per 750 ms interval and
+  are suspended during playback, recording and dragging.
 
 Potentially expensive operations include scene-wide source visibility fallback
 search (`src/obs-executor.cpp`), OBS target enumeration in the editor
@@ -878,7 +932,7 @@ excluding `AGENTS.md`. macOS uses a `.plugin` bundle with runtime assets in
 The default Linux workflow uses Ninja, RelWithDebInfo, and CTest
 (`.github/workflows/linux-build.yml`). The repository also defines CMake
 presets for Ubuntu, macOS, and Windows
-(`CMakePresets.json:1-117`, `PACKAGING.md`). The `ubuntu-ci-x86_64` preset
+(`CMakePresets.json`, `PACKAGING.md`). The `ubuntu-ci-x86_64` preset
 adds ccache and warnings-as-errors for CI builds.
 
 ### Build switches
@@ -886,18 +940,18 @@ adds ccache and warnings-as-errors for CI builds.
 | Switch | Default | Effect |
 | --- | --- | --- |
 | `CMAKE_CXX_STANDARD` | `17` (set in `CMakeLists.txt`) | Required language standard |
-| `TIMELINE_OBS_COMPATIBILITY` | `obs32` | Select `obs31` or `obs32` and the corresponding SDK target (`cmake/common/bootstrap.cmake`) |
+| `TIMELINE_OBS_COMPATIBILITY` | `obs32` | Select `obs31`, `obs32`, or `obs33` and the corresponding SDK target (`cmake/common/bootstrap.cmake`) |
 | `TIMELINE_BUILD_OBS_FROM_SOURCE` | `OFF` | Build the pinned OBS SDK on Linux instead of using the installed SDK |
 | `TIMELINE_BUILD_TESTS` | `ON` | Build the Qt Test suite; requires Qt6 Test |
 | `ENABLE_OBS_WEBSOCKET_VENDOR` | `ON` | Attempt optional vendor-header integration (`CMakeLists.txt`) |
-| `TIMELINE_PLUGIN_ROOT` | `$HOME/.config/obs-studio/plugins/timeline` on Linux; `$APPDATA/obs-studio/plugins/timeline` on Windows | Root for installed binary and data; macOS uses bundle rules |
-| `OBS_PLUGIN_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/bin/64bit` | Installed module directory on Linux/Windows |
-| `OBS_DATA_DESTINATION` | `${TIMELINE_PLUGIN_ROOT}/data` | Installed runtime data directory on Linux/Windows |
+| `TIMELINE_PLUGIN_ROOT` | Varies by OS and OBS major; see [install layouts](../PACKAGING.md#install) | Root for default per-plugin layouts; macOS uses bundle rules |
+| `TIMELINE_SYSTEM_INSTALL` | `OFF` | Use the matching Linux system destinations |
+| `OBS_PLUGIN_DESTINATION` | Plugin root for OBS33, `bin/64bit` under the root for OBS31/32; system install uses a separate default | Installed module directory on Linux/Windows |
+| `OBS_DATA_DESTINATION` | `data` under the plugin root unless using Linux system install | Installed runtime data directory on Linux/Windows |
 
 Additional preset options are available in `CMakePresets.json`. The test target
-compiles the executor, headless timeline, scheduler, model, event item,
-serialization, macro, and editor sources with mocked frontend and WebSocket
-functions (`tests/CMakeLists.txt`).
+compiles the docks and other production sources without the module entry point,
+using mocked frontend and WebSocket functions (`tests/CMakeLists.txt`).
 
 ## Testing strategy
 
@@ -935,8 +989,8 @@ Tests use real Qt widgets, libobs scenes and registered fixture sources,
 with mocked OBS frontend and WebSocket functions. They verify dispatch,
 property callbacks, editing and lifetime paths but cannot prove all behavior
 of actual third-party sources, FFmpeg/VLC playback, or rendered output (`tests/AGENTS.md:25-30`).
-The release checklist therefore requires a real OBS smoke test in addition to
-the automated suite (`docs/RELEASE_CHECKLIST.md:11-49`).
+The [release checklist](RELEASE_CHECKLIST.md#interactive-obs-verification)
+therefore requires a real OBS smoke test in addition to the automated suite.
 
 ## Design decisions and trade-offs
 

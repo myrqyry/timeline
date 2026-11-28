@@ -19,6 +19,7 @@ public:
 	ObsExecutor(QObject *parent = nullptr);
 	~ObsExecutor();
 	void setObsWebSocketVendor(void *vendor);
+	static bool hasMissingTarget(const TimelineEvent &evt);
 	void setAncestorPaths(const QStringList &paths) { timelineAncestry = paths; }
 
 public slots:
@@ -36,6 +37,7 @@ private:
 	void handleDownstreamKeyerScene(const TimelineEvent &evt);
 	void handleTriggerTimeline(const TimelineEvent &evt);
 	void performAction(const TimelineEvent &evt, bool isStartAction);
+	void emitCueTelemetry(const TimelineEvent &evt, const char *phase);
 	void restoreOriginalTransition();
 	void cancelRestoreTimer();
 

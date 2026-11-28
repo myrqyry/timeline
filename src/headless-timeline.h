@@ -31,6 +31,7 @@ public:
 	QString getFilePath() const { return currentPath; }
 	void setFilePath(const QString &path) { currentPath = path; }
 	void setAncestorPaths(const QStringList &paths);
+	void setObsWebSocketVendor(void *vendor);
 
 public slots:
 	// Start playback

@@ -216,11 +216,28 @@ Missing vendors, invalid names and unavailable APIs are logged.
 - Events can be placed at the playhead, a double-click or a right-click
   position. Exact time edits and layout changes preserve event timestamps.
 - Choose Time mode for a manual snap interval or BPM mode for beat
-  subdivisions. Zoom spans 5–1,000 pixels per second.
+  subdivisions. Ctrl + wheel zooms around the cursor; the settings menu has
+  Fit timeline to view for longer sequences.
+- Cue hover and press feedback uses brief eased visual transitions; cue positions
+  and resizing remain immediate.
+- Drag empty timeline space to marquee-select cues; Shift adds and Ctrl
+  toggles selection. Drag selected cues together or resize a duration grip;
+  Escape cancels the preview. Duration labels appear when they fit.
+- Right-click a cue to mute/unmute it or, while paused, run an individual
+  action. Duration cues expose separate start and end actions, not a timed
+  audition. Muted cues remain editable and do not normally dispatch; an
+  already-started span retains its ending action.
+- Amber target warnings indicate unavailable local bindings. Checks run
+  only for visible paused cues; external and nested targets are not validated.
+- Right-click the ruler or empty space to insert or remove seconds.
+  Insert shifts later cues; remove deletes cues starting within the range
+  and shifts the rest left. The playhead and explicit end marker stay fixed.
+  Edits starting inside existing duration cues or crossing the end limit
+  are rejected. Each successful edit is one undo step.
 - Drag the playhead to seek and the optional end marker to set the limit.
 - Overlapping events stack into lanes. Compact mode updates the toolbar,
   timecode and event dimensions and recalculates stacking. Extra lanes
-  scroll vertically (including the ruler); ordinary wheel scrolling remains
+  scroll vertically beneath a pinned ruler; ordinary wheel scrolling remains
   horizontal and Ctrl + wheel zooms.
 - Cues exactly at a positive end marker execute before stopping or looping.
   Delayed ticks dispatch due starts/ends in chronological order, with ends
@@ -241,6 +258,39 @@ History edits do not execute OBS actions. History is disabled while playing,
 loading or dragging, and excludes playhead movement, zoom, grid settings,
 end-marker changes, Macro Strip edits and selection. It is not saved to disk.
 The normal autosave path persists the resulting event data.
+
+## Macro Strip layout
+
+- **+ → 2 × 2 action buttons** adds a cluster with four empty cells.
+  Click an empty cell to assign an action using the usual event editor.
+  Right-click a cell to edit/clear it, change grid labels or remove the grid.
+- **+ → New strip…** creates a named bank. Use the tabs to select a bank,
+  and the same menu to rename, remove or change its orientation. The
+  only tabbed strip cannot be removed; tabs are hidden when just one exists.
+- **+ → New individual dock…** creates a separately dockable strip. Move
+  a tab to an individual dock, then use that dock's **Move strip back to tabs**
+  command to return it. At least one tab stays in the main dock. Closing an
+  individual dock hides it without deleting its controls; reopen it through
+  OBS Docks or the main strip's Show individual dock menu. Removing it is
+  a separate, confirmed action.
+- **+ → Edit layout** disables live controls and exposes grips. Drag a
+  grip along the strip to add or reduce spacing or cross a neighbor to
+  reorder. Shift-drag keeps the order fixed even for large gaps.
+  Escape cancels the active preview. Release commits; Undo layout edit and
+  Redo layout edit are in the same menu. History is session-local, up to
+  32 edits per strip, and clears when controls are edited/replaced or the
+  strip is moved between docks. Reordering eases visible controls briefly;
+  the next drag interrupts that animation. Choose Finish editing layout
+  to return to live mode.
+- Sliders default to following the strip direction, or choose Horizontal
+  or Vertical in their Labels and appearance dialog. Knobs, XY pads and
+  circular buttons keep their intrinsic shape.
+
+Gaps are persisted as control metadata (0–2048 logical pixels), not
+separate spacer controls. Layout mode is transient; documents reopen in
+live mode. The layout is along the strip's axis rather than freeform
+two-dimensional positioning. Back up macro_buttons.json before
+downgrading to a build that predates named strips and button grids.
 
 ## Live parameter controls
 
@@ -406,6 +456,13 @@ Default Linux locations:
 ~/.config/obs-studio/plugin_config/timeline/timeline.json
 ~/.config/obs-studio/plugin_config/timeline/macro_buttons.json
 ```
+
+If Timeline starts with a damaged or unreadable configuration, automatic
+saving is blocked. Import a valid document using **Load Timeline** to recover.
+The original file must first be copied to a unique sibling
+`timeline.json.recovery-<uuid>`; if that copy fails, the import is rejected
+and the original remains protected. A successful recovery re-enables automatic
+saving. Invalid imports do not change the current timeline.
 
 A valid legacy installed Macro Strip file at
 `~/.config/obs-studio/plugins/timeline/data/macro_buttons.json` is imported

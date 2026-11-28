@@ -1,5 +1,6 @@
 #include "macro-parameter.h"
 #include "scene-item-target.h"
+#include "filter-target.h"
 #include <obs.h>
 #include <obs-audio-controls.h>
 #include <QSet>
@@ -48,20 +49,7 @@ Source resolve(const MacroParameterBinding &binding)
 		return Source(nullptr, obs_source_release);
 	if (binding.filterUuid.isEmpty())
 		return parent;
-	struct Lookup {
-		QString id;
-		obs_source_t *result = nullptr;
-	} lookup{binding.filterUuid};
-	// Filters can be private; resolve through their actual owner.
-	obs_source_enum_filters(
-		parent.get(),
-		[](obs_source_t *, obs_source_t *filter, void *opaque) {
-			auto *lookup = static_cast<Lookup *>(opaque);
-			if (!lookup->result && !obs_source_removed(filter) && uuid(filter) == lookup->id)
-				lookup->result = obs_source_get_ref(filter);
-		},
-		&lookup);
-	return Source(lookup.result, obs_source_release);
+	return Source(FilterTarget::resolveOwned(parent.get(), binding.filterUuid), obs_source_release);
 }
 
 void collectProperties(obs_properties_t *props, obs_data_t *settings, const QString &prefix,
@@ -313,25 +301,36 @@ bool toggleValuesFit(const Spec &spec, const ToggleValues &values)
 	return fits(a) && fits(b) && spec.indexOf(a) != spec.indexOf(b);
 }
 
-std::optional<int> toggleState(const MacroParameterBinding &binding, const Spec &spec, const ToggleValues &values)
+std::optional<int> toggleStateForValue(const Spec &spec, const ToggleValues &values, const QVariant &current)
 {
-	if (!toggleValuesFit(spec, values))
+	if (!current.isValid() || !toggleValuesFit(spec, values))
 		return std::nullopt;
-	if (binding.type == MacroParameterType::Text) {
-		const auto current = readText(binding);
-		if (!current)
-			return std::nullopt;
-		return *current == values.a.toString() ? 0 : *current == values.b.toString() ? 1 : -1;
-	}
-	const auto current = read(binding);
-	if (!current)
+	if (spec.type == MacroParameterType::Text)
+		return current.toString() == values.a.toString()   ? 0
+		       : current.toString() == values.b.toString() ? 1
+								   : -1;
+	bool ok = false;
+	const double number = current.toDouble(&ok);
+	if (!ok || !std::isfinite(number))
 		return std::nullopt;
 	// Readback can have small floating-point error (especially mixer faders).
 	// Do not quantize arbitrary external values into the selected presets.
 	const double tolerance = spec.type == MacroParameterType::Integer ? 0.0 : spec.step * 1e-3;
-	return std::abs(*current - values.a.toDouble()) <= tolerance   ? 0
-	       : std::abs(*current - values.b.toDouble()) <= tolerance ? 1
-								       : -1;
+	return std::abs(number - values.a.toDouble()) <= tolerance   ? 0
+	       : std::abs(number - values.b.toDouble()) <= tolerance ? 1
+								     : -1;
+}
+
+std::optional<int> toggleState(const MacroParameterBinding &binding, const Spec &spec, const ToggleValues &values)
+{
+	if (!toggleValuesFit(spec, values) || binding.type != spec.type)
+		return std::nullopt;
+	if (binding.type == MacroParameterType::Text) {
+		const auto current = readText(binding);
+		return current ? toggleStateForValue(spec, values, *current) : std::nullopt;
+	}
+	const auto current = read(binding);
+	return current ? toggleStateForValue(spec, values, *current) : std::nullopt;
 }
 
 QList<Target> targets()

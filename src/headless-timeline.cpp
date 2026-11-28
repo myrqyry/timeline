@@ -1,8 +1,6 @@
 #include "headless-timeline.h"
 #include "obs-executor.h"
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
+#include "timeline-serialization.h"
 #include <obs-module.h>
 
 HeadlessTimeline::HeadlessTimeline(QObject *parent) : QObject(parent)
@@ -33,39 +31,27 @@ void HeadlessTimeline::setAncestorPaths(const QStringList &paths)
 	executor->setAncestorPaths(paths);
 }
 
+void HeadlessTimeline::setObsWebSocketVendor(void *vendor)
+{
+	executor->setObsWebSocketVendor(vendor);
+}
+
 bool HeadlessTimeline::loadFromFile(const QString &filePath)
 {
+	QJsonDocument doc;
+	TimelineDocument settings;
+	QString error;
+	if (!TimelineSerialization::loadFromFile(filePath, doc, &error) ||
+	    !TimelineSerialization::fromJsonDocument(doc, *model, settings, &error)) {
+		blog(LOG_WARNING, "[Timeline] Headless timeline load failed: %s (%s)", filePath.toUtf8().constData(),
+		     error.toUtf8().constData());
+		return false;
+	}
+	stop();
+	scheduler->restart();
 	currentPath = filePath;
-
-	QFile file(filePath);
-	if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
-		blog(LOG_WARNING, "[Timeline] ┌─ Headless timeline: file open failed");
-		blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toUtf8().constData());
-		return false;
-	}
-
-	QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-	file.close();
-
-	if (doc.isArray()) {
-		model->fromJson(doc.array());
-	} else if (doc.isObject()) {
-		QJsonObject root = doc.object();
-		model->fromJson(root["events"].toArray());
-
-		// Optional: Load settings if needed (loop, endTime)
-		QJsonObject settings = root["settings"].toObject();
-		if (settings.contains("loop")) {
-			scheduler->setLooping(settings["loop"].toBool());
-		}
-		if (settings.contains("endTime")) {
-			scheduler->setEndTime(settings["endTime"].toDouble() * 1000.0);
-		}
-	} else {
-		blog(LOG_WARNING, "[Timeline] ┌─ Headless timeline: invalid JSON format");
-		blog(LOG_WARNING, "[Timeline] └─ Path : %s", filePath.toUtf8().constData());
-		return false;
-	}
+	scheduler->setLooping(settings.loop);
+	scheduler->setEndTime(settings.endTimeSeconds * 1000.0);
 
 	// Fallback: if no non-zero endTime was set, compute one from the event data
 	// to prevent infinite background ticking (legacy bare-array files, missing settings, etc.)

@@ -19,12 +19,12 @@ No deviations — follow root conventions. Tests use the same memory rules (`bza
 
 ## Dependencies & Side Effects
 
-- Tests compile all production sources except `plugin-main.cpp`, `timeline-dock.cpp`, and `timecode-display.cpp`: `obs-executor.cpp`, `headless-timeline.cpp`, `timeline-scheduler.cpp`, `timeline-model.cpp`, `timeline-event-item.cpp`, `timeline-serialization.cpp`, `macro-button-model.cpp`, `macro-button-widget.cpp`, `macro-serialization.cpp`, `macro-strip-dock.cpp`, and `event-editor.cpp` (`tests/CMakeLists.txt:13-29`). Changes to any of these files may break tests.
+- [`TEST_SOURCES`](CMakeLists.txt) is the build authority. The harness compiles the real docks, timecode display and automation recorder, but omits `plugin-main.cpp` and substitutes frontend and WebSocket functions.
 - Mock state is reset in `cleanup()` between tests. New tests that rely on frontend/websocket state must initialize mocks in `init()` or `initTestCase()`.
 
 ## Watch Out For
 
-- **Dummy source registration**: Tests register fake source types (`scene`, `cut_transition`, `test_source`, `test_filter`) in `initTestCase()`. These are minimal — they only allocate/free memory. Do not expect full scene/transition behavior.
+- **Fixture scope**: The harness uses real libobs scenes and test sources with minimal callbacks. Frontend test doubles do not reproduce native OBS transitions, third-party sources or rendered output.
 - **Headless graphics**: `QT_QPA_PLATFORM=offscreen` is the local fallback, but strict tests run with `QT_QPA_PLATFORM=xcb` under Xvfb and software GL; do not count OpenGL/OBS startup skips as coverage.
 - **Memory leak assertion**: `cleanupTestCase()` asserts on `bnum_allocs() < 4` after mocking all globals and draining OBS source enumeration. Up to 3 residual allocations from OBS source-type registration metadata are expected in headless test environments; a count of 4+ indicates a regression in source reference cleanup.
 - **OBS runtime availability**: Local tests can skip when headless OpenGL or OBS startup is unavailable, but `TIMELINE_REQUIRE_OBS_RUNTIME=1` makes that a hard failure. The Linux CI workflow enables this flag under Xvfb; skipped runtime tests must never count as a green required CI job.

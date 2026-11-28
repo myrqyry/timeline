@@ -53,7 +53,7 @@ template<typename Visitor> void visit(obs_scene_t *root, const QString &prefix, 
 	context.walk(root, prefix);
 }
 
-inline bool setVisible(const QString &target, bool visible)
+template<typename Visitor> inline bool withExact(const QString &target, Visitor visitItem)
 {
 	const auto parts = target.split(QLatin1Char(':'));
 	if (parts.size() != 5 || parts[0] != QStringLiteral("scene-item") || parts[1] != QStringLiteral("v1") ||
@@ -70,8 +70,17 @@ inline bool setVisible(const QString &target, bool visible)
 	auto *item = scene ? obs_scene_find_sceneitem_by_id(scene, id) : nullptr;
 	const bool matches = item && QString::fromUtf8(obs_source_get_uuid(obs_sceneitem_get_source(item))) == parts[4];
 	if (matches)
-		obs_sceneitem_set_visible(item, visible);
+		visitItem(item);
 	obs_source_release(owner);
 	return matches;
+}
+inline bool setVisible(const QString &target, bool visible)
+{
+	return withExact(target, [visible](obs_sceneitem_t *item) { obs_sceneitem_set_visible(item, visible); });
+}
+
+inline bool exists(const QString &target)
+{
+	return withExact(target, [](obs_sceneitem_t *) {});
 }
 } // namespace SceneItemTarget

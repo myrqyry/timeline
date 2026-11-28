@@ -18,6 +18,7 @@
 #include <QJsonDocument>
 
 #include "timeline-event-item.h"
+#include "timeline-hit-testing.h"
 #include "theme-helpers.h"
 #include "timecode-display.h"
 #include <QMouseEvent>
@@ -31,15 +32,23 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QDialogButtonBox>
+#include <QInputDialog>
+#include <QMessageBox>
 #include <QColorDialog>
 #include <QKeyEvent>
 #include <QUuid>
 #include <QApplication>
 #include <QShortcut>
 #include <QScrollBar>
+#include <QRubberBand>
 #include <QMenu>
 #include <QTimer>
 #include <QWidgetAction>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QFontMetricsF>
+#include <functional>
+#include <limits>
 #include "event-editor.h"
 #include "plugin-integrations.h"
 #include "timeline-serialization.h"
@@ -47,6 +56,70 @@
 // Stepped zoom levels for clean, professional increments
 static const std::vector<double> ZOOM_LEVELS = {5.0,   10.0,  15.0,  20.0,  30.0,  50.0,  75.0,
 						100.0, 150.0, 200.0, 300.0, 500.0, 750.0, 1000.0};
+
+namespace {
+class PinnedTimelineRuler final : public QWidget {
+public:
+	using Painter = std::function<void(QPainter *)>;
+	PinnedTimelineRuler(QWidget *parent, Painter paint) : QWidget(parent), paintRuler(std::move(paint))
+	{
+		setObjectName("timeline-pinned-ruler");
+		setAttribute(Qt::WA_TransparentForMouseEvents);
+		setAttribute(Qt::WA_OpaquePaintEvent);
+		setFixedHeight(20);
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter painter(this);
+		paintRuler(&painter);
+	}
+
+private:
+	Painter paintRuler;
+};
+
+class TimelineCanvasView final : public QGraphicsView {
+public:
+	using QGraphicsView::QGraphicsView;
+
+protected:
+	void scrollContentsBy(int dx, int dy) override
+	{
+		QGraphicsView::scrollContentsBy(dx, dy);
+		// QWidget's optimized viewport scrolling moves child widgets too.
+		// Reanchor after the base implementation, not in scrollbar signals
+		// (whose delivery can precede the actual viewport scroll).
+		if (auto *ruler =
+			    viewport()->findChild<QWidget *>("timeline-pinned-ruler", Qt::FindDirectChildrenOnly)) {
+			ruler->move(0, 0);
+			ruler->raise();
+			ruler->update();
+		}
+	}
+};
+
+class TimelineCanvasScene final : public QGraphicsScene {
+public:
+	using BackgroundPainter = std::function<void(QPainter *, const QRectF &)>;
+	TimelineCanvasScene(QObject *parent, BackgroundPainter paint)
+		: QGraphicsScene(parent),
+		  paintBackground(std::move(paint))
+	{
+	}
+
+protected:
+	void drawBackground(QPainter *painter, const QRectF &rect) override
+	{
+		QGraphicsScene::drawBackground(painter, rect);
+		paintBackground(painter, rect);
+	}
+
+private:
+	BackgroundPainter paintBackground;
+};
+} // namespace
 
 TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
 	: QWidget(parent),
@@ -101,6 +174,13 @@ TimelineDock::TimelineDock(QWidget *parent, const QString &storageFilePath)
 	// Register frontend event callback
 	obs_frontend_add_event_callback(frontendEventCallback, this);
 
+	// Bounded read-only checks, independent of scheduler ticks. Never probe
+	// while playing, recording, hidden or in a direct manipulation gesture.
+	auto *cueHealthTimer = new QTimer(this);
+	cueHealthTimer->setInterval(750);
+	connect(cueHealthTimer, &QTimer::timeout, this, &TimelineDock::refreshVisibleCueHealth);
+	cueHealthTimer->start();
+
 	// Initial Load
 	blog(LOG_INFO, "[Timeline] ├─ Loading data");
 	load();
@@ -122,8 +202,6 @@ TimelineDock::~TimelineDock()
 	obs_hotkey_unregister(hotkeyIdPlayPause);
 	obs_hotkey_unregister(hotkeyIdStop);
 	obs_hotkey_unregister(hotkeyIdRestart);
-
-	clearRuler();
 }
 
 void TimelineDock::saveCallback(obs_data_t *save_data, bool saving, void *private_data)
@@ -240,7 +318,7 @@ void TimelineDock::save()
 	const QString configPath = configFilePath();
 	if (configPath.isEmpty())
 		return;
-	if (loadingTimeline) {
+	if (loadingTimeline || configLoadFailed) {
 		return;
 	}
 
@@ -274,6 +352,8 @@ void TimelineDock::load()
 	QJsonDocument doc;
 	QString errorMessage;
 	const QFileInfo configInfo(configPath);
+	// Protect existing unreadable data until a subsequent successful load.
+	configLoadFailed = configInfo.exists();
 	if (TimelineSerialization::loadFromFile(configPath, doc, &errorMessage)) {
 		blog(LOG_INFO, "[Timeline] Loading config: %s", configPath.toUtf8().constData());
 		TimelineDocument timelineDoc;
@@ -298,6 +378,7 @@ void TimelineDock::load()
 		// so eventItemMap is populated for snap, zoom, and layout.
 		rebuildEventItems();
 		updateLayout();
+		configLoadFailed = false;
 		blog(LOG_INFO, "[Timeline] Loaded → %s", configPath.toUtf8().constData());
 	} else if (!configInfo.exists()) {
 		QDir().mkpath(configInfo.absolutePath());
@@ -351,7 +432,9 @@ void TimelineDock::applyTimelineDocument(const TimelineDocument &doc)
 	showEndTimeCheckbox->blockSignals(true);
 	showEndTimeCheckbox->setChecked(showEndTimeOnDock);
 	showEndTimeCheckbox->blockSignals(false);
-	pixelsPerSecond = doc.zoomPixelsPerSecond;
+	pixelsPerSecond = std::isfinite(doc.zoomPixelsPerSecond) && doc.zoomPixelsPerSecond > 0
+				  ? std::clamp(doc.zoomPixelsPerSecond, 0.001, 1000.0)
+				  : 100.0;
 	scheduler->seek(doc.currentTimeMs);
 }
 
@@ -363,8 +446,8 @@ void TimelineDock::setupUi()
 	playheadColor = computePlayheadColor();
 
 	// Instantiate critical infrastructure early
-	view = new QGraphicsView(this);
-	scene = new QGraphicsScene(this);
+	view = new TimelineCanvasView(this);
+	scene = new TimelineCanvasScene(this, [this](QPainter *p, const QRectF &r) { paintTimelineBackground(p, r); });
 	view->setScene(scene);
 
 	timeModeBtn = new QPushButton(this);
@@ -546,6 +629,9 @@ void TimelineDock::setupUi()
 	settingsMenu->addSeparator();
 	settingsMenu->addAction(obs_module_text("TimelineDock.SaveTimeline"), this, &TimelineDock::onSaveClicked);
 	settingsMenu->addAction(obs_module_text("TimelineDock.LoadTimeline"), this, &TimelineDock::onLoadClicked);
+	auto *fitAction =
+		settingsMenu->addAction(obs_module_text("TimelineDock.ZoomFit"), this, &TimelineDock::onZoomFitClicked);
+	fitAction->setObjectName("timeline-zoom-fit-action");
 	settingsMenu->addSeparator();
 	QMenu *integrationsMenu = settingsMenu->addMenu(obs_module_text("TimelineDock.Integrations"));
 	connect(integrationsMenu, &QMenu::aboutToShow, this, [integrationsMenu]() {
@@ -700,7 +786,18 @@ void TimelineDock::setupUi()
 	view->installEventFilter(this);
 	view->viewport()->installEventFilter(this);
 	view->viewport()->setMouseTracking(true);
-	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() { updateZoomLabelPosition(); });
+	pinnedRuler = new PinnedTimelineRuler(view->viewport(), [this](QPainter *p) { paintPinnedRuler(p); });
+	pinnedRuler->setGeometry(0, 0, view->viewport()->width(), 20);
+	pinnedRuler->show();
+	pinnedRuler->raise();
+	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+		updateZoomLabelPosition();
+		pinnedRuler->update();
+	});
+	connect(view->verticalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+		pinnedRuler->raise();
+		pinnedRuler->update();
+	});
 
 	// Playhead — main line, slightly thicker and crisp
 	QPen playheadPen(playheadColor, 2);
@@ -874,6 +971,8 @@ void TimelineDock::seekToSceneX(double x)
 	if (timeMs < 0.0)
 		timeMs = 0.0;
 	scheduler->seek(timeMs);
+	if (scheduler->isPlaying())
+		updateVisualTime(scheduler->getCurrentTime());
 }
 
 void TimelineDock::onZoomInClicked()
@@ -899,6 +998,27 @@ void TimelineDock::onZoomOutClicked()
 		updateZoomLabel();
 		debounceSaveTimer->start();
 	}
+}
+
+void TimelineDock::onZoomFitClicked()
+{
+	if (isDragging || selectionGesture != SelectionGesture::None)
+		return;
+	double lastMs = std::max(0.0, scheduler->getEndTime());
+	for (const auto &cue : model->getEvents()) {
+		const double end = cue.timeMs + (cue.hasDuration && cue.type != TimelineEventType::FreezeTime
+							 ? std::max(0.0, cue.durationMs)
+							 : 0.0);
+		if (std::isfinite(end))
+			lastMs = std::max(lastMs, end);
+	}
+	// Reserve left padding and space for the rightmost bubble/short-span grip.
+	const double available = std::max(1, view->viewport()->width() - 100);
+	pixelsPerSecond = lastMs > 0 ? std::clamp(available * 1000.0 / lastMs, 0.001, 1000.0) : 100.0;
+	updateLayout();
+	view->horizontalScrollBar()->setValue(view->horizontalScrollBar()->minimum());
+	updateZoomLabel();
+	debounceSaveTimer->start();
 }
 
 void TimelineDock::onSnapIntervalChanged(int index)
@@ -999,16 +1119,16 @@ void TimelineDock::updateViewportGeometry()
 	// padding, frame and horizontal scrollbar. More lanes scroll instead
 	// of imposing an unbounded minimum height on the OBS main window.
 	const int bubble = compactMode ? TimelineEventItem::COMPACT_SIZE : TimelineEventItem::ITEM_SIZE;
-	const int minimumViewport = 30 + bubble + 8;
+	const int minimumViewport = 30 + bubble + TimelineEventItem::VISUAL_PADDING;
 	const int minHeight =
 		minimumViewport + view->horizontalScrollBar()->sizeHint().height() + 2 * view->frameWidth();
 	if (view->minimumHeight() != minHeight)
 		view->setMinimumHeight(minHeight);
 	const double height = std::max({static_cast<double>(view->viewport()->height()),
 					static_cast<double>(minimumViewport), eventContentHeight});
-	QRectF rect = scene->sceneRect();
-	rect.setHeight(height);
-	scene->setSceneRect(rect);
+	const double right = std::max({5000.0, 300.0 * pixelsPerSecond, eventContentRight + 24.0,
+				       scheduler->getEndTime() * pixelsPerSecond / 1000.0 + 24.0});
+	scene->setSceneRect(-20, 0, right + 20, height);
 	for (auto *lineItem : {playheadItem, dragGuideItem}) {
 		if (lineItem) {
 			QLineF line = lineItem->line();
@@ -1019,6 +1139,11 @@ void TimelineDock::updateViewportGeometry()
 	drawGrid();
 	updateEndMarker();
 	updateZoomLabelPosition();
+	if (pinnedRuler) {
+		pinnedRuler->setGeometry(0, 0, view->viewport()->width(), 20);
+		pinnedRuler->raise();
+		pinnedRuler->update();
+	}
 }
 
 // Helper to update event items
@@ -1049,90 +1174,206 @@ void TimelineDock::updateLayout()
 	updatePlayhead(scheduler->getCurrentTime());
 }
 
-void TimelineDock::clearRuler()
-{
-	for (QGraphicsItem *item : rulerItems) {
-		scene->removeItem(item);
-		delete item;
-	}
-	rulerItems.clear();
-}
-
 void TimelineDock::drawRuler()
 {
-	if (!scene)
+	if (scene)
+		scene->invalidate(QRectF(), QGraphicsScene::BackgroundLayer);
+	if (pinnedRuler)
+		pinnedRuler->update();
+}
+
+void TimelineDock::previewDurationResize(double sceneX)
+{
+	if (resizingEventId.isEmpty())
 		return;
-
-	double sceneWidth = scene->sceneRect().width();
-	if (cachedRulerPxPerSec == pixelsPerSecond && cachedRulerSceneWidth == sceneWidth)
-		return;
-
-	cachedRulerPxPerSec = pixelsPerSecond;
-	cachedRulerSceneWidth = sceneWidth;
-
-	clearRuler();
-
-	double durationSec = scene->sceneRect().width() / pixelsPerSecond;
-
-	int step = 1;
-	if (pixelsPerSecond < 50)
-		step = 5;
-	if (pixelsPerSecond < 10)
-		step = 10;
-
-	QColor rulerColor = palette().color(QPalette::Mid);
-	rulerColor.setAlpha(180);
-	QColor textColor = palette().color(QPalette::Text);
-	QColor minorColor = palette().color(QPalette::Dark);
-	minorColor.setAlpha(140);
-
-	for (int i = 0; i <= durationSec; i += step) {
-		double x = i * pixelsPerSecond;
-
-		// Major tick — full height with subtle gradient look via two stacked lines
-		QPen majorPen(rulerColor, 1);
-		majorPen.setCosmetic(true);
-		QGraphicsLineItem *line = scene->addLine(x, 0, x, 20, majorPen);
-		rulerItems.append(line);
-
-		// Highlight stroke for first/last pixel to soften edge
-		QColor hi = rulerColor.lighter(140);
-		hi.setAlpha(120);
-		QGraphicsLineItem *cap = scene->addLine(x, 0, x, 2, QPen(hi, 1));
-		rulerItems.append(cap);
-
-		QGraphicsSimpleTextItem *text = scene->addSimpleText(QString::number(i) + "s");
-		text->setPos(x + 3, 1);
-		text->setBrush(QBrush(textColor));
-		QFont markerFont = text->font();
-		markerFont.setPointSize(8);
-		markerFont.setWeight(QFont::DemiBold);
-		text->setFont(markerFont);
-		rulerItems.append(text);
-
-		if (pixelsPerSecond > 50) {
-			for (int j = 1; j < 10; j++) {
-				double xm = x + (j * pixelsPerSecond / 10.0);
-				// Alternate minor tick heights to add rhythm
-				int tickH = (j == 5) ? 14 : 8;
-				QGraphicsLineItem *minor = scene->addLine(xm, 20 - tickH, xm, 20, QPen(minorColor, 1));
-				rulerItems.append(minor);
-
-				if (pixelsPerSecond > 100 && j == 5) {
-					QGraphicsSimpleTextItem *minorText =
-						scene->addSimpleText(QString::number(i + 0.5, 'f', 1) + "s");
-					minorText->setPos(xm + 3, 1);
-					minorText->setBrush(QBrush(textColor));
-					minorText->setFont(markerFont);
-					rulerItems.append(minorText);
-				}
-			}
-		}
+	const double delta = (sceneX - resizePressX) * 1000.0 / pixelsPerSecond;
+	resizePreviewMs = std::abs(delta) < 1e-6
+				  ? resizeInitialMs
+				  : std::clamp(snapTimeMs(resizeStartMs + resizeInitialMs + delta) - resizeStartMs,
+					       10.0, std::max(3600000.0, resizeInitialMs));
+	if (auto *item = eventItemMap.value(resizingEventId))
+		item->setDuration(resizePreviewMs);
+	if (dragGuideItem) {
+		const double x = (resizeStartMs + resizePreviewMs) * pixelsPerSecond / 1000.0;
+		dragGuideItem->setLine(x, 0, x, scene->sceneRect().height());
+		dragGuideItem->setVisible(true);
 	}
+}
+
+void TimelineDock::finishDurationResize(bool commit)
+{
+	if (resizingEventId.isEmpty())
+		return;
+	const auto id = resizingEventId;
+	resizingEventId.clear();
+	isDragging = false;
+	if (dragGuideItem)
+		dragGuideItem->setVisible(false);
+	view->viewport()->unsetCursor();
+	const auto current = model->findEventById(id);
+	if (commit && !scheduler->isPlaying() && current && current->hasDuration && current->timeMs == resizeStartMs &&
+	    current->durationMs == resizeInitialMs && resizePreviewMs != resizeInitialMs) {
+		auto changed = *current;
+		changed.durationMs = resizePreviewMs;
+		model->replaceEventById(id, changed);
+	}
+	// Restore the committed model on cancel or concurrent edits, and apply
+	// deferred rebuilds. The drag never mutates scheduler/model state.
+	rebuildEventItems();
+	updateHistoryControls();
+}
+
+void TimelineDock::beginMarquee(const QPoint &point, Qt::KeyboardModifiers modifiers)
+{
+	selectionGesture = SelectionGesture::Marquee;
+	gesturePress = point;
+	gestureMoved = false;
+	marqueeModifiers = modifiers;
+	originalSelection.clear();
+	for (auto *item : eventItemMap)
+		if (item && item->isSelected())
+			originalSelection.insert(item->getEventId());
+	if (!marqueeBand) {
+		marqueeBand = new QRubberBand(QRubberBand::Rectangle, view->viewport());
+		marqueeBand->setAttribute(Qt::WA_TransparentForMouseEvents);
+	}
+	view->setFocus();
+}
+
+bool TimelineDock::beginGroupDrag(TimelineEventItem *anchor, const QPoint &point)
+{
+	if (!anchor->isSelected() || scheduler->isPlaying())
+		return false;
+	groupOriginalTimes.clear();
+	for (const auto &cue : model->getEvents())
+		if (auto *item = eventItemMap.value(cue.id); item && item->isSelected())
+			groupOriginalTimes.insert(cue.id, cue.timeMs);
+	if (groupOriginalTimes.size() < 2) {
+		groupOriginalTimes.clear();
+		return false;
+	}
+	groupAnchorTime = groupOriginalTimes.value(anchor->getEventId());
+	gesturePress = point;
+	gestureSceneX = view->mapToScene(point).x();
+	groupDelta = 0;
+	gestureMoved = false;
+	selectionGesture = SelectionGesture::Group;
+	isDragging = true;
+	view->setFocus();
+	view->viewport()->setCursor(Qt::ClosedHandCursor);
+	updateHistoryControls();
+	return true;
+}
+
+void TimelineDock::previewSelectionGesture(const QPoint &point)
+{
+	if (selectionGesture == SelectionGesture::None)
+		return;
+	if (!gestureMoved && (point - gesturePress).manhattanLength() < QApplication::startDragDistance())
+		return;
+	gestureMoved = true;
+	if (selectionGesture == SelectionGesture::Marquee) {
+		const QRect area = QRect(gesturePress, point).normalized();
+		marqueeBand->setGeometry(area);
+		marqueeBand->show();
+		marqueeBand->raise();
+		if (pinnedRuler)
+			pinnedRuler->raise();
+		QSet<QString> hits;
+		for (auto *graphics : scene->items(view->mapToScene(area), Qt::IntersectsItemShape))
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				hits.insert(item->getEventId());
+		for (auto *item : eventItemMap) {
+			if (!item)
+				continue;
+			const bool hit = hits.contains(item->getEventId());
+			const bool wasSelected = originalSelection.contains(item->getEventId());
+			item->setSelected(marqueeModifiers.testFlag(Qt::ControlModifier) ? hit != wasSelected
+					  : marqueeModifiers.testFlag(Qt::ShiftModifier) ? hit || wasSelected
+											 : hit);
+		}
+		return;
+	}
+
+	double delta = (view->mapToScene(point).x() - gestureSceneX) * 1000.0 / pixelsPerSecond;
+	if (std::abs(delta) > 1e-6)
+		delta = snapTimeMs(groupAnchorTime + delta) - groupAnchorTime;
+	double first = groupAnchorTime, last = groupAnchorTime;
+	for (double time : groupOriginalTimes) {
+		first = std::min(first, time);
+		last = std::max(last, time);
+	}
+	const double end = scheduler->getEndTime();
+	const double upper = end > 0 ? std::max(0.0, end - last) : std::numeric_limits<double>::infinity();
+	groupDelta = std::clamp(delta, -std::max(0.0, first), upper);
+	for (auto it = groupOriginalTimes.cbegin(); it != groupOriginalTimes.cend(); ++it)
+		if (auto *item = eventItemMap.value(it.key()))
+			item->setTimeMs(it.value() + groupDelta);
+	if (dragGuideItem) {
+		const double x = (groupAnchorTime + groupDelta) * pixelsPerSecond / 1000.0;
+		dragGuideItem->setLine(x, 0, x, scene->sceneRect().height());
+		dragGuideItem->setVisible(true);
+	}
+}
+
+void TimelineDock::finishSelectionGesture(bool commit)
+{
+	const auto gesture = selectionGesture;
+	selectionGesture = SelectionGesture::None;
+	if (gesture == SelectionGesture::Marquee) {
+		if (marqueeBand)
+			marqueeBand->hide();
+		if (!commit) {
+			for (auto *item : eventItemMap)
+				if (item)
+					item->setSelected(originalSelection.contains(item->getEventId()));
+		} else if (!gestureMoved && marqueeModifiers == Qt::NoModifier) {
+			scene->clearSelection();
+			seekToSceneX(view->mapToScene(gesturePress).x());
+			debounceSaveTimer->start();
+		}
+		originalSelection.clear();
+		return;
+	}
+	if (gesture != SelectionGesture::Group)
+		return;
+	isDragging = false;
+	view->viewport()->unsetCursor();
+	if (dragGuideItem)
+		dragGuideItem->setVisible(false);
+	QHash<QString, double> changed;
+	bool valid = commit && !scheduler->isPlaying() && gestureMoved && groupDelta != 0;
+	for (const auto &cue : model->getEvents()) {
+		const auto it = groupOriginalTimes.constFind(cue.id);
+		if (it == groupOriginalTimes.cend())
+			continue;
+		if (cue.timeMs != it.value())
+			valid = false;
+		changed.insert(cue.id, it.value() + groupDelta);
+	}
+	if (valid && changed.size() == groupOriginalTimes.size())
+		model->setEventTimes(changed);
+	groupOriginalTimes.clear();
+	rebuildEventItems();
+	updateHistoryControls();
 }
 
 bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 {
+	if (selectionGesture != SelectionGesture::None && (obj == view || obj == view->viewport()) &&
+	    (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) &&
+	    static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) {
+		event->accept();
+		finishSelectionGesture(false);
+		return true;
+	}
+	if (!resizingEventId.isEmpty() && (obj == view || obj == view->viewport()) &&
+	    (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) &&
+	    static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) {
+		event->accept();
+		finishDurationResize(false);
+		return true;
+	}
 	// QGraphicsView normally consumes arrow keys for scrolling. When markers
 	// are selected, route plain/Shift arrows to the timeline's nudge command.
 	if (obj == view && event->type() == QEvent::KeyPress && !scene->selectedItems().isEmpty()) {
@@ -1144,13 +1385,45 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		}
 	}
 	if (obj == view->viewport()) {
+		if (selectionGesture != SelectionGesture::None) {
+			if (event->type() == QEvent::UngrabMouse || event->type() == QEvent::Hide) {
+				finishSelectionGesture(false);
+			} else if (event->type() == QEvent::MouseMove) {
+				previewSelectionGesture(static_cast<QMouseEvent *>(event)->pos());
+				return true;
+			} else if (event->type() == QEvent::MouseButtonRelease &&
+				   static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton) {
+				previewSelectionGesture(static_cast<QMouseEvent *>(event)->pos());
+				finishSelectionGesture(true);
+				return true;
+			} else if (event->type() == QEvent::Wheel) {
+				return true;
+			}
+		}
+		if (!resizingEventId.isEmpty()) {
+			if (event->type() == QEvent::UngrabMouse || event->type() == QEvent::Hide) {
+				finishDurationResize(false);
+			} else if (event->type() == QEvent::MouseMove) {
+				auto *mouse = static_cast<QMouseEvent *>(event);
+				previewDurationResize(view->mapToScene(mouse->pos()).x());
+				return true;
+			} else if (event->type() == QEvent::MouseButtonRelease &&
+				   static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton) {
+				previewDurationResize(view->mapToScene(static_cast<QMouseEvent *>(event)->pos()).x());
+				finishDurationResize(true);
+				return true;
+			} else if (event->type() == QEvent::Wheel) {
+				return true;
+			}
+		}
 		// Right-click on empty area to add event
 		if (event->type() == QEvent::ContextMenu) {
 			QContextMenuEvent *ctxEvent = static_cast<QContextMenuEvent *>(event);
 			QPointF scenePos = view->mapToScene(ctxEvent->pos());
 
 			// Check if clicking on an event item
-			QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
+			QList<QGraphicsItem *> itemsAt = ctxEvent->pos().y() < 20 ? QList<QGraphicsItem *>{}
+										  : scene->items(scenePos);
 			bool onItem = false;
 			for (QGraphicsItem *it : itemsAt) {
 				if (it && (it->flags() & QGraphicsItem::ItemIsMovable)) {
@@ -1168,6 +1441,17 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				QAction *addAction = menu.addAction("Add Event Here");
 				connect(addAction, &QAction::triggered,
 					[this, clickedTimeMs]() { placeNewEvent(clickedTimeMs); });
+				menu.addSeparator();
+				auto *insert = menu.addAction(obs_module_text("TimelineDock.RippleInsert"));
+				insert->setObjectName("timeline-ripple-insert-action");
+				auto *remove = menu.addAction(obs_module_text("TimelineDock.RippleDelete"));
+				remove->setObjectName("timeline-ripple-delete-action");
+				insert->setEnabled(rippleEditAllowed());
+				remove->setEnabled(rippleEditAllowed());
+				connect(insert, &QAction::triggered, this,
+					[this, clickedTimeMs] { promptRippleEdit(clickedTimeMs, false); });
+				connect(remove, &QAction::triggered, this,
+					[this, clickedTimeMs] { promptRippleEdit(clickedTimeMs, true); });
 				menu.exec(ctxEvent->globalPos());
 				return true;
 			}
@@ -1179,10 +1463,19 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		if (event->type() == QEvent::Wheel) {
 			QWheelEvent *wheelEvent = static_cast<QWheelEvent *>(event);
 			if (wheelEvent->modifiers() & Qt::ControlModifier) {
-				if (wheelEvent->angleDelta().y() > 0) {
+				const QPoint cursor = wheelEvent->position().toPoint();
+				const double previousScale = pixelsPerSecond;
+				const double anchorTime = view->mapToScene(cursor).x() / previousScale;
+				if (wheelEvent->angleDelta().y() > 0)
 					onZoomInClicked();
-				} else {
+				else if (wheelEvent->angleDelta().y() < 0)
 					onZoomOutClicked();
+				if (pixelsPerSecond != previousScale) {
+					const int delta =
+						view->mapFromScene(QPointF(anchorTime * pixelsPerSecond, 0)).x() -
+						cursor.x();
+					auto *bar = view->horizontalScrollBar();
+					bar->setValue(bar->value() + delta);
 				}
 				return true;
 			} else if (wheelEvent->modifiers() & Qt::ShiftModifier &&
@@ -1212,15 +1505,42 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			if (mouseEvent->button() == Qt::LeftButton) {
 				QPoint pos = mouseEvent->pos();
 				QPointF scenePos = view->mapToScene(pos);
-				const double playheadX = (scheduler->getCurrentTime() / 1000.0) * pixelsPerSecond;
-				const bool onPlayhead = std::abs(scenePos.x() - playheadX) <= 8.0;
+				const bool inRuler = pos.y() < 20;
+				if (!inRuler && !scheduler->isPlaying()) {
+					// The ellipse's default shape excludes its duration line.
+					for (auto *graphics : scene->items(scenePos, Qt::IntersectsItemBoundingRect)) {
+						auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+						if (!item || !item->durationHandleContains(scenePos))
+							continue;
+						const auto cue = model->findEventById(item->getEventId());
+						if (!cue || !cue->hasDuration || cue->durationMs <= 0)
+							continue;
+						resizingEventId = cue->id;
+						resizeStartMs = cue->timeMs;
+						resizeInitialMs = resizePreviewMs = cue->durationMs;
+						resizePressX = scenePos.x();
+						isDragging = true;
+						view->setFocus();
+						view->viewport()->setCursor(Qt::SizeHorCursor);
+						updateHistoryControls();
+						return true;
+					}
+				}
+				const double playheadX = playheadItem->line().x1();
+				const bool onPlayhead =
+					inRuler ? TimelineHitTesting::isOnTimelineMarker(scenePos.x(), playheadX)
+						: std::abs(scenePos.x() - playheadX) <= 8.0;
 
 				const double endTimeMs = scheduler->getEndTime();
 				const double endX = (endTimeMs / 1000.0) * pixelsPerSecond;
-				const bool onEndMarker = endTimeMs > 0 && std::abs(scenePos.x() - endX) <= 8.0;
+				const bool onEndMarker =
+					inRuler ? TimelineHitTesting::isOnActiveTimelineMarker(scenePos.x(), endX,
+											       endTimeMs > 0)
+						: endTimeMs > 0 && std::abs(scenePos.x() - endX) <= 8.0;
 
 				// Check if clicking on a movable item - if so, let it handle the drag
-				QList<QGraphicsItem *> items = scene->items(scenePos);
+				QList<QGraphicsItem *> items = inRuler ? QList<QGraphicsItem *>{}
+								       : scene->items(scenePos);
 				for (QGraphicsItem *item : items) {
 					if (item == playheadGrabHandle) {
 						draggingPlayhead = true;
@@ -1232,13 +1552,26 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 						view->viewport()->setCursor(Qt::SizeHorCursor);
 						return true;
 					}
-					if (item && (item->flags() & QGraphicsItem::ItemIsMovable)) {
-						// Found a movable item - don't scrub, let item handle it
+					if (auto *cueItem = dynamic_cast<TimelineEventItem *>(item)) {
+						if (mouseEvent->modifiers() == Qt::NoModifier &&
+						    beginGroupDrag(cueItem, pos))
+							return true;
+						// Modified clicks toggle membership without handing the
+						// selected group to QGraphicsItem's implicit movement.
+						if (mouseEvent->modifiers().testFlag(Qt::ControlModifier) ||
+						    mouseEvent->modifiers().testFlag(Qt::ShiftModifier)) {
+							cueItem->setSelected(
+								mouseEvent->modifiers().testFlag(Qt::ControlModifier)
+									? !cueItem->isSelected()
+									: true);
+							return true;
+						}
 						return false;
 					}
 				}
 
-				if (onPlayhead) {
+				if (onPlayhead && (!onEndMarker || std::abs(scenePos.x() - playheadX) <=
+									   std::abs(scenePos.x() - endX))) {
 					draggingPlayhead = true;
 					view->viewport()->setCursor(Qt::SizeHorCursor);
 					return true;
@@ -1250,6 +1583,12 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					return true;
 				}
 
+				// Empty body: a click seeks, a drag selects. The ruler
+				// retains its immediate seek behavior.
+				if (!inRuler && !scheduler->isPlaying()) {
+					beginMarquee(pos, mouseEvent->modifiers());
+					return true;
+				}
 				// Not on an item - clear selection and scrub
 				for (TimelineEventItem *item : eventItemMap) {
 					if (item)
@@ -1257,6 +1596,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				}
 
 				seekToSceneX(scenePos.x());
+				if (inRuler)
+					draggingPlayhead = true;
 				debounceSaveTimer->start();
 				return true;
 			}
@@ -1266,7 +1607,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			if (mouseEvent->button() == Qt::LeftButton) {
 				const QPointF scenePos = view->mapToScene(mouseEvent->pos());
-				const QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
+				const QList<QGraphicsItem *> itemsAt =
+					mouseEvent->pos().y() < 20 ? QList<QGraphicsItem *>{} : scene->items(scenePos);
 				const bool onItem =
 					std::any_of(itemsAt.cbegin(), itemsAt.cend(), [](QGraphicsItem *item) {
 						return item && (item->flags() & QGraphicsItem::ItemIsMovable);
@@ -1283,6 +1625,23 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			QPointF scenePos = view->mapToScene(mouseEvent->pos());
 
+			if (!scheduler->isPlaying() && !draggingPlayhead && !draggingEndMarker) {
+				bool overHandle = false;
+				for (auto *graphics :
+				     mouseEvent->pos().y() < 20
+					     ? QList<QGraphicsItem *>{}
+					     : scene->items(scenePos, Qt::IntersectsItemBoundingRect)) {
+					auto *item = dynamic_cast<TimelineEventItem *>(graphics);
+					if (item && item->durationHandleContains(scenePos)) {
+						overHandle = true;
+						break;
+					}
+				}
+				if (overHandle)
+					view->viewport()->setCursor(Qt::SizeHorCursor);
+				else
+					view->viewport()->unsetCursor();
+			}
 			if (draggingPlayhead) {
 				seekToSceneX(scenePos.x());
 				return true;
@@ -1317,7 +1676,9 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				labelX = view->viewport()->width() - size.width() - 4;
 			hoverTimeLabel->setGeometry(labelX, labelY, size.width(), size.height());
 			hoverTimeLabel->raise();
-			return false; // Let scene process hover events for item hover effects
+			if (pinnedRuler)
+				pinnedRuler->raise();
+			return mouseEvent->pos().y() < 20; // Let scene process hover events for item hover effects
 		}
 
 		if (event->type() == QEvent::Enter) {
@@ -1412,6 +1773,7 @@ void TimelineDock::onPlayClicked()
 	}
 	if (scheduler->isPlaying()) {
 		scheduler->pause();
+		updateVisualTime(scheduler->getCurrentTime());
 		recordAutomationButton->setEnabled(true);
 		if (executor) {
 			executor->cancelAll();
@@ -1477,12 +1839,13 @@ void TimelineDock::onEndTimeChanged(double value)
 			item->setMaxTime(value > 0 ? value * 1000.0 : -1.0);
 	}
 	updateDependentControlStates();
-	updateEndMarker();
+	updateViewportGeometry();
 	debounceSaveTimer->start();
 }
 
 void TimelineDock::onTimelineFinished()
 {
+	updateVisualTime(scheduler->getCurrentTime());
 	recordAutomationButton->setEnabled(true);
 	updatePlayButtonIcon();
 	blog(LOG_INFO, "[Timeline] Playback finished");
@@ -1555,40 +1918,59 @@ void TimelineDock::onSaveClicked()
 	}
 }
 
+bool TimelineDock::importTimelineFile(const QString &fileName, QString *errorMessage)
+{
+	QJsonDocument doc;
+	if (!TimelineSerialization::loadFromFile(fileName, doc, errorMessage))
+		return false;
+
+	// Validate before touching the live model or its protected configuration.
+	TimelineModel candidate;
+	TimelineDocument timelineDoc;
+	if (!TimelineSerialization::fromJsonDocument(doc, candidate, timelineDoc, errorMessage))
+		return false;
+
+	if (configLoadFailed) {
+		const auto path = configFilePath();
+		const auto backup = path + ".recovery-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+		// QFile::copy refuses an existing destination. Never enable writes
+		// until the original bytes have been preserved separately.
+		if (path.isEmpty() || !QFile::copy(path, backup)) {
+			if (errorMessage)
+				*errorMessage =
+					tr("Could not preserve the unreadable timeline configuration: %1").arg(path);
+			return false;
+		}
+		blog(LOG_INFO, "[Timeline] Preserved unreadable config at %s", backup.toUtf8().constData());
+	}
+
+	finishAutomationRecording(false);
+	debounceSaveTimer->stop();
+	loadingTimeline = true;
+	model->blockSignals(true);
+	model->fromJson(candidate.toJson());
+	applyTimelineDocument(timelineDoc);
+	model->blockSignals(false);
+	loadingTimeline = false;
+	configLoadFailed = false;
+	updateHistoryControls();
+	rebuildEventItems();
+	updateLayout();
+	debounceSaveTimer->start();
+	blog(LOG_INFO, "[Timeline] Imported → %s", fileName.toUtf8().constData());
+	return true;
+}
+
 void TimelineDock::onLoadClicked()
 {
-	QString fileName = QFileDialog::getOpenFileName(this, "Load Timeline", "", "JSON Files (*.json)");
+	const QString fileName = QFileDialog::getOpenFileName(this, "Load Timeline", "", "JSON Files (*.json)");
 	if (fileName.isEmpty())
 		return;
 
-	QJsonDocument doc;
 	QString errorMessage;
-	if (TimelineSerialization::loadFromFile(fileName, doc, &errorMessage)) {
-		TimelineDocument timelineDoc;
-		loadingTimeline = true;
-		model->blockSignals(true);
-		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
-			model->blockSignals(false);
-			loadingTimeline = false;
-			blog(LOG_WARNING, "[Timeline] ┌─ Import failed");
-			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", fileName.toStdString().c_str());
-			blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
-			return;
-		}
-
-		applyTimelineDocument(timelineDoc);
-		model->blockSignals(false);
-		loadingTimeline = false;
-		updateHistoryControls();
-
-		blog(LOG_INFO, "[Timeline] Imported → %s", fileName.toStdString().c_str());
-		rebuildEventItems();
-		updateLayout();
-		debounceSaveTimer->start();
-	} else {
-		blog(LOG_WARNING, "[Timeline] ┌─ Load failed");
-		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", fileName.toStdString().c_str());
-		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
+	if (!importTimelineFile(fileName, &errorMessage)) {
+		blog(LOG_WARNING, "[Timeline] Import failed: %s", errorMessage.toUtf8().constData());
+		QMessageBox::warning(this, tr("Load Timeline"), errorMessage);
 	}
 }
 
@@ -1604,6 +1986,8 @@ void TimelineDock::updateEndMarker()
 			endMarkerGrabHandle->setVisible(false);
 		if (postEndOverlay)
 			postEndOverlay->setVisible(false);
+		if (pinnedRuler)
+			pinnedRuler->update();
 		return;
 	}
 
@@ -1637,6 +2021,8 @@ void TimelineDock::updateEndMarker()
 	endMarkerGrabHandle->setPixmap(endMarkerHandlePixmap);
 	endMarkerGrabHandle->setPos(x - 10, 0);
 	endMarkerGrabHandle->setVisible(true);
+	if (pinnedRuler)
+		pinnedRuler->update();
 
 	// Dimming overlay — create once, resize thereafter
 	const QRectF sceneRect = scene->sceneRect();
@@ -1705,9 +2091,6 @@ void TimelineDock::refreshTheme()
 		timecodeDisplay->setStatusColor(ThemeIcons::getThemeStatusColor(this));
 	applyThemeColorsToItems();
 	updateToolbarIcons();
-	// Cached graphics contain color as well as geometry.
-	cachedGridPxPerSec = -1;
-	cachedRulerPxPerSec = -1;
 	if (dragGuideItem) {
 		auto pen = dragGuideItem->pen();
 		pen.setColor(palette().color(QPalette::Highlight));
@@ -1763,6 +2146,8 @@ void TimelineDock::copySelectedEvents()
 
 void TimelineDock::pasteEvents()
 {
+	if (isDragging)
+		return;
 	if (clipboard.isEmpty())
 		return;
 
@@ -1794,8 +2179,52 @@ void TimelineDock::pasteEvents()
 	debounceSaveTimer->start();
 }
 
+bool TimelineDock::rippleEditAllowed() const
+{
+	return !scheduler->isPlaying() && !isDragging && !loadingTimeline && !automationRecorder.active();
+}
+
+void TimelineDock::promptRippleEdit(double startMs, bool remove)
+{
+	if (!rippleEditAllowed())
+		return;
+	startMs = std::max(0.0, snapTimeMs(startMs));
+	const QString title = obs_module_text(remove ? "TimelineDock.RippleDelete" : "TimelineDock.RippleInsert");
+	const QString description = QString::fromUtf8(obs_module_text(remove ? "TimelineDock.RippleDeletePrompt"
+									     : "TimelineDock.RippleInsertPrompt"))
+					    .arg(startMs / 1000.0, 0, 'f', 3);
+	QInputDialog dialog(this);
+	dialog.setWindowTitle(title);
+	dialog.setLabelText(description);
+	dialog.setInputMode(QInputDialog::DoubleInput);
+	dialog.setDoubleDecimals(3);
+	dialog.setDoubleRange(0.001, 3600.0);
+	dialog.setDoubleValue(std::clamp(getSnapIntervalMs() / 1000.0, 0.001, 3600.0));
+	if (dialog.exec() != QDialog::Accepted || !rippleEditAllowed())
+		return;
+	const auto result = model->rippleTime(startMs, dialog.doubleValue() * 1000.0, remove, scheduler->getEndTime());
+	const char *error = nullptr;
+	switch (result) {
+	case TimelineModel::RippleResult::InvalidRange:
+		error = "TimelineDock.RippleInvalid";
+		break;
+	case TimelineModel::RippleResult::CrossingSpan:
+		error = "TimelineDock.RippleCrossing";
+		break;
+	case TimelineModel::RippleResult::EndLimit:
+		error = "TimelineDock.RippleEndLimit";
+		break;
+	default:
+		break;
+	}
+	if (error)
+		QMessageBox::warning(this, title, obs_module_text(error));
+}
+
 void TimelineDock::deleteSelectedEvents()
 {
+	if (isDragging)
+		return;
 	QStringList ids;
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item && item->isSelected())
@@ -1806,6 +2235,8 @@ void TimelineDock::deleteSelectedEvents()
 
 void TimelineDock::nudgeSelectedEvents(double deltaMs)
 {
+	if (isDragging || scheduler->isPlaying())
+		return;
 	QHash<QString, double> times;
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item && item->isSelected()) {
@@ -1819,89 +2250,145 @@ void TimelineDock::nudgeSelectedEvents(double deltaMs)
 
 void TimelineDock::drawGrid()
 {
-	if (!scene || !view)
+	if (scene)
+		scene->invalidate(QRectF(), QGraphicsScene::BackgroundLayer);
+}
+
+void TimelineDock::paintTimelineBackground(QPainter *p, const QRectF &exposed) const
+{
+	if (!scene || !snapIntervalCombo || !std::isfinite(pixelsPerSecond) || pixelsPerSecond <= 0.0)
 		return;
-
-	double sceneHeight = scene->sceneRect().height();
-	if (cachedGridPxPerSec == pixelsPerSecond && cachedGridBpm == bpm && cachedGridNoteBeats == noteLengthBeats &&
-	    cachedGridToBpm == gridToBpm && cachedAlternatingBg == alternatingBg &&
-	    cachedGridSceneHeight == sceneHeight)
+	const QRectF bounds = scene->sceneRect();
+	const QRectF visible = exposed.intersected(bounds);
+	if (visible.isEmpty())
 		return;
+	p->save();
+	p->setClipRect(visible, Qt::IntersectClip);
 
-	cachedGridPxPerSec = pixelsPerSecond;
-	cachedGridBpm = bpm;
-	cachedGridNoteBeats = noteLengthBeats;
-	cachedGridToBpm = gridToBpm;
-	cachedAlternatingBg = alternatingBg;
-	cachedGridSceneHeight = sceneHeight;
-
-	for (QGraphicsItem *item : gridItems) {
-		scene->removeItem(item);
-		delete item;
-	}
-	gridItems.clear();
-
-	double sceneRight = scene->sceneRect().right();
-	double sceneStart = std::max(0.0, scene->sceneRect().left());
-
-	double stepPx;
-
-	if (gridToBpm && bpm > 0.0) {
-		// Calculate beat interval in seconds, scaled by note length
-		double beatIntervalSec = (60.0 / bpm) * noteLengthBeats;
-		stepPx = beatIntervalSec * pixelsPerSecond;
-	} else {
-		double stepSec = getSnapIntervalMs() / 1000.0;
-		stepPx = stepSec * pixelsPerSecond;
-	}
-	if (stepPx < 1.0)
-		return;
-
-	// Alternating background sections
-	if (alternatingBg) {
-		QColor altColor = palette().color(QPalette::Mid);
-		altColor.setAlpha(100);
-		double altStepPx;
-		if (gridToBpm && bpm > 0.0) {
-			// BPM mode: one measure = 4 beats
-			double measureSec = (60.0 / bpm) * 4.0;
-			altStepPx = measureSec * pixelsPerSecond;
-		} else {
-			// Time mode: 1 second intervals
-			altStepPx = pixelsPerSecond;
+	// Paint only the visible portion of the time/beat grid. No graphics items
+	// are created for background decoration, even on a very wide scene.
+	const double origin = std::max(0.0, bounds.left());
+	const double left = std::max(origin, visible.left());
+	const double right = visible.right();
+	const double stepPx = getSnapIntervalMs() * pixelsPerSecond / 1000.0;
+	if (visible.bottom() > 20.0 && std::isfinite(stepPx) && stepPx >= 1.0 && right >= left) {
+		if (alternatingBg) {
+			const double band = gridToBpm && bpm > 0.0 ? (240.0 / bpm) * pixelsPerSecond : pixelsPerSecond;
+			if (std::isfinite(band) && band >= 1.0) {
+				QColor alt = palette().color(QPalette::Mid);
+				alt.setAlpha(100);
+				const double cycle = band * 2.0;
+				for (double x = origin + std::floor((left - origin) / cycle) * cycle; x < right;
+				     x += cycle) {
+					p->fillRect(QRectF(x, 20, std::min(band, bounds.right() - x),
+							   bounds.height() - 20),
+						    alt);
+				}
+			}
 		}
-		for (double x = sceneStart; x < sceneRight; x += altStepPx * 2.0) {
-			double rectW = altStepPx;
-			if (x + rectW > sceneRight)
-				rectW = sceneRight - x;
-			if (rectW < 0.1)
-				break;
-			QGraphicsRectItem *rect =
-				scene->addRect(x, 20, rectW, sceneHeight - 20, QPen(Qt::NoPen), QBrush(altColor));
-			rect->setZValue(-2);
-			gridItems.append(rect);
+		QColor grid = palette().color(QPalette::Text);
+		grid.setAlpha(55);
+		QPen pen(grid, 1, Qt::DotLine);
+		pen.setCosmetic(true);
+		p->setPen(pen);
+		const double start = origin + std::ceil((left - origin) / stepPx) * stepPx;
+		for (double x = start; x <= right; x += stepPx)
+			if (x >= 0.1)
+				p->drawLine(QPointF(x, 20), QPointF(x, bounds.bottom()));
+	}
+
+	if (visible.top() < 20.0 && right >= 0.0)
+		paintRuler(p, left, right);
+	p->restore();
+}
+
+void TimelineDock::paintRuler(QPainter *p, double left, double right) const
+{
+	if (!std::isfinite(pixelsPerSecond) || pixelsPerSecond <= 0 || right < 0)
+		return;
+	// Nice time increments at overview zooms; preserve the previous
+	// high-zoom seconds/subseconds scale.
+	double step = 1;
+	if (pixelsPerSecond < 50) {
+		const double minimum = 60.0 / pixelsPerSecond;
+		const double magnitude = std::pow(10.0, std::floor(std::log10(minimum)));
+		const double normalized = minimum / magnitude;
+		step = magnitude * (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10);
+	}
+	const double majorSpacing = step * pixelsPerSecond;
+	QColor rulerColor = palette().color(QPalette::Mid);
+	rulerColor.setAlpha(180);
+	QColor hi = rulerColor.lighter(140);
+	hi.setAlpha(120);
+	QColor minorColor = palette().color(QPalette::Dark);
+	minorColor.setAlpha(140);
+	const QColor textColor = palette().color(QPalette::Text);
+	QFont markerFont = font();
+	markerFont.setPointSize(8);
+	markerFont.setWeight(QFont::DemiBold);
+	p->setFont(markerFont);
+	const QFontMetricsF metrics(markerFont);
+	// Include a preceding major tick so labels/minor ticks scrolling in
+	// from the left are painted as well.
+	const double labelWidth =
+		metrics.horizontalAdvance(QString::number(scene->sceneRect().right() / pixelsPerSecond, 'f', 1) + "s") +
+		3;
+	const double start = std::max(0.0, std::floor((left - labelWidth) / majorSpacing) * majorSpacing);
+	for (double x = start; x <= right; x += majorSpacing) {
+		const double seconds = x / pixelsPerSecond;
+		QPen majorPen(rulerColor, 1);
+		majorPen.setCosmetic(true);
+		p->setPen(majorPen);
+		p->drawLine(QPointF(x, 0), QPointF(x, 20));
+		p->setPen(QPen(hi, 1));
+		p->drawLine(QPointF(x, 0), QPointF(x, 2));
+		p->setPen(textColor);
+		p->drawText(QPointF(x + 3, 1 + metrics.ascent()), QString::number(qRound64(seconds)) + "s");
+		if (pixelsPerSecond > 50) {
+			for (int j = 1; j < 10; ++j) {
+				const double xm = x + j * pixelsPerSecond / 10.0;
+				const int tickH = j == 5 ? 14 : 8;
+				p->setPen(QPen(minorColor, 1));
+				p->drawLine(QPointF(xm, 20 - tickH), QPointF(xm, 20));
+				if (pixelsPerSecond > 100 && j == 5) {
+					p->setPen(textColor);
+					p->drawText(QPointF(xm + 3, 1 + metrics.ascent()),
+						    QString::number(seconds + 0.5, 'f', 1) + "s");
+				}
+			}
 		}
 	}
+}
 
-	// Draw visible vertical grid lines above the scene background but below event items.
-	QColor gridColor = palette().color(QPalette::Text);
-	gridColor.setAlpha(55);
-	QPen gridPen(gridColor, 1, Qt::DotLine);
-	gridPen.setCosmetic(true);
-	for (double x = sceneStart; x < sceneRight; x += stepPx) {
-		// Skip x=0 (optional, but usually 0 is implied)
-		if (x < 0.1)
-			continue;
-
-		QGraphicsLineItem *line = scene->addLine(x, 20, x, sceneHeight, gridPen);
-		line->setZValue(-1);
-		gridItems.append(line);
+void TimelineDock::paintPinnedRuler(QPainter *p) const
+{
+	if (!view || !pinnedRuler || !scene)
+		return;
+	p->fillRect(pinnedRuler->rect(), palette().color(QPalette::Base));
+	const double origin = view->mapToScene(QPoint(0, 0)).x();
+	p->save();
+	p->translate(-origin, 0);
+	paintRuler(p, std::max(0.0, origin), origin + pinnedRuler->width());
+	if (endMarkerGrabHandle && endMarkerGrabHandle->isVisible()) {
+		const double x = endMarkerGrabHandle->pos().x();
+		p->drawPixmap(QPointF(x, 0), endMarkerHandlePixmap);
 	}
+	if (playheadGrabHandle && playheadGrabHandle->isVisible()) {
+		const double x = playheadGrabHandle->pos().x();
+		p->drawPixmap(QPointF(x, 0), playheadHandlePixmap);
+	}
+	p->restore();
+	p->setPen(palette().color(QPalette::Mid));
+	p->drawLine(0, 19, pinnedRuler->width(), 19);
 }
 
 void TimelineDock::onTick(double currentTimeMs)
 {
-	updatePlayhead(currentTimeMs);
+	const bool frozen = scheduler->isFrozen();
+	if (!scheduler->isPlaying() || !visualTickTimer.isValid() || visualTickTimer.elapsed() >= 16 ||
+	    currentTimeMs < lastVisualTimeMs || frozen != lastVisualFrozen ||
+	    (scheduler->getEndTime() > 0 && currentTimeMs >= scheduler->getEndTime()))
+		updateVisualTime(currentTimeMs);
 
 #if OBS_TIMELINE_HAS_WEBSOCKET
 	if (obsWebSocketVendor) {
@@ -1916,7 +2403,14 @@ void TimelineDock::onTick(double currentTimeMs)
 		}
 	}
 #endif
+}
 
+void TimelineDock::updateVisualTime(double currentTimeMs)
+{
+	visualTickTimer.start();
+	lastVisualTimeMs = currentTimeMs;
+	lastVisualFrozen = scheduler->isFrozen();
+	updatePlayhead(currentTimeMs);
 	if (timecodeDisplay) {
 		timecodeDisplay->setTimeMs(currentTimeMs);
 		timecodeDisplay->setFrozen(scheduler->isFrozen());
@@ -1949,6 +2443,8 @@ void TimelineDock::updatePlayhead(double timeMs)
 	refreshPlayheadHandlePixmap();
 	playheadGrabHandle->setPixmap(playheadHandlePixmap);
 	playheadGrabHandle->setPos(x - 10, 0);
+	if (pinnedRuler)
+		pinnedRuler->update();
 
 	// Only auto-scroll when playhead is near an edge
 	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
@@ -2023,8 +2519,46 @@ void TimelineDock::onAddEventClicked()
 	placeNewEvent(scheduler ? scheduler->getCurrentTime() : 0.0);
 }
 
+bool TimelineDock::cueMenuAllowed(const QString &id, bool mute) const
+{
+	if (scheduler->isPlaying() || isDragging || loadingTimeline || automationRecorder.active())
+		return false;
+	const auto evt = model->findEventById(id);
+	if (!evt)
+		return false;
+	const double t = scheduler->getCurrentTime();
+	// Don't change eligibility or manually override a span halfway through
+	// paused playback. Rewind or seek outside the span before editing it.
+	if (evt->hasDuration && t > evt->timeMs && t < evt->timeMs + evt->durationMs)
+		return false;
+	return mute || (!evt->muted && evt->type != TimelineEventType::FreezeTime);
+}
+
 void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &eventId)
 {
+	item->setCueMenuAvailability([this, eventId](bool mute) { return cueMenuAllowed(eventId, mute); });
+	connect(item, &TimelineEventItem::muteRequested, this, [this, eventId] {
+		if (!cueMenuAllowed(eventId, true))
+			return;
+		auto evt = model->findEventById(eventId);
+		evt->muted = !evt->muted;
+		model->replaceEventById(eventId, *evt);
+	});
+	connect(item, &TimelineEventItem::manualExecutionRequested, this, [this, eventId](bool end) {
+		if (!cueMenuAllowed(eventId, false))
+			return;
+		const auto evt = model->findEventById(eventId);
+		if (end) {
+			if (!evt->hasDuration || evt->durationMs <= 0)
+				return;
+			if (evt->type == TimelineEventType::SetParameterValue)
+				executor->executeParameterProgress(*evt, 1.0);
+			else
+				executor->executeEventEnd(*evt);
+		} else {
+			executor->executeEventStart(*evt);
+		}
+	});
 	connect(item, &TimelineEventItem::dragStarted, [this, item]() {
 		isDragging = true;
 		updateHistoryControls();
@@ -2068,6 +2602,32 @@ void TimelineDock::connectItemSignals(TimelineEventItem *item, const QString &ev
 			model->replaceEventById(eventId, updatedEvt);
 		}
 	});
+}
+
+void TimelineDock::refreshVisibleCueHealth()
+{
+	if (!isVisible() || !view || !view->isVisible() || scheduler->isPlaying() || isDragging || loadingTimeline ||
+	    automationRecorder.active())
+		return;
+	const auto visible = scene->items(view->mapToScene(view->viewport()->rect()), Qt::IntersectsItemBoundingRect);
+	QList<TimelineEventItem *> cues;
+	for (auto *graphics : visible)
+		if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+			cues.append(item);
+	if (cues.isEmpty()) {
+		cueHealthCursor = 0;
+		return;
+	}
+	// Probe at most four bindings per interval, rotating through visible
+	// cues. In particular, OBS property enumeration is not a paint operation.
+	const int count = std::min(4, int(cues.size()));
+	cueHealthCursor %= cues.size();
+	for (int i = 0; i < count; ++i) {
+		auto *item = cues[(cueHealthCursor + i) % cues.size()];
+		if (const auto evt = model->findEventById(item->getEventId()))
+			item->setTargetMissing(ObsExecutor::hasMissingTarget(*evt));
+	}
+	cueHealthCursor = (cueHealthCursor + count) % cues.size();
 }
 
 void TimelineDock::rebuildEventItems()
@@ -2160,6 +2720,13 @@ void TimelineDock::rebuildEventItems()
 
 		item->setHasDuration(evt.hasDuration && evt.type != TimelineEventType::FreezeTime);
 		item->setDuration(evt.durationMs);
+		item->setMuted(evt.muted);
+		item->setManualCueType(evt.type != TimelineEventType::FreezeTime,
+				       evt.hasDuration && evt.durationMs > 0 &&
+					       evt.type != TimelineEventType::FreezeTime);
+		item->setRampVisualization(evt.type == TimelineEventType::SetParameterValue && evt.hasDuration
+						   ? MacroParameter::decodeRamp(evt.data.toString())
+						   : std::nullopt);
 		item->setSnapEnabled(snapEnabled);
 		item->setSnapInterval(getSnapIntervalMs());
 
@@ -2246,7 +2813,9 @@ void TimelineDock::rebuildEventItems()
 				.arg(minutes, 2, 10, QChar('0'))
 				.arg(seconds, 2, 10, QChar('0'))
 				.arg(ms / 10, 2, 10, QChar('0'));
-		item->setToolTip(tooltip);
+		if (evt.muted)
+			tooltip.prepend(QString::fromUtf8(obs_module_text("TimelineDock.MutedCue")) + "\n");
+		item->setCueTooltip(tooltip);
 		if (evt.type == TimelineEventType::FreezeTime)
 			item->setEventLabel(evt.showLabel && !evt.label.isEmpty() ? evt.label : targetDisplay);
 		else
@@ -2268,9 +2837,14 @@ void TimelineDock::rebuildEventItems()
 	}
 
 	eventContentHeight = 0;
-	for (auto *item : eventItemMap)
-		if (item)
-			eventContentHeight = std::max(eventContentHeight, item->sceneBoundingRect().bottom());
+	eventContentRight = 0;
+	for (auto *item : eventItemMap) {
+		if (item) {
+			const auto bounds = item->sceneBoundingRect();
+			eventContentHeight = std::max(eventContentHeight, bounds.bottom());
+			eventContentRight = std::max(eventContentRight, bounds.right());
+		}
+	}
 	updateViewportGeometry();
 
 	// Empty hint
@@ -2326,7 +2900,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &
 
 void TimelineDock::updateZoomLabel()
 {
-	QString zoomText = QString("x%1").arg(pixelsPerSecond / 100.0, 0, 'f', 1);
+	QString zoomText = QString("x%1").arg(pixelsPerSecond / 100.0, 0, 'g', 3);
 
 	zoomLabelCache = zoomText;
 	if (zoomLabel) {

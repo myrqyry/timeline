@@ -56,17 +56,30 @@ void MacroButtonWidget::rebuildRenderer()
 void MacroButtonWidget::setPressedAppearance(bool pressed)
 {
 	m_isPressed = pressed;
-	update();
+	refreshInteractionMotion();
+}
+
+void MacroButtonWidget::setGridCell(bool unassigned)
+{
+	m_gridCell = true;
+	m_unassigned = unassigned;
+	setAccessibleName(unassigned ? tr("Assign action") : fallbackLabel(m_button));
+	setToolTip(accessibleName());
+	setFixedSize(34, 34);
+	setRowHeights(0, 34, 0);
 }
 
 QSize MacroButtonWidget::sizeHint() const
 {
+	if (m_gridCell)
+		return QSize(34, 34);
 	QFont labelFont = font();
 	labelFont.setPointSize(8);
 	labelFont.setBold(true);
-	int labelWidth = QFontMetrics(labelFont).horizontalAdvance(fallbackLabel(m_button)) + 8;
+	int labelWidth = qCeil(QFontMetricsF(labelFont, this).horizontalAdvance(fallbackLabel(m_button))) + 10;
 	labelFont.setBold(false);
-	labelWidth = std::max(labelWidth, QFontMetrics(labelFont).horizontalAdvance(m_button.bottomLabel) + 8);
+	labelWidth = std::max(labelWidth,
+			      qCeil(QFontMetricsF(labelFont, this).horizontalAdvance(m_button.bottomLabel)) + 10);
 	// Keep labels readable without making a long macro name dominate the strip.
 	return QSize(qBound(static_cast<int>(kBubbleSize) + 12, labelWidth, 160),
 		     m_labelHeight + m_controlHeight + m_bottomHeight);
@@ -90,9 +103,8 @@ QSize MacroButtonWidget::minimumSizeHint() const
 void MacroButtonWidget::mousePressEvent(QMouseEvent *event)
 {
 	if (event->button() == Qt::LeftButton) {
-		m_isPressed = true;
+		setPressedAppearance(true);
 		setCursor(Qt::ClosedHandCursor);
-		update();
 	}
 	QWidget::mousePressEvent(event);
 }
@@ -100,9 +112,8 @@ void MacroButtonWidget::mousePressEvent(QMouseEvent *event)
 void MacroButtonWidget::mouseReleaseEvent(QMouseEvent *event)
 {
 	const bool wasPressed = m_isPressed;
-	m_isPressed = false;
+	setPressedAppearance(false);
 	setCursor(Qt::PointingHandCursor);
-	update();
 	if (wasPressed && event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())) {
 		emit fireRequested(m_button);
 	}
@@ -113,15 +124,28 @@ void MacroButtonWidget::enterEvent(QEnterEvent *event)
 {
 	m_isHovered = true;
 	setCursor(Qt::PointingHandCursor);
-	update();
+	refreshInteractionMotion();
 	QWidget::enterEvent(event);
 }
 
 void MacroButtonWidget::leaveEvent(QEvent *event)
 {
 	m_isHovered = false;
-	update();
+	refreshInteractionMotion();
 	QWidget::leaveEvent(event);
+}
+
+void MacroButtonWidget::refreshInteractionMotion()
+{
+	motion.to(m_isPressed ? QPointF(-1, 0) : (m_isHovered ? QPointF(3, 1) : QPointF()), isVisible());
+}
+
+void MacroButtonWidget::hideEvent(QHideEvent *event)
+{
+	m_isPressed = false;
+	m_isHovered = false;
+	motion.to({}, false);
+	QWidget::hideEvent(event);
 }
 
 void MacroButtonWidget::paintEvent(QPaintEvent *event)
@@ -132,26 +156,30 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	painter.setRenderHint(QPainter::TextAntialiasing);
 
 	const double bubble = kBubbleSize;
-	const double bubbleGrowth = m_isPressed ? -1.0 : (m_isHovered ? 3.0 : 0.0);
+	const double bubbleGrowth = motion.value().x();
 	const double radius = (bubble + bubbleGrowth) / 2.0;
 	const QPointF center(width() / 2.0, m_labelHeight + m_controlHeight / 2.0); // shared control row center
 
 	// Hover glow
-	if (m_isHovered && !m_isPressed) {
+	if (motion.value().y() > 0) {
 		QColor glow = m_button.color.lighter(150);
-		glow.setAlpha(80);
+		glow.setAlpha(qRound(80 * motion.value().y()));
 		painter.setPen(Qt::NoPen);
 		painter.setBrush(QBrush(glow));
 		painter.drawEllipse(center, radius + 4.0, radius + 4.0);
 	}
 
 	// Bubble fill + border
-	painter.setBrush(QBrush(m_button.color));
+	painter.setBrush(QBrush(m_unassigned ? palette().color(QPalette::Button) : m_button.color));
 	painter.setPen(QPen(m_borderColor.isValid() ? m_borderColor : palette().color(QPalette::Text), 1.5));
 	painter.drawEllipse(center, radius, radius);
 
 	// Icon (use compact padding = 4 px to mirror TimelineEventItem::paint compact path)
-	if (m_renderer && m_renderer->isValid()) {
+	if (m_unassigned) {
+		painter.setPen(QPen(palette().color(QPalette::ButtonText), 1.5, Qt::SolidLine, Qt::RoundCap));
+		painter.drawLine(center + QPointF(-4, 0), center + QPointF(4, 0));
+		painter.drawLine(center + QPointF(0, -4), center + QPointF(0, 4));
+	} else if (m_renderer && m_renderer->isValid()) {
 		const double pad = 4.0;
 		const QRectF iconRect(center.x() - radius + pad, center.y() - radius + pad, (radius - pad) * 2.0,
 				      (radius - pad) * 2.0);
@@ -160,15 +188,15 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 
 	// Label pill uses the same caption row and font as live controls.
 	const QString label = fallbackLabel(m_button);
-	if (!label.isEmpty()) {
+	if (!m_gridCell && !label.isEmpty()) {
 		const int padX = 4;
-		QFont font = painter.font();
+		QFont font = this->font();
 		font.setPointSize(8);
 		font.setBold(true);
 		painter.setFont(font);
-		QFontMetrics fm(font);
-		const int textW = fm.horizontalAdvance(label);
-		const int boxW = qMin(textW + padX * 2, width());
+		const auto fm = painter.fontMetrics();
+		const int textW = qCeil(QFontMetricsF(font, this).horizontalAdvance(label));
+		const int boxW = qMin(textW + padX * 2 + 2, width());
 		const int boxH = m_labelHeight;
 		const int boxX = (width() - boxW) / 2;
 		const int boxY = 0;
@@ -184,7 +212,9 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		painter.drawRoundedRect(box, 3.0, 3.0);
 
 		painter.setPen(textColor);
-		painter.drawText(box, Qt::AlignCenter, fm.elidedText(label, Qt::ElideRight, boxW - padX * 2));
+		const int budget = boxW - padX * 2;
+		painter.drawText(box, Qt::AlignCenter,
+				 textW <= budget ? label : fm.elidedText(label, Qt::ElideRight, budget));
 	}
 	if (m_bottomHeight > 0 && !m_button.bottomLabel.isEmpty()) {
 		QFont font = painter.font();

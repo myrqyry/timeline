@@ -5,7 +5,7 @@
 #include <QVariant>
 #include <optional>
 
-enum class MacroControlKind { Action, Slider, Knob, Toggle, Text, XY };
+enum class MacroControlKind { Action, Slider, Knob, Toggle, Text, XY, ButtonGrid };
 enum class MacroParameterType { Integer, Float, Boolean, Text };
 
 struct MacroParameterBinding {
@@ -72,6 +72,7 @@ struct Spec {
 
 bool toggleValuesFit(const Spec &spec, const ToggleValues &values);
 std::optional<int> toggleState(const MacroParameterBinding &binding, const Spec &spec, const ToggleValues &values);
+std::optional<int> toggleStateForValue(const Spec &spec, const ToggleValues &values, const QVariant &current);
 QList<Target> targets();
 QList<Spec> properties(const MacroParameterBinding &binding);
 std::optional<Spec> describe(const MacroParameterBinding &binding);

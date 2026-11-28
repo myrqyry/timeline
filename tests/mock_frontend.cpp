@@ -1,6 +1,8 @@
 #include <obs-frontend-api.h>
 #include <obs.h>
 #include <vector>
+#include <QHash>
+#include <QWidget>
 #include <util/bmem.h>
 #include <util/text-lookup.h>
 
@@ -11,6 +13,7 @@ obs_source_t *g_current_transition = nullptr;
 std::vector<obs_source_t *> g_transitions;
 int g_transition_duration_ms = 300;
 lookup_t *g_documentation_locale = nullptr;
+QHash<QString, QWidget *> g_mockMacroDocks;
 
 extern "C" {
 
@@ -100,11 +103,17 @@ bool obs_frontend_preview_program_mode_active(void)
 
 bool obs_frontend_add_dock_by_id(const char *id, const char *title, void *dock)
 {
-	(void)id;
 	(void)title;
-	(void)dock;
-	// No-op for test
+	const QString key = QString::fromUtf8(id);
+	if (g_mockMacroDocks.contains(key))
+		return false;
+	g_mockMacroDocks.insert(key, static_cast<QWidget *>(dock));
 	return true;
+}
+
+void obs_frontend_remove_dock(const char *id)
+{
+	g_mockMacroDocks.remove(QString::fromUtf8(id));
 }
 
 void obs_frontend_add_save_callback(obs_frontend_save_cb callback, void *private_data)

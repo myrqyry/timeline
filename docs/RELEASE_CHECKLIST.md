@@ -82,12 +82,41 @@ use have not been demonstrated**.
   compilation, artifact contents and OBS runtime interaction remain pending.
 - Previous Linux package workflow passed (run 44664678938).
 
+## Hosted verification for `b8adbda`
+
+- [Linux Build](https://github.com/myrqyry/timeline/actions/runs/45754355584)
+  passed all three strict Linux jobs (OBS31/32/33).
+- The [push run](https://github.com/myrqyry/timeline/actions/runs/45754355629)
+  passed the Ubuntu OBS33 build and package checks. Clang-format and the
+  OBS33 Windows x64 **Build Plugin** step failed; no OBS33 Windows artifact
+  was uploaded. The artifact list was checked, but archives were not downloaded
+  for independent inspection.
+
+## Runtime-improvement checkpoint — 2026-11-27
+
+- Code checkpoint `428f246` on `feat/timeline-runtime-improvements`: native
+  OBS32 SDK build and strict Xvfb Qt/libobs suite, 127 passed, 0 failed, 0 skipped.
+  See [the roadmap](../.meristem/TIMELINE_ROADMAP.md) for individual feature evidence.
+- Candidate fixes for historical formatting and Windows OBS33 SDK failures
+  are in `047f31f`, `e372395` and `8b5b7f2`. Hosted success is not established
+  by those commits alone.
+- The additive [shared CI workflow](../.github/workflows/shared-ci.yml) configures
+  eight test-binary targets (OBS32.2.0/33.0.3 on Linux x86_64, Windows x64,
+  macOS ARM64 and macOS Intel). It does not replace the legacy release matrix.
+  Exact-candidate hosted results, actual downloads and native loads remain open.
+
 ## Before tagging (release blockers)
 
-- [ ] Confirm the exact commit, its six build jobs, two Linux test jobs and
-  formatting checks are green. Do not rely on an earlier green SHA.
-- [ ] Inspect/download the **actual CI artifacts**: OBS 31/32 for Linux,
-  Windows and macOS. Confirm they match the intended OBS major version.
+- [ ] Confirm formatting and the [Build Project](../.github/workflows/build-project.yaml)
+  matrix are green for the exact candidate commit. The separate [Linux Build](../.github/workflows/linux-build.yml)
+  workflow must pass strict runtime tests for OBS31/32 on Ubuntu 24.04 and
+  OBS33 on Ubuntu 26.04. Also verify the additive shared qualification matrix
+  and its downloadable test artifacts. Do not rely on an earlier green SHA.
+- [ ] Inspect the **actual CI artifacts**: OBS31/32 for Linux x86_64, Windows
+  x64 and macOS universal; OBS33 for Ubuntu 26.04 x86_64 and Windows x64.
+  Check major labels and target-specific binary and locale paths against
+  [PACKAGING.md](../PACKAGING.md). The OBS33 Windows ZIP must contain the
+  modern DLL path and no legacy `bin/64bit` copy.
 - [ ] Inspect Linux `.deb` payloads and dependency fields, including the
   `obs-studio` major-version bounds; ensure no `AGENTS.md` or downloaded
   SDK/source trees are in the runtime packages.
@@ -99,8 +128,11 @@ use have not been demonstrated**.
   not the maintainer's everyday scene collections.
 - [ ] Test the actual plugin interactively on Windows and macOS before claiming
   either platform is runtime-verified.
-- [ ] Confirm release artifacts, tag/version naming and checksums. No tag or
-  publication until the remaining checks are reviewed.
+- [ ] Resolve preview tag naming and confirm release artifacts and checksums.
+  `v0.1.0-preview.1` is the milestone label. The [draft-release workflow](../.github/workflows/push.yaml)
+  accepts bare `MAJOR.MINOR.PATCH` or that version followed by `-beta` or
+  `-rc` with optional digits; it does not accept the milestone label.
+  No tag or publication until naming and the remaining checks are reviewed.
 
 ## Local Linux build and tests
 
@@ -124,7 +156,8 @@ TIMELINE_REQUIRE_OBS_RUNTIME=1 QT_QPA_PLATFORM=xcb \
 
 Without the strict environment flag, local headless tests can report a skip
 if OpenGL or OBS startup is unavailable. **Skipped tests are not a passing
-runtime check**. Run the OBS 31 suite with `obs31` in its own build tree.
+runtime check**. Run the OBS31 and OBS33 suites in their own build trees
+with matching SDKs; see [PACKAGING.md](../PACKAGING.md).
 
 ## Interactive OBS verification
 
@@ -158,6 +191,21 @@ runtime check**. Run the OBS 31 suite with `obs31` in its own build tree.
 - [ ] Schedule native mixer volume/mute and numeric ramps with each easing
   curve; check actual rendered/audio output, endpoint, pause, seek, overlapping
   ramps, and updates to the same parameter. Profile costly source updates.
+- [ ] Record Macro Strip gestures into editable cues, confirm external
+  readback is not captured, and verify one Undo removes the whole take.
+- [ ] Verify a scheduled Data Source conditional cue with a fresh matching
+  snapshot, then with stale/unshared data and with no provider. A skipped
+  cue must leave subsequent ordinary cues running.
+- [ ] Exercise named Macro Strip tabs and independent docks, horizontal/vertical
+  layout, slider orientation, grid assignment and action dispatch, spacing/reordering
+  with edit-mode safety and layout undo/redo, and persistence across restarts in
+  native OBS. The Linux OBS32 isolated native probe
+  `tests/native/run-macro-layout.sh <timeline.so>` covers dock registration,
+  placement restoration, live fader and scene actions, edit mode, undo/redo and
+  saved spacing. It does not replace Windows/macOS or normal-profile acceptance.
+- [ ] Exercise pinned ruler, marquee/group movement, duration resizing, adaptive
+  labels, fit zoom, muted cues, manual cue edges, target warnings and ripple edits
+  in native OBS; verify undo, cancellation and reopening the saved document.
 - [ ] Verify Freeze Time with short/long waits, manual pause, same-time cues,
   nested files and freeze at the loop/end boundary. Confirm subsequent timed
   cues retain visual positions.
@@ -175,7 +223,7 @@ runtime check**. Run the OBS 31 suite with `obs31` in its own build tree.
 
 ## Platform/install notes
 
-- OBS 31.1.2 and 32.2.1 are pinned **build inputs**, not evidence that every
+- OBS 31.1.2, 32.2.1 and 33.0.1 are pinned **build inputs**, not evidence that every
   installation of those major versions has been tested.
 - OBS 31 macOS targets macOS 12+; OBS 32 macOS targets macOS 13+.
 - Linux local user-plugin installs and system-wide CI `.deb` layouts are

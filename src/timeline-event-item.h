@@ -8,6 +8,10 @@
 #include <QString>
 #include <QSvgRenderer>
 #include "event-types.h"
+#include "macro-parameter.h"
+#include "interaction-motion.h"
+#include <array>
+#include <functional>
 
 class TimelineEventItem : public QObject, public QGraphicsEllipseItem {
 	Q_OBJECT
@@ -20,6 +24,7 @@ public:
 	// Item dimensions for stacking calculation
 	static constexpr double ITEM_SIZE = 32.0;
 	static constexpr double COMPACT_SIZE = 22.0;
+	static constexpr int VISUAL_PADDING = 9;
 
 	// Limits
 	void setMaxTime(double maxTimeMs);
@@ -31,7 +36,19 @@ public:
 
 	// Duration
 	void setDuration(double durationMs);
+	void setMuted(bool muted);
+	void setCueTooltip(const QString &text);
+	void setTargetMissing(bool missing);
+	void setCueMenuAvailability(std::function<bool(bool)> check) { cueMenuAvailability = std::move(check); }
+	void setManualCueType(bool canRun, bool canEnd)
+	{
+		manualCanRun = canRun;
+		manualCanEnd = canEnd;
+	}
+	void setRampVisualization(const std::optional<MacroParameter::Ramp> &ramp);
 	void setHasDuration(bool enabled);
+	bool durationHandleContains(const QPointF &scenePoint) const;
+	double durationHandleX() const;
 
 	// Type and icon
 	void setEventType(TimelineEventType type);
@@ -78,6 +95,9 @@ public:
 
 private:
 	void refreshRenderer();
+	void refreshInteractionMotion();
+	void refreshCueTooltip();
+	QString durationLabel() const;
 
 	QRectF boundingRect() const override;
 
@@ -88,6 +108,8 @@ signals:
 	void doubleClicked();
 	void deleteRequested();
 	void colorChangeRequested();
+	void muteRequested();
+	void manualExecutionRequested(bool end);
 
 protected:
 	void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
@@ -124,10 +146,24 @@ private:
 
 	// Hover tracking
 	bool isHovered = false;
+	InteractionMotion motion{[this] {
+		// Repaint just the marker, not the potentially very long duration span.
+		update(QRectF(-VISUAL_PADDING, -VISUAL_PADDING, mItemSize + 2 * VISUAL_PADDING,
+			      mItemSize + 2 * VISUAL_PADDING));
+	}};
 
 	// Duration display
 	bool hasDuration = false;
+	bool muted = false;
+	bool targetMissing = false;
+	QString cueTooltip;
+	bool manualCanRun = false;
+	bool manualCanEnd = false;
+	std::function<bool(bool)> cueMenuAvailability;
 	double durationMs = 0.0;
+	std::optional<std::array<double, 33>> rampSamples;
+	QString rampEasing;
+	int rampDirection = 0;
 
 	// Theme colors
 	QColor borderColor = Qt::black;

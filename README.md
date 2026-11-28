@@ -2,10 +2,13 @@
 
 **Compose your stream on a timeline. Control it live with Macro Strip.**
 
-Timeline is a native OBS Studio plugin for arranging scene changes, effects,
-media and other actions into timed sequences. Its companion Macro Strip dock
-lets you build a compact control surface with buttons, sliders, knobs, toggles, XY pads and
-text entry.
+Timeline is a native OBS Studio plugin with two complementary ways to control
+your production: arrange scenes, effects, media and automation into timed
+sequences, or build your own live control surface with Macro Strip.
+
+- **Timeline:** sequence cues visually, animate parameters, and reuse complete timelines.
+- **Macro Strip:** create named control banks or independent OBS docks with action grids, sliders, knobs, toggles, XY pads and text entry.
+- **Record automation:** turn live Macro Strip adjustments into editable timeline cues and ramps.
 
 ![Timeline dock with a duration ramp, Freeze Time and scene changes](docs/screenshots/synthwave84/timeline.png)
 
@@ -14,12 +17,13 @@ text entry.
 ![Timeline compact mode](docs/screenshots/synthwave84/timeline-compact.png)
 
 [Installation](#installation) · [Timeline](#timeline) · [Macro Strip](#macro-strip) ·
-[Shortcuts](#keyboard-shortcuts) · [Documentation](#documentation)
+[Saving and recovery](#compatibility-and-saved-state) · [Shortcuts](#keyboard-shortcuts) · [Documentation](#documentation)
 
 > [!NOTE]
-> Early preview (`v0.1.0-preview.1`). Linux source builds and CI packages are
-> available for testing. There is no tagged release yet. Back up your OBS
-> scene collections and test before using it live.
+> Early development preview. Source builds and version-specific CI test
+> packages are available from successful workflow runs. These are not tagged
+> releases. Back up your OBS scene collections and plugin configuration before
+> trying a preview in a live production.
 
 ## Timeline
 
@@ -30,7 +34,10 @@ Build reusable sequences without leaving OBS.
 - Scrub, play, pause, stop, restart or loop at a defined end marker.
 - Customize event colors, labels, SVG icons and durations.
 - Copy, paste, delete and nudge selections; undo or redo the last 100 edits.
-- Zoom, use compact mode, or scroll through stacked event lanes.
+- Zoom around the cursor, fit the timeline, or scroll stacked lanes beneath a pinned ruler.
+- Marquee-select cues, move groups together, resize duration handles and see parameter ramp curves and adaptive duration labels.
+- Mute cues without deleting them; test individual actions while paused and see warnings for unavailable local targets.
+- Insert or remove time from the ruler context menu with one undo step.
 - Save automatically, import/export JSON and trigger nested timelines.
 
 ### Available actions
@@ -98,11 +105,62 @@ parameter control.
 | Control | Example use |
 | --- | --- |
 | Action button | Switch scenes, run a hotkey or apply a parameter preset. |
+| 2 × 2 action buttons | Four individually assignable circular actions in a compact cluster. |
 | Slider | Adjust mixer volume, effect opacity or another numeric property. |
 | Knob | Adjust shader speed or intensity. |
 | Toggle | Turn a boolean on/off or switch between two defined numeric or text values. |
 | Text entry | Edit a source caption or another exposed string property. |
 | XY controller | Adjust two numeric properties with a single two-axis gesture. |
+
+### Arrange your strips
+
+Create dedicated control banks for scenes, audio, effects or any other part
+of your production. Each strip remembers its controls, order, spacing and
+orientation.
+
+| In the **+** menu | What happens |
+| --- | --- |
+| **New strip…** | Add a named tab to the main Macro Strip. Tabs are hidden when only one exists. |
+| **New individual dock…** | Create a separate native OBS dock that can be placed anywhere in the OBS dock layout. |
+| **Move current strip to individual dock** | Move an existing tab into its own dock without duplicating its controls; keep at least one main tab. |
+| **Move strip back to tabs** | Return an individual dock to the main strip. |
+| **Vertical strip** | Stack controls vertically instead of horizontally. |
+| **2 × 2 action buttons** | Add four compact circular action slots; assign each one independently. |
+
+![Independent Scenes dock with a circular action grid and a separate Back action](docs/screenshots/native/individual-scenes.png)
+
+*An individual Scenes strip captured in native OBS with synthetic test sources.*
+
+Closing an individual dock hides it without deleting its controls. Reopen it
+through OBS's Docks menu or **+ → Show individual dock** in the main strip.
+All strips share the same OBS action executor and can contribute to Timeline
+automation recording.
+
+### Edit layout
+
+Choose **+ → Edit layout** to expose drag grips while disabling live
+controls. Drag a grip to reorder a control or change its gap. Hold **Shift**
+while dragging to change spacing without reordering. No spacer widgets are
+needed. Press **Escape** to cancel the current drag.
+
+![Scenes strip in layout edit mode with drag grips and extra spacing before Back](docs/screenshots/native/individual-scenes-edit.png)
+
+Use **Undo layout edit** and **Redo layout edit** for per-strip order and
+spacing history. Reordering uses brief, interruptible paint-only animation;
+it respects the Qt style's animation-duration setting. Choose **Finish
+editing layout** to resume live operation. The editor arranges controls along
+the strip's axis; it is not an unrestricted two-dimensional canvas.
+
+Sliders can follow the strip orientation or override it under **Labels and
+appearance**. The same workspace can have horizontal scene controls and a
+vertical audio dock.
+
+<details>
+<summary>Vertical Macro Strip example</summary>
+
+![Independent vertical Audio strip with a volume slider](docs/screenshots/native/individual-audio.png)
+
+</details>
 
 ### Record Macro Strip automation
 
@@ -157,21 +215,31 @@ See [live control details](docs/USAGE.md#live-parameter-controls).
 
 ## Installation
 
-Choose the build matching your OBS major version. Do not mix plugin variants.
+Download the package matching your platform, architecture and OBS major
+version from a successful [GitHub Actions run](https://github.com/myrqyry/timeline/actions),
+or build from source below. Do not mix plugin variants.
+
+The existing package workflow covers OBS31/32 and selected OBS33 platforms.
+The additive shared OBS qualification workflow targets OBS 32.2.0 and 33.0.3
+on Linux x86_64, Windows x64, and macOS Apple Silicon/Intel. Test artifacts
+are distinct from release installers.
 
 | OBS version | Availability |
 | --- | --- |
 | 31 | Linux, Windows and macOS builds (macOS 12+). |
 | 32 | Linux, Windows and macOS builds (macOS 13+). |
-| 33 | Linux x86_64 (Ubuntu 26.04 SDK); module load and scene-switch smoke verified in OBS33 Flatpak. Windows x64 build configured (CI verification pending); macOS not yet supported. |
+| 33 | Historical Linux x86_64 Flatpak smoke verified; Windows x64 configured in the legacy package matrix. Shared CI also configures macOS ARM64/Intel test binaries; none of these new candidate artifacts are release-qualified. See the [release checklist](docs/RELEASE_CHECKLIST.md). |
 
-Preview CI artifacts are available from [GitHub Actions](https://github.com/myrqyry/timeline/actions).
-Windows and macOS runtime installation and interactive testing remain outstanding.
+Choose a successful run and download its matching artifact; an unsuccessful
+job is not a qualified package. Windows and macOS runtime installation and
+interactive testing remain outstanding. For exact install locations and
+Flatpak-specific requirements, see [PACKAGING.md](PACKAGING.md).
 
 ### Build from source (Linux)
 
 Requirements: CMake 3.28+, C++17, Qt6 development packages, Ninja and matching
-libobs development headers/libraries. Close OBS before installing.
+libobs and OBS frontend API development headers/libraries. Close OBS before
+installing.
 
 ```bash
 cmake --preset ubuntu-x86_64 -DTIMELINE_OBS_COMPATIBILITY=obs32
@@ -212,7 +280,19 @@ state, and is disabled during playback.
 
 Timeline and Macro Strip save automatically to OBS's plugin configuration
 directory. On Linux this is `~/.config/obs-studio/plugin_config/timeline/`.
-Timeline documents can also be imported/exported as JSON.
+Timeline documents can also be imported/exported as JSON, including legacy
+bare event arrays. Both docks use atomic configuration writes.
+
+If Timeline cannot load its existing configuration, automatic saving is
+disabled to protect the original. Use **Load Timeline** to import a valid
+backup. Timeline copies the unreadable file to a unique sibling named
+`timeline.json.recovery-<uuid>` before allowing saves again. If the original
+cannot be preserved, the import fails visibly rather than overwriting it.
+An invalid import does not replace the current timeline.
+
+Macro Strip saves all tabbed and individual strips in one workspace.
+Scene-collection copies are recovery backups, not replacements for newer
+local configuration or unsaved edits. See [saving and recovery](docs/USAGE.md#saving-and-recovery).
 
 New explicit target bindings survive renames and do not silently redirect
 missing targets. Older name-based actions keep their existing behavior.
@@ -223,23 +303,28 @@ Only play timeline files you trust; they can change your OBS state.
 
 ## Development status
 
-- Current local source: **102/102 strict Qt/libobs tests passed**, zero
-  failures/skips. Centered controls are now the default; existing explicit
-  layout choices remain unchanged.
-- Previous source checkpoint `f6ae128` was installed in native OBS 32.2.0 on Linux.
-  Both docks and the WebSocket vendor registered in an isolated startup;
-  saved timeline and macro configuration checksums were unchanged.
-- The screenshots above use the production Qt widgets with synthetic
-  sources, the Colorway Synthwave 84 theme resolved by native OBS, English
-  localization and headless Xvfb. Fusion reference captures are retained.
-  See [capture instructions](docs/screenshots/README.md).
-- HyperShaderFX effect opacity and a shader uniform have been verified
-  through the real plugin's property interface. Render smoothness,
-  interactive theme acceptance, and Windows/macOS runtime use remain
-  unverified.
-- Additional multi-selection editing, HTTP actions and release-grade
-  cross-platform installers remain planned work. See the
-  [release checklist](docs/RELEASE_CHECKLIST.md) for remaining gates.
+- **137/137 strict Qt/libobs checks passed** with zero failures or skips at
+  source checkpoint `cd17fec`, including recovery import/restart, actual Macro
+  Strip widget ordering, shared executor and individual dock persistence.
+- Native OBS 32.2.0 testing on Linux verified 20 individual-dock checks
+  across two launches at checkpoint `50b23e0`, including layout restoration.
+  The new individual-strip screenshots show that isolated test workspace.
+- Earlier native Linux probes verified a recorded source-property ramp and
+  conditional scene cues driven by Data Source snapshots. Historical OBS33
+  Flatpak smoke testing verified dock loading and basic scene actions.
+- Current candidate cross-platform build status is tracked in
+  [GitHub Actions](https://github.com/myrqyry/timeline/actions).
+  Hosted compilation and packaging do not establish native runtime behavior;
+  Windows/macOS runtime, interactive acceptance, frame-time profiling and
+  clean-upgrade/release gates remain open.
+
+The Synthwave 84 screenshots above use production Qt widgets with synthetic
+sources and theme settings resolved by native OBS; the individual-strip
+captures come from an isolated native OBS workspace. See
+[capture provenance](docs/screenshots/README.md).
+
+See the [release checklist](docs/RELEASE_CHECKLIST.md) for qualification
+details and remaining work.
 
 ## Documentation
 

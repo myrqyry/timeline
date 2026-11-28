@@ -1,5 +1,6 @@
 #include "macro-parameter-widget.h"
 #include "macro-button-widget.h"
+#include "interaction-motion.h"
 #include <QDoubleSpinBox>
 #include <QFontMetrics>
 
@@ -30,8 +31,113 @@
 #include <QVBoxLayout>
 #include <cmath>
 #include <functional>
+#include <memory>
+#include <QHash>
 
 namespace {
+// GUI-thread only. Cache samples for one synchronous polling pass, never
+// across passes or on the write path. Widgets own the monitor so unloading
+// the plugin cannot leave a timer connected to unloaded code.
+class MacroParameterMonitor final : public std::enable_shared_from_this<MacroParameterMonitor> {
+public:
+	static std::shared_ptr<MacroParameterMonitor> acquire()
+	{
+		static std::weak_ptr<MacroParameterMonitor> weak;
+		auto monitor = weak.lock();
+		if (!monitor) {
+			monitor = std::make_shared<MacroParameterMonitor>();
+			weak = monitor;
+		}
+		return monitor;
+	}
+
+	MacroParameterMonitor()
+	{
+		timer.setInterval(250);
+		QObject::connect(&timer, &QTimer::timeout, &timer, [this] { poll(); });
+		timer.start();
+	}
+
+	void subscribe(QWidget *widget, std::function<void()> refresh)
+	{
+		subscribers.append({widget, std::move(refresh)});
+	}
+
+	std::optional<MacroParameter::Spec> describe(const MacroParameterBinding &binding)
+	{
+		return sample(specs, binding, MacroParameter::describe);
+	}
+	std::optional<double> read(const MacroParameterBinding &binding)
+	{
+		return sample(numbers, binding, MacroParameter::read);
+	}
+	std::optional<QString> readText(const MacroParameterBinding &binding)
+	{
+		return sample(strings, binding, MacroParameter::readText);
+	}
+	std::optional<int> toggleState(const MacroParameterBinding &binding, const MacroParameter::Spec &spec,
+				       const MacroParameter::ToggleValues &values)
+	{
+		if (binding.type != spec.type || !MacroParameter::toggleValuesFit(spec, values))
+			return std::nullopt;
+		if (binding.type == MacroParameterType::Text) {
+			const auto current = readText(binding);
+			return current ? MacroParameter::toggleStateForValue(spec, values, *current) : std::nullopt;
+		}
+		const auto current = read(binding);
+		return current ? MacroParameter::toggleStateForValue(spec, values, *current) : std::nullopt;
+	}
+
+private:
+	struct Subscriber {
+		QPointer<QWidget> widget;
+		std::function<void()> refresh;
+	};
+
+	template<typename T, typename Reader>
+	std::optional<T> sample(QHash<QString, std::optional<T>> &cache, const MacroParameterBinding &binding,
+				Reader reader)
+	{
+		if (!polling)
+			return reader(binding);
+		// bindingIdentity intentionally omits type for collision detection;
+		// readback must distinguish incompatible persisted binding types.
+		const auto key = MacroParameter::bindingIdentity(binding) + ':' + QString::number(int(binding.type));
+		auto it = cache.constFind(key);
+		if (it != cache.cend())
+			return it.value();
+		const auto result = reader(binding);
+		cache.insert(key, result);
+		return result;
+	}
+
+	void poll()
+	{
+		if (polling)
+			return;
+		auto keepAlive = shared_from_this();
+		polling = true;
+		// Callbacks may remove widgets or add new ones. Iterate a stable
+		// snapshot and use guarded pointers rather than retaining widgets.
+		const auto snapshot = subscribers;
+		for (const auto &entry : snapshot)
+			if (entry.widget && entry.widget->isVisible())
+				entry.refresh();
+		subscribers.removeIf([](const Subscriber &entry) { return entry.widget.isNull(); });
+		specs.clear();
+		numbers.clear();
+		strings.clear();
+		polling = false;
+	}
+
+	QTimer timer;
+	QList<Subscriber> subscribers;
+	QHash<QString, std::optional<MacroParameter::Spec>> specs;
+	QHash<QString, std::optional<double>> numbers;
+	QHash<QString, std::optional<QString>> strings;
+	bool polling = false;
+};
+
 // Retain QDial's value model and accessibility; paint a compact, themed
 // rotary control and use relative movement instead of absolute mouse angles.
 class RelativeDial final : public QDial {
@@ -59,11 +165,7 @@ protected:
 		const double radius = std::min(width(), height()) / 2.0;
 		const double trackRadius = radius - 3.0;
 		const QRectF arc(center.x() - trackRadius, center.y() - trackRadius, trackRadius * 2, trackRadius * 2);
-		const double fraction = maximum() > minimum()
-						? std::clamp((static_cast<double>(value()) - minimum()) /
-								     (static_cast<double>(maximum()) - minimum()),
-							     0.0, 1.0)
-						: 0.0;
+		const double fraction = valueMotion.value().x();
 		constexpr int startAngle = 225 * 16;
 		constexpr int sweep = 270 * 16;
 		// Thin, low-contrast track with a full-opacity active arc.
@@ -91,6 +193,15 @@ protected:
 	void sliderChange(SliderChange change) override
 	{
 		QDial::sliderChange(change);
+		const double fraction = maximum() > minimum()
+						? std::clamp((static_cast<double>(value()) - minimum()) /
+								     (static_cast<double>(maximum()) - minimum()),
+							     0.0, 1.0)
+						: 0.0;
+		// Only passive readback eases. The native value, accessibility and
+		// user gestures remain exact and synchronous.
+		valueMotion.to(QPointF(fraction, 0), change == SliderValueChange && isVisible() && isEnabled() &&
+							     !isSliderDown() && !hasFocus());
 		update();
 	}
 
@@ -144,6 +255,9 @@ protected:
 		    isSliderDown())
 			setSliderDown(false);
 		const bool handled = QDial::event(event);
+		if (event->type() == QEvent::Hide || event->type() == QEvent::FocusIn ||
+		    (event->type() == QEvent::EnabledChange && !isEnabled()))
+			valueMotion.snap();
 		switch (event->type()) {
 		case QEvent::HoverEnter:
 		case QEvent::HoverLeave:
@@ -201,6 +315,9 @@ protected:
 	}
 
 private:
+	InteractionMotion valueMotion{[this] {
+		update();
+	}};
 	QPointF lastPosition;
 	double dragValue = 0;
 	int wheelRemainder = 0;
@@ -215,6 +332,14 @@ public:
 		setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
 	}
 
+	int requiredWidth(const QString &sample)
+	{
+		ensurePolished();
+		const auto margins = contentsMargins();
+		return qCeil(QFontMetricsF(font(), this).horizontalAdvance(sample)) + margins.left() + margins.right() +
+		       14;
+	}
+
 protected:
 	void paintEvent(QPaintEvent *) override
 	{
@@ -222,7 +347,11 @@ protected:
 		painter.setRenderHint(QPainter::Antialiasing);
 		painter.setFont(font());
 		const auto area = contentsRect().adjusted(2, 0, -2, 0);
-		const QString visible = fontMetrics().elidedText(text(), Qt::ElideRight, std::max(0, area.width() - 8));
+		const auto metrics = painter.fontMetrics();
+		const int budget = std::max(0, area.width() - 8);
+		const QString visible = metrics.horizontalAdvance(text()) <= budget
+						? text()
+						: metrics.elidedText(text(), Qt::ElideRight, budget);
 		if (visible.isEmpty())
 			return;
 		const auto group = !isEnabled() ? QPalette::Disabled
@@ -273,10 +402,9 @@ public:
 	std::function<void(QPointF)> moved;
 	std::function<void()> released;
 	std::function<void(int, int)> stepped;
-	void setPosition(QPointF position)
+	void setPosition(QPointF position, bool passive = false)
 	{
-		point = position;
-		update();
+		pointMotion.to(position, passive && isVisible() && isEnabled() && !active && !hasFocus());
 	}
 	bool dragging() const { return active; }
 
@@ -298,6 +426,7 @@ protected:
 		p.setPen(QPen(grid, 1));
 		p.drawLine(QPointF(width() / 2.0, 4), QPointF(width() / 2.0, height() - 4));
 		p.drawLine(QPointF(4, height() / 2.0), QPointF(width() - 4, height() / 2.0));
+		const auto point = pointMotion.value();
 		const QPointF marker(4 + point.x() * (width() - 9), 4 + (1 - point.y()) * (height() - 9));
 		p.setPen(QPen(accent, 1, Qt::DashLine));
 		p.drawLine(QPointF(marker.x(), 4), QPointF(marker.x(), height() - 4));
@@ -368,6 +497,9 @@ protected:
 		if (e->type() == QEvent::UngrabMouse || (e->type() == QEvent::EnabledChange && !isEnabled()))
 			active = false;
 		const bool handled = QWidget::event(e);
+		if (e->type() == QEvent::Hide || e->type() == QEvent::FocusIn ||
+		    (e->type() == QEvent::EnabledChange && !isEnabled()))
+			pointMotion.snap();
 		if (e->type() == QEvent::FocusIn || e->type() == QEvent::FocusOut ||
 		    e->type() == QEvent::PaletteChange || e->type() == QEvent::EnabledChange)
 			update();
@@ -381,7 +513,7 @@ private:
 			moved({std::clamp((pos.x() - 4) / (width() - 9), 0.0, 1.0),
 			       1 - std::clamp((pos.y() - 4) / (height() - 9), 0.0, 1.0)});
 	}
-	QPointF point{0.5, 0.5};
+	InteractionMotion pointMotion{[this] { update(); }, QPointF(0.5, 0.5)};
 	bool active = false;
 };
 
@@ -448,16 +580,14 @@ public:
 		writer.setSingleShot(true);
 		writer.setInterval(80);
 		connect(&writer, &QTimer::timeout, this, [this] { flush(); });
-		reader.setInterval(250);
-		connect(&reader, &QTimer::timeout, this, [this] {
-			if (isVisible() && !pad->dragging() && !pending)
+		monitor->subscribe(this, [this] {
+			if (!pad->dragging() && !pending)
 				refresh();
 		});
 		const auto size = requiredRows();
 		setRowHeights(size.width(), size.height(),
 			      button.hasBottomCaption() ? MacroButtonWidget::kBottomHeight : 0);
 		refresh();
-		reader.start();
 	}
 	QSize requiredRows() const
 	{
@@ -471,20 +601,18 @@ public:
 		bottom->setFixedHeight(bottomHeight);
 		bottom->setVisible(bottomHeight > 0);
 		setFixedHeight(captionHeight + row->height() + bottomHeight);
-		const int titleWidth = QFontMetrics(caption->font()).horizontalAdvance(title) + 12;
-		const int valueWidth =
-			QFontMetrics(bottom->font())
-				.horizontalAdvance(showValue ? QStringLiteral("-0.000 / -0.000") : subtitle) +
-			12;
+		const int titleWidth = caption->requiredWidth(title);
+		const int valueWidth = bottom->requiredWidth(showValue ? QStringLiteral("-0.000 / -0.000") : subtitle);
 		setFixedWidth(std::clamp(std::max({titleWidth, valueWidth, pad->width()}), pad->width(), 220) + 6);
 	}
 
 private:
-	void display(double xv, double yv)
+	void display(double xv, double yv, bool passive = false)
 	{
 		if (!xs || !ys)
 			return;
-		pad->setPosition({double(xs->indexOf(xv)) / xs->steps(), double(ys->indexOf(yv)) / ys->steps()});
+		pad->setPosition({double(xs->indexOf(xv)) / xs->steps(), double(ys->indexOf(yv)) / ys->steps()},
+				 passive);
 		const QString value = QString::number(xv, 'g', 5) + " / " + QString::number(yv, 'g', 5);
 		if (showValue)
 			bottom->setText(value);
@@ -505,7 +633,7 @@ private:
 		writer.stop();
 		const auto value = pending;
 		pending.reset();
-		if (value && isVisible()) {
+		if (value && isVisible() && isEnabled()) {
 			if (!MacroParameter::writePair(x, value->x(), y, value->y())) {
 				refresh();
 				return;
@@ -520,14 +648,14 @@ private:
 	}
 	void refresh()
 	{
-		xs = MacroParameter::describe(x);
-		ys = MacroParameter::describe(y);
-		const auto xv = xs ? MacroParameter::read(x) : std::nullopt;
-		const auto yv = ys ? MacroParameter::read(y) : std::nullopt;
+		xs = monitor->describe(x);
+		ys = monitor->describe(y);
+		const auto xv = xs ? monitor->read(x) : std::nullopt;
+		const auto yv = ys ? monitor->read(y) : std::nullopt;
 		const bool valid = MacroParameter::numericPair(x, y) && xv && yv;
 		pad->setEnabled(valid);
 		if (valid)
-			display(*xv, *yv);
+			display(*xv, *yv, true);
 		else {
 			if (showValue)
 				bottom->setText(tr("Unavailable"));
@@ -545,7 +673,8 @@ private:
 	StableCaption *bottom;
 	QWidget *row;
 	XYPad *pad;
-	QTimer writer, reader;
+	QTimer writer;
+	std::shared_ptr<MacroParameterMonitor> monitor = MacroParameterMonitor::acquire();
 };
 
 class ParameterWidget final : public QWidget {
@@ -612,7 +741,7 @@ public:
 			controlLayout->addWidget(editText, 0, Qt::AlignCenter);
 			editText->hide();
 			auto apply = [this] {
-				if (textEntry->isModified() && isVisible() &&
+				if (textEntry->isModified() && isVisible() && isEnabled() &&
 				    MacroParameter::writeText(binding, textEntry->text()))
 					textEntry->setModified(false);
 				refresh(true);
@@ -629,7 +758,7 @@ public:
 										    *current, &accepted);
 				if (!guard)
 					return;
-				if (accepted && isVisible())
+				if (accepted && isVisible() && isEnabled())
 					MacroParameter::writeText(binding, next);
 				refresh(true);
 			});
@@ -645,7 +774,7 @@ public:
 					const auto state =
 						current ? MacroParameter::toggleState(binding, *current, *toggleValues)
 							: std::nullopt;
-					if (state && isVisible()) {
+					if (state && isVisible() && isEnabled()) {
 						const auto &next = *state == 0 ? toggleValues->b : toggleValues->a;
 						if (binding.type == MacroParameterType::Text)
 							MacroParameter::writeText(binding, next.toString());
@@ -669,9 +798,15 @@ public:
 				dial->setFixedSize(32, 32);
 				slider = dial;
 			} else {
-				auto *fader = new QSlider(Qt::Horizontal, this);
+				auto *fader =
+					new QSlider(button.verticalSlider() ? Qt::Vertical : Qt::Horizontal, this);
 				fader->setObjectName("macro-parameter-slider");
-				fader->setFixedWidth(100);
+				if (button.verticalSlider()) {
+					fader->setFixedHeight(100);
+					fader->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+				} else {
+					fader->setFixedWidth(100);
+				}
 				slider = fader;
 			}
 			slider->setAccessibleName(title);
@@ -703,16 +838,14 @@ public:
 		writeTimer.setSingleShot(true);
 		writeTimer.setInterval(80);
 		connect(&writeTimer, &QTimer::timeout, this, [this] { flush(); });
-		readTimer.setInterval(250);
-		connect(&readTimer, &QTimer::timeout, this, [this] {
-			if (isVisible() && !pending && !(slider && slider->isSliderDown()))
+		monitor->subscribe(this, [this] {
+			if (!pending && !(slider && slider->isSliderDown()))
 				refresh(++pollCount % 8 == 0);
 		});
 		refresh(true);
 		const auto size = requiredRows();
 		setRowHeights(size.width(), size.height(),
 			      button.hasBottomCaption() ? MacroButtonWidget::kBottomHeight : 0);
-		readTimer.start();
 	}
 
 	QSize requiredRows() const
@@ -731,7 +864,7 @@ public:
 		input->ensurePolished();
 		// A dial has an intentional fixed size; native sliders and toggles
 		// need their theme's actual size hint, not a guessed pixel height.
-		const int height = qobject_cast<QDial *>(input)
+		const int height = (qobject_cast<QDial *>(input) || (slider && slider->orientation() == Qt::Vertical))
 					   ? input->height()
 					   : std::max(input->sizeHint().height(), input->minimumSizeHint().height());
 		return QSize(labelHeight, std::max(MacroButtonWidget::kControlHeight, height));
@@ -750,7 +883,6 @@ public:
 private:
 	void reserveColumnWidth()
 	{
-		const QFontMetrics fm(label->font());
 		// Width depends on the assigned caption and control kind, never
 		// the live value or current availability of the target.
 		QString sample = showValue ? (kind == MacroControlKind::Toggle
@@ -768,12 +900,9 @@ private:
 					sample = candidate;
 			}
 		}
-		int width = std::clamp(std::max(fm.horizontalAdvance(title),
-						QFontMetrics(bottom->font()).horizontalAdvance(sample)) +
-					       12,
-				       40, 220);
+		int width = std::clamp(std::max(label->requiredWidth(title), bottom->requiredWidth(sample)), 40, 220);
 		if (slider)
-			width = std::max(width, slider->minimumWidth());
+			width = std::max({width, slider->minimumWidth(), slider->minimumSizeHint().width()});
 		if (toggle) {
 			toggle->ensurePolished();
 			width = std::max(width, toggle->sizeHint().width());
@@ -802,7 +931,7 @@ private:
 		writeTimer.stop();
 		const auto value = pending;
 		pending.reset();
-		if (value && isVisible()) {
+		if (value && isVisible() && isEnabled()) {
 			const bool written = MacroParameter::write(binding, *value);
 			if (written && onCommitted)
 				onCommitted(binding, *value);
@@ -831,15 +960,15 @@ private:
 	void refresh(bool schema)
 	{
 		if (schema)
-			spec = MacroParameter::describe(binding);
+			spec = monitor->describe(binding);
 		if (toggle && toggleValues) {
-			const auto state = spec ? MacroParameter::toggleState(binding, *spec, *toggleValues)
-						: std::nullopt;
+			const auto state = spec ? monitor->toggleState(binding, *spec, *toggleValues) : std::nullopt;
 			const QSignalBlocker block(toggle);
 			toggle->setEnabled(state.has_value());
-			toggle->setCheckState(!state || *state < 0 ? Qt::PartiallyChecked
-					      : *state == 0        ? Qt::Unchecked
-								   : Qt::Checked);
+			const int position = state.value_or(-1);
+			toggle->setCheckState(position < 0    ? Qt::PartiallyChecked
+					      : position == 0 ? Qt::Unchecked
+							      : Qt::Checked);
 			auto display = [&](const QVariant &v) {
 				if (binding.type == MacroParameterType::Text)
 					return v.toString();
@@ -847,9 +976,10 @@ private:
 								 : QString::number(v.toDouble(), 'g', 7) +
 									   (spec ? spec->suffix : QString());
 			};
-			const QString shown = !state       ? tr("Unavailable")
-					      : *state < 0 ? tr("Other value")
-							   : display(*state == 0 ? toggleValues->a : toggleValues->b);
+			const QString shown = !state ? tr("Unavailable")
+					      : position < 0
+						      ? tr("Other value")
+						      : display(position == 0 ? toggleValues->a : toggleValues->b);
 			if (showValue)
 				bottom->setText(shown);
 			const QString tip = title + "\n" + tr("A: %1").arg(display(toggleValues->a)) + "\n" +
@@ -861,7 +991,7 @@ private:
 			return;
 		}
 		if (textEntry) {
-			auto value = spec ? MacroParameter::readText(binding) : std::nullopt;
+			auto value = spec ? monitor->readText(binding) : std::nullopt;
 			const bool valid = value.has_value();
 			const bool multiline = spec && spec->multiline;
 			textRow->setVisible(!multiline);
@@ -883,7 +1013,7 @@ private:
 			}
 			return;
 		}
-		auto value = spec ? MacroParameter::read(binding) : std::nullopt;
+		auto value = spec ? monitor->read(binding) : std::nullopt;
 		const bool valid = spec.has_value() && value.has_value();
 		if (slider) {
 			const QSignalBlocker block(slider);
@@ -925,12 +1055,12 @@ private:
 	QPushButton *applyText = nullptr;
 	QWidget *textRow = nullptr;
 	QPushButton *editText = nullptr;
-	QLabel *label = nullptr;
+	StableCaption *label = nullptr;
 	StableCaption *bottom = nullptr;
 	QWidget *controlRow = nullptr;
 	QString title, subtitle;
 	bool showValue;
-	QTimer readTimer;
+	std::shared_ptr<MacroParameterMonitor> monitor = MacroParameterMonitor::acquire();
 	QTimer writeTimer;
 	int pollCount = 0;
 };

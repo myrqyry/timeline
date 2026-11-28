@@ -21,6 +21,8 @@ public:
 	void addEvents(const std::vector<TimelineEvent> &batch);
 	void removeEventsById(const QStringList &ids);
 	void setEventTimes(const QHash<QString, double> &times);
+	enum class RippleResult { Changed, NoChange, InvalidRange, CrossingSpan, EndLimit };
+	RippleResult rippleTime(double startMs, double lengthMs, bool remove, double endLimitMs = 0);
 
 	// Session-only edit history; disabled for headless playback models.
 	void setHistoryEnabled(bool enabled);

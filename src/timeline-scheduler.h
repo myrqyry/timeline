@@ -5,6 +5,7 @@
 #include <QSet>
 #include <QMap>
 #include <chrono>
+#include <vector>
 #include "timeline-model.h"
 
 class TimelineScheduler : public QObject {
@@ -45,6 +46,7 @@ private slots:
 
 private:
 	void dispatchDueCues(double timeMs);
+	void rebuildEndIndex();
 	void beginDueFreeze(double &timeMs);
 	void registerParameterCue(const TimelineEvent &evt);
 	void rebuildParameterRamps(double timeMs);
@@ -68,6 +70,10 @@ private:
 	bool looping = false;
 	QSet<QString> eventStartFired;
 	QSet<QString> eventEndFired;
+	QHash<QString, TimelineEvent> startedSpans;
+	QSet<QString> bypassedStarts;
 	size_t nextStartIndex = 0;
+	std::vector<size_t> endIndices;
+	size_t nextEndIndex = 0;
 	int timerIntervalMs = 8; // ~125 Hz for tight 32nd-note BPM timing
 };

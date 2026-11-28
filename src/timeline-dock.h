@@ -11,6 +11,7 @@
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QHash>
+#include <QSet>
 #include <QFrame>
 #include <QPixmap>
 #include "timeline-model.h"
@@ -25,6 +26,7 @@ class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
 class TimecodeDisplay;
 class QAction;
+class QRubberBand;
 
 class TimelineDock : public QWidget {
 	Q_OBJECT
@@ -36,6 +38,7 @@ public:
 	// Persistence
 	void save();
 	void load();
+	bool importTimelineFile(const QString &fileName, QString *errorMessage = nullptr);
 
 	void setObsWebSocketVendor(void *vendor);
 
@@ -77,6 +80,7 @@ private slots:
 	void onTimelineLooped();
 	void onZoomInClicked();
 	void onZoomOutClicked();
+	void onZoomFitClicked();
 	void onSnapIntervalChanged(int index);
 	void onGridModeChanged(int index);
 	void onNoteLengthChanged(int index);
@@ -90,12 +94,16 @@ private:
 	void setupModeToggle();
 	void applyTimelineDocument(const TimelineDocument &doc);
 	void updatePlayhead(double timeMs);
+	void updateVisualTime(double timeMs);
 	void updateLayout();
 	void updateViewportGeometry();
 	double eventContentHeight = 0.0;
+	double eventContentRight = 0.0;
 	void drawRuler();
+	void paintRuler(QPainter *p, double left, double right) const;
+	void paintPinnedRuler(QPainter *p) const;
 	void drawGrid();
-	void clearRuler();
+	void paintTimelineBackground(QPainter *painter, const QRectF &exposed) const;
 	void rebuildEventItems();
 	void clearEventItems();
 	void updateZoomLabel();
@@ -103,10 +111,13 @@ private:
 	void updatePlayButtonIcon();
 	void updateToolbarIcons();
 	void refreshTheme();
+	void refreshVisibleCueHealth();
 	void updateHistoryControls();
 	void undoEdit();
 	void redoEdit();
 	void deleteSelectedEvents();
+	bool rippleEditAllowed() const;
+	void promptRippleEdit(double startMs, bool remove);
 	void copySelectedEvents();
 	void pasteEvents();
 	void nudgeSelectedEvents(double deltaMs);
@@ -115,11 +126,18 @@ private:
 	double snapTimeMs(double timeMs) const;
 	void applySnapIntervalToItems();
 	void connectItemSignals(TimelineEventItem *item, const QString &eventId);
+	bool cueMenuAllowed(const QString &id, bool mute) const;
 	void updateMoonButtonIcon(QAbstractButton *btn, const char *inner, int size = 24,
 				  const QString &label = QString(), int iconSizeOffset = 6);
 	void updateDependentControlStates();
 	void updateZoomLabelPosition();
 	void seekToSceneX(double x);
+	void previewDurationResize(double sceneX);
+	void finishDurationResize(bool commit);
+	void beginMarquee(const QPoint &point, Qt::KeyboardModifiers modifiers);
+	void previewSelectionGesture(const QPoint &point);
+	void finishSelectionGesture(bool commit);
+	bool beginGroupDrag(TimelineEventItem *anchor, const QPoint &point);
 	void applyThemeColorsToItems();
 	QColor computePlayheadColor() const;
 	void refreshPlayheadHandlePixmap();
@@ -140,6 +158,7 @@ private:
 
 	// UI Elements
 	QGraphicsView *view = nullptr;
+	QWidget *pinnedRuler = nullptr;
 	QGraphicsScene *scene = nullptr;
 
 	// Layout
@@ -217,9 +236,6 @@ private:
 	QColor cachedPlayheadHandleColor;
 	QColor cachedEndMarkerHandleColor;
 
-	QList<QGraphicsItem *> rulerItems;
-	QList<QGraphicsItem *> gridItems;
-
 	// Event tracking
 	QHash<QString, TimelineEventItem *> eventItemMap;
 
@@ -227,8 +243,25 @@ private:
 	bool snapEnabled = false;
 	bool draggingPlayhead = false;
 	bool draggingEndMarker = false;
+	QString resizingEventId;
+	double resizeStartMs = 0;
+	double resizeInitialMs = 0;
+	double resizePreviewMs = 0;
+	double resizePressX = 0;
+	enum class SelectionGesture { None, Marquee, Group };
+	SelectionGesture selectionGesture = SelectionGesture::None;
+	QRubberBand *marqueeBand = nullptr;
+	QPoint gesturePress;
+	double gestureSceneX = 0;
+	bool gestureMoved = false;
+	Qt::KeyboardModifiers marqueeModifiers = Qt::NoModifier;
+	QSet<QString> originalSelection;
+	QHash<QString, double> groupOriginalTimes;
+	double groupAnchorTime = 0;
+	double groupDelta = 0;
 	double manualSnapIntervalMs = 500.0;
 	bool loadingTimeline = false;
+	bool configLoadFailed = false;
 
 	// Hotkeys
 	obs_hotkey_id hotkeyIdPlayPause = OBS_INVALID_HOTKEY_ID;
@@ -237,18 +270,12 @@ private:
 
 	void *obsWebSocketVendor = nullptr;
 	qint64 lastTickTime = 0;
+	QElapsedTimer visualTickTimer;
+	double lastVisualTimeMs = 0;
+	bool lastVisualFrozen = false;
 	bool rebuildScheduled = false;
 	QTimer *debounceSaveTimer = nullptr;
+	int cueHealthCursor = 0;
 	bool isDragging = false;
 	QString zoomLabelCache;
-
-	// Cached values for grid/ruler rebuild avoidance
-	double cachedGridPxPerSec = -1.0;
-	double cachedGridBpm = -1.0;
-	double cachedGridNoteBeats = -1.0;
-	double cachedGridSceneHeight = -1.0;
-	bool cachedGridToBpm = false;
-	bool cachedAlternatingBg = false;
-	double cachedRulerPxPerSec = -1.0;
-	double cachedRulerSceneWidth = -1.0;
 };

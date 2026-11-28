@@ -1,11 +1,13 @@
 #include "timeline-event-item.h"
 #include <obs-module.h>
 #include <QGraphicsSceneMouseEvent>
+#include <QGraphicsScene>
 #include <QGraphicsSceneHoverEvent>
 #include <QGraphicsSceneContextMenuEvent>
 #include <QMenu>
 #include <QCursor>
 #include <QPainter>
+#include <QPainterPath>
 #include <QStyleOptionGraphicsItem>
 #include <QFontMetrics>
 #include <QFile>
@@ -27,7 +29,7 @@ TimelineEventItem::TimelineEventItem(double timeMs, double pixelsPerSecond, Time
 	// Center the item horizontally on the time
 	setPos((timeMs / 1000.0 * pixelsPerSecond) - (mItemSize / 2.0), baseY);
 	setBrush(QBrush(eventColor));
-	setPen(QPen(borderColor));
+	setPen(QPen(borderColor, 1.5));
 
 	setFlags(ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges);
 	setAcceptHoverEvents(true);
@@ -43,21 +45,34 @@ double TimelineEventItem::getTimeMs() const
 	return (x() + mItemSize / 2.0) / pixelsPerSecond * 1000.0;
 }
 
+double TimelineEventItem::durationHandleX() const
+{
+	// Keep the grip outside the bubble even at extremely short durations.
+	return std::max(mItemSize + 10.0, mItemSize / 2.0 + durationMs * pixelsPerSecond / 1000.0);
+}
+
+bool TimelineEventItem::durationHandleContains(const QPointF &scenePoint) const
+{
+	if (!hasDuration || durationMs <= 0.0)
+		return false;
+	const auto p = mapFromScene(scenePoint);
+	return std::abs(p.x() - durationHandleX()) <= 8.0 && std::abs(p.y() - mItemSize / 2.0) <= 10.0;
+}
+
 QRectF TimelineEventItem::boundingRect() const
 {
-	double padding = 8.0; // Selection ring and hover glow
+	const double padding = VISUAL_PADDING; // Selection ring and hover glow
 	QRectF baseRect(0, 0, mItemSize, mItemSize);
 	QRectF totalRect = baseRect.adjusted(-padding, -padding, padding, padding);
 
 	if (hasDuration && durationMs > 0) {
-		double lineLength = (durationMs / 1000.0) * pixelsPerSecond;
 		double startX = mItemSize / 2.0;
 
 		// Rect coverage for the duration line + end cap
 		// Line goes from center to center + length
 		// We need coverage from center (part of baseRect already) to end
 		// Add vertical padding for the line thickness/cap
-		QRectF lineRect(startX, mItemSize / 2.0 - 10, lineLength + 10, 20);
+		QRectF lineRect(startX, -8, durationHandleX() - startX + 10, mItemSize + 28);
 		totalRect = totalRect.united(lineRect);
 	}
 
@@ -83,6 +98,8 @@ void TimelineEventItem::setMaxTime(double maxTimeMs)
 
 void TimelineEventItem::setPixelsPerSecond(double pxPerSec)
 {
+	if (pixelsPerSecond == pxPerSec)
+		return;
 	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	double currentTime = getTimeMs();
 	prepareGeometryChange();
@@ -93,6 +110,8 @@ void TimelineEventItem::setPixelsPerSecond(double pxPerSec)
 
 void TimelineEventItem::setEventColor(const QColor &color)
 {
+	if (eventColor == color)
+		return;
 	eventColor = color;
 	refreshRenderer();
 	setBrush(QBrush(eventColor));
@@ -149,6 +168,8 @@ void TimelineEventItem::setEventLabel(const QString &label)
 
 void TimelineEventItem::setStackOffset(int offset)
 {
+	if (stackOffset == offset && y() == baseY + offset * (mItemSize + 4))
+		return;
 	const QScopedValueRollback<bool> layoutChange(suppressDragSignals, true);
 	stackOffset = offset;
 	setPos(x(), baseY + (stackOffset * (mItemSize + 4)));
@@ -176,7 +197,7 @@ void TimelineEventItem::mousePressEvent(QGraphicsSceneMouseEvent *event)
 	isBeingDragged = true;
 	dragStartedEmitted = false;
 	setCursor(Qt::ClosedHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::mousePressEvent(event);
 }
 
@@ -186,7 +207,7 @@ void TimelineEventItem::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
 	isBeingDragged = false;
 	dragStartedEmitted = false;
 	setCursor(isHovered ? Qt::PointingHandCursor : Qt::OpenHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::mouseReleaseEvent(event);
 	if (wasDragged) {
 		emit eventMoved(getTimeMs());
@@ -205,10 +226,30 @@ void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
 	QAction *editAction = menu.addAction(obs_module_text("TimelineDock.EditEventLabel"));
 	QAction *colorAction = menu.addAction(obs_module_text("TimelineDock.SetColor"));
 	menu.addSeparator();
+	auto *muteAction = menu.addAction(obs_module_text(muted ? "TimelineDock.UnmuteCue" : "TimelineDock.MuteCue"));
+	muteAction->setObjectName("timeline-cue-mute-action");
+	muteAction->setEnabled(cueMenuAvailability && cueMenuAvailability(true));
+	auto *runAction =
+		menu.addAction(obs_module_text(hasDuration ? "TimelineDock.RunCueStart" : "TimelineDock.RunCueNow"));
+	runAction->setObjectName("timeline-cue-run-start-action");
+	runAction->setEnabled(manualCanRun && !muted && cueMenuAvailability && cueMenuAvailability(false));
+	QAction *endAction = nullptr;
+	if (hasDuration && manualCanEnd) {
+		endAction = menu.addAction(obs_module_text("TimelineDock.RunCueEnd"));
+		endAction->setObjectName("timeline-cue-run-end-action");
+		endAction->setEnabled(!muted && cueMenuAvailability && cueMenuAvailability(false));
+	}
+	menu.addSeparator();
 	QAction *deleteAction = menu.addAction(obs_module_text("TimelineDock.DeleteEventLabel"));
 
 	QAction *selected = menu.exec(event->screenPos());
-	if (selected == deleteAction) {
+	if (!selected)
+		return;
+	if (selected == muteAction) {
+		emit muteRequested();
+	} else if (selected == runAction || selected == endAction) {
+		emit manualExecutionRequested(selected == endAction);
+	} else if (selected == deleteAction) {
 		emit deleteRequested();
 	} else if (selected == editAction) {
 		emit doubleClicked();
@@ -217,11 +258,17 @@ void TimelineEventItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
 	}
 }
 
+void TimelineEventItem::refreshInteractionMotion()
+{
+	motion.to(isBeingDragged ? QPointF(-1, 0) : (isHovered ? QPointF(3, 1) : QPointF()),
+		  isVisible() && scene() && !scene()->views().isEmpty());
+}
+
 void TimelineEventItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event)
 {
 	isHovered = true;
 	setCursor(Qt::PointingHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::hoverEnterEvent(event);
 }
 
@@ -229,7 +276,7 @@ void TimelineEventItem::hoverLeaveEvent(QGraphicsSceneHoverEvent *event)
 {
 	isHovered = false;
 	setCursor(Qt::OpenHandCursor);
-	update();
+	refreshInteractionMotion();
 	QGraphicsEllipseItem::hoverLeaveEvent(event);
 }
 
@@ -250,23 +297,64 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 
 		QPen linePen(eventColor, 4, Qt::SolidLine, Qt::RoundCap);
 		painter->setPen(linePen);
-		painter->drawLine(QPointF(startX, mItemSize / 2.0), QPointF(startX + lineLength, mItemSize / 2.0));
+		if (rampSamples && lineLength >= mItemSize) {
+			// Normalized shape sampled from playback's exact easing function.
+			// Constant-size sample storage avoids work proportional to duration.
+			QPainterPath path;
+			for (size_t i = 0; i < rampSamples->size(); ++i) {
+				const double x = startX + lineLength * i / (rampSamples->size() - 1);
+				const double y = mItemSize / 2.0 + 7.0 - 14.0 * (*rampSamples)[i];
+				if (i == 0)
+					path.moveTo(x, y);
+				else
+					path.lineTo(x, y);
+			}
+			painter->setPen(QPen(eventColor, 2.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+			painter->drawPath(path);
+		} else {
+			painter->drawLine(QPointF(startX, mItemSize / 2.0),
+					  QPointF(startX + lineLength, mItemSize / 2.0));
+		}
 
-		// Draw end cap marker
-		painter->drawLine(QPointF(startX + lineLength, mItemSize / 2.0 - 5),
-				  QPointF(startX + lineLength, mItemSize / 2.0 + 5));
+		// Draw a visible grip; short spans use a small dashed leader to
+		// avoid covering the cue bubble itself.
+		const double handleX = durationHandleX();
+		if (handleX > startX + lineLength) {
+			painter->setPen(QPen(eventColor, 1, Qt::DotLine));
+			painter->drawLine(QPointF(startX + lineLength, mItemSize / 2.0),
+					  QPointF(handleX, mItemSize / 2.0));
+		}
+		painter->setPen(QPen(eventColor, 3, Qt::SolidLine, Qt::RoundCap));
+		painter->drawLine(QPointF(handleX, mItemSize / 2.0 - 6), QPointF(handleX, mItemSize / 2.0 + 6));
+
+		// Only display a label when it fits between the bubble and the grip.
+		// The pill sits above the line (below for ramps, to preserve the curve).
+		painter->save();
+		QFont font = painter->font();
+		font.setPointSize(8);
+		painter->setFont(font);
+		const QString text = durationLabel();
+		const QFontMetricsF metrics(font);
+		const double width = metrics.horizontalAdvance(text) + 8.0;
+		const double height = metrics.height() + 2.0;
+		const double left = mItemSize + 6.0;
+		const double right = startX + lineLength - 9.0;
+		if (right - left >= width && height <= mItemSize + 4.0) {
+			const QRectF pill((left + right - width) / 2.0,
+					  rampSamples ? mItemSize / 2.0 + 8.0 : mItemSize / 2.0 - height - 2.0, width,
+					  height);
+			painter->setPen(Qt::NoPen);
+			painter->setBrush(labelBgColor.isValid() ? labelBgColor : backgroundColor);
+			painter->drawRoundedRect(pill, 3, 3);
+			painter->setPen(labelTextColor.isValid() ? labelTextColor : borderColor);
+			painter->drawText(pill, Qt::AlignCenter, text);
+		}
+		painter->restore();
 	}
 
 	// Bubble adjustments (Hover grows, Press shrinks)
-	QRectF bubbleRect = r;
-	double bubbleGrowth = 0.0;
-	if (isBeingDragged) {
-		bubbleRect.adjust(1, 1, -1, -1);
-		bubbleGrowth = -1.0;
-	} else if (isHovered) {
-		bubbleRect.adjust(-3, -3, 3, 3);
-		bubbleGrowth = 3.0;
-	}
+	const double bubbleGrowth = motion.value().x();
+	const QRectF bubbleRect = r.adjusted(-bubbleGrowth, -bubbleGrowth, bubbleGrowth, bubbleGrowth);
 
 	if (isSelected()) {
 		painter->setBrush(Qt::NoBrush);
@@ -281,9 +369,9 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 	}
 
 	// Hover glow
-	if (isHovered) {
+	if (motion.value().y() > 0) {
 		QColor glow = eventColor.lighter(150);
-		glow.setAlpha(80);
+		glow.setAlpha(qRound(80 * motion.value().y()));
 		painter->setPen(Qt::NoPen);
 		painter->setBrush(QBrush(glow));
 		painter->drawEllipse(bubbleRect.adjusted(-4, -4, 4, 4));
@@ -299,6 +387,17 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		double pad = compactMode ? 4.0 : 6.0;
 		QRectF iconRect = bubbleRect.adjusted(pad, pad, -pad, -pad);
 		renderer->render(painter, iconRect);
+	}
+
+	// A small status mark stays within the existing selection-ring bounds.
+	if (targetMissing) {
+		const QPointF center(mItemSize - 2, 2);
+		painter->setPen(QPen(backgroundColor, 1.5));
+		painter->setBrush(QColor("#e5a43b"));
+		painter->drawEllipse(center, 6.0, 6.0);
+		painter->setPen(QPen(QColor("#21180c"), 1.5, Qt::SolidLine, Qt::RoundCap));
+		painter->drawLine(center + QPointF(0, -3), center + QPointF(0, 1));
+		painter->drawPoint(center + QPointF(0, 3));
 	}
 
 	// Draw event label centered above the bubble
@@ -324,7 +423,7 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 		int boxW = textW + padX * 2;
 		int boxH = textH + padY * 2;
 		int boxX = (int)(mItemSize / 2.0 - boxW / 2.0);
-		int boxY = (int)(-boxH - 3.0 + bubbleGrowth);
+		int boxY = (int)(-boxH - 3.0);
 
 		// Background pill for legibility against any color
 		QRectF box(boxX, boxY, boxW, boxH);
@@ -342,6 +441,69 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 
 		painter->restore();
 	}
+}
+
+void TimelineEventItem::setRampVisualization(const std::optional<MacroParameter::Ramp> &ramp)
+{
+	if (!ramp) {
+		if (rampSamples) {
+			rampSamples.reset();
+			update();
+		}
+		return;
+	}
+	const double start = ramp->start.value.toDouble();
+	const int direction = ramp->end > start ? 1 : (ramp->end < start ? -1 : 0);
+	if (rampSamples && rampEasing == ramp->easing && rampDirection == direction)
+		return;
+	rampDirection = direction;
+	rampEasing = ramp->easing;
+	auto normalized = *ramp;
+	normalized.start.value = direction < 0 ? 1.0 : (direction == 0 ? 0.5 : 0.0);
+	normalized.end = direction > 0 ? 1.0 : (direction == 0 ? 0.5 : 0.0);
+	rampSamples.emplace();
+	for (size_t i = 0; i < rampSamples->size(); ++i)
+		(*rampSamples)[i] = MacroParameter::rampValue(normalized, double(i) / (rampSamples->size() - 1));
+	update();
+}
+
+QString TimelineEventItem::durationLabel() const
+{
+	if (durationMs < 1000.0)
+		return QString::number(durationMs, 'g', 4) + QStringLiteral(" ms");
+	return QString::number(durationMs / 1000.0, 'g', 5) + QStringLiteral(" s");
+}
+
+void TimelineEventItem::setCueTooltip(const QString &text)
+{
+	if (cueTooltip == text)
+		return;
+	cueTooltip = text;
+	refreshCueTooltip();
+}
+
+void TimelineEventItem::setTargetMissing(bool missing)
+{
+	if (targetMissing == missing)
+		return;
+	targetMissing = missing;
+	refreshCueTooltip();
+	update();
+}
+
+void TimelineEventItem::refreshCueTooltip()
+{
+	setToolTip(targetMissing ? QString::fromUtf8(obs_module_text("TimelineDock.TargetMissing")) + "\n" + cueTooltip
+				 : cueTooltip);
+}
+
+void TimelineEventItem::setMuted(bool value)
+{
+	if (muted == value)
+		return;
+	muted = value;
+	setOpacity(muted ? 0.45 : 1.0);
+	update();
 }
 
 void TimelineEventItem::setDuration(double duration)
@@ -379,6 +541,8 @@ void TimelineEventItem::setEventId(const QString &id)
 
 void TimelineEventItem::setBorderColor(const QColor &color)
 {
+	if (borderColor == color)
+		return;
 	borderColor = color;
 	setPen(QPen(borderColor, 1.5));
 	update();
@@ -386,18 +550,24 @@ void TimelineEventItem::setBorderColor(const QColor &color)
 
 void TimelineEventItem::setSelectionColor(const QColor &color)
 {
+	if (selectionColor == color)
+		return;
 	selectionColor = color;
 	update();
 }
 
 void TimelineEventItem::setBackgroundColor(const QColor &color)
 {
+	if (backgroundColor == color)
+		return;
 	backgroundColor = color;
 	update();
 }
 
 void TimelineEventItem::setLabelColors(const QColor &textColor, const QColor &bgColor)
 {
+	if (labelTextColor == textColor && labelBgColor == bgColor)
+		return;
 	labelTextColor = textColor;
 	labelBgColor = bgColor;
 	update();
@@ -410,6 +580,10 @@ QString TimelineEventItem::getEventId() const
 
 QVariant TimelineEventItem::itemChange(GraphicsItemChange change, const QVariant &value)
 {
+	if (change == ItemVisibleHasChanged && !value.toBool()) {
+		isHovered = false;
+		motion.to({}, false);
+	}
 	if (change == ItemPositionChange && scene()) {
 		QPointF newPos = value.toPointF();
 		// Keep Y at stacked position

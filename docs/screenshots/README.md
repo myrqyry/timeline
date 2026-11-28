@@ -48,3 +48,17 @@ are not redistributed here. The root PNGs are the Fusion reference set.
 
 The captures retain the existing native separator rendering, including
 the new clock/zoom divider; theme-dependent contrast is unchanged.
+
+## Native individual Macro Strip captures
+
+The `native/` images are unmodified dock captures from the isolated
+OBS 32.2.0 Linux individual-strip probe at checkpoint `50b23e0`. The probe
+used synthetic scene/action targets and a volume control, not personal
+scene collections. It verified 20 checks across two launches.
+
+- `individual-scenes.png`: horizontal native dock, circular action grid and Back action.
+- `individual-scenes-edit.png`: edit mode with visible drag grips and changed spacing.
+- `individual-audio.png`: separate vertical native dock with a volume slider.
+
+These are actual captures of an earlier verified UI checkpoint, not fresh
+captures of the recovery patch or evidence of cross-platform runtime support.
