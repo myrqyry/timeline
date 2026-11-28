@@ -5138,6 +5138,100 @@ private slots:
 		QCOMPARE(playhead->line().x1(), 0.0);
 	}
 
+	void testTimelineRulerStaysPinnedAndScrubsWhileVerticallyScrolled()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		for (int i = 0; i < 15; ++i) {
+			TimelineEvent event;
+			event.timeMs = 2000;
+			initial.addEvent(event);
+		}
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 180);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && scheduler);
+		auto *ruler = view->viewport()->findChild<QWidget *>("timeline-pinned-ruler");
+		QVERIFY(ruler && ruler->isVisible());
+		QCOMPARE(ruler->geometry().top(), 0);
+		QCOMPARE(ruler->height(), 20);
+		const QImage before = ruler->grab().toImage();
+		QVERIFY(view->verticalScrollBar()->maximum() > 100);
+		view->verticalScrollBar()->setValue(100);
+		QCoreApplication::processEvents();
+		QCOMPARE(ruler->geometry().top(), 0);
+		QCOMPARE(ruler->grab().toImage(), before);
+		const QPoint seek = view->mapFromScene(QPointF(350, 0));
+		QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(seek.x(), 10));
+		QCOMPARE(scheduler->getCurrentTime(), 3500.0);
+		QCOMPARE(view->verticalScrollBar()->value(), 100);
+		view->horizontalScrollBar()->setValue(100);
+		QCoreApplication::processEvents();
+		QVERIFY(ruler->grab().toImage() != before);
+	}
+
+	void testTimelineRampRenderingShowsDirectionAndEasing()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		TimelineEvent cue;
+		cue.type = TimelineEventType::SetParameterValue;
+		cue.timeMs = 1000;
+		cue.hasDuration = true;
+		cue.durationMs = 3000;
+		cue.color = Qt::red;
+		MacroParameterBinding binding{"source", {}, "gain", MacroParameterType::Float};
+		auto payload = [&](double start, double end, const QString &ease) {
+			return MacroParameter::encodeRamp({{binding, start}, end, ease});
+		};
+		cue.data = payload(0, 1, "linear");
+		initial.addEvent(cue);
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		QVERIFY(view && model);
+		TimelineEventItem *marker = nullptr;
+		for (auto *item : view->scene()->items())
+			if (auto *candidate = dynamic_cast<TimelineEventItem *>(item))
+				marker = candidate;
+		QVERIFY(marker);
+		auto render = [&] {
+			QImage image(280, 20, QImage::Format_ARGB32_Premultiplied);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			const auto center = marker->mapToScene(marker->rect().center());
+			view->scene()->render(&painter, QRectF(0, 0, 280, 20),
+					      QRectF(center.x() + 20, center.y() - 10, 280, 20));
+			return image;
+		};
+		const QImage ascending = render();
+		cue.data = payload(1, 0, "linear");
+		QVERIFY(model->replaceEventById(cue.id, cue));
+		QCoreApplication::processEvents();
+		const QImage descending = render();
+		QVERIFY(ascending != descending);
+		cue.data = payload(0, 1, "ease-in");
+		QVERIFY(model->replaceEventById(cue.id, cue));
+		QCoreApplication::processEvents();
+		QVERIFY(ascending != render());
+	}
+
 	void testTimelineGridDoesNotAllocateSceneItemsAtHighZoom()
 	{
 		QTemporaryDir dir;

@@ -12,14 +12,16 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Fifth implementation batch: #2 and remaining #10 implemented. Long cues extend the scrollable canvas; overview scale uses adaptive ruler ticks. Focused viewport gesture, clamp, undo, cancel and zoom tests plus strict OBS 32 Linux Qt/libobs suite passed (35.92s). Sticky ruler #3 and visual ramp curves #4 remain open.
 
+- Sixth implementation batch: #3 and #4 implemented. Pinned ruler handles horizontal and vertical scroll, hit priority and repaint; ramp direction/easing uses cached samples of the actual playback interpolation. Both new regressions failed before implementation, then passed along with strict OBS 32 Linux Qt/libobs suite (35.12s). Very short ramps keep the standard duration line and grip; interactive OBS rendering and cross-platform verification remain open.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
 
 1. Direct duration-handle resizing (implemented: snap, one undo, Escape cancels)
 2. Rubber-band selection and group dragging (implemented: modifier selection, shared snapped delta, one undo, Escape cancels)
-3. Viewport-pinned time ruler
-4. Visual ramp curve and direction
+3. Viewport-pinned time ruler (implemented: stays visible through vertical scrolling, horizontal time alignment, marker scrubbing)
+4. Visual ramp curve and direction (implemented: shared playback easing, bounded normalized samples; short spans retain line and grip)
 5. Per-cue mute/bypass
 6. Single-cue test/run now
 7. Broken-target health badges

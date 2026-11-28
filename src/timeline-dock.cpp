@@ -43,6 +43,7 @@
 #include <QTimer>
 #include <QWidgetAction>
 #include <QPainter>
+#include <QPaintEvent>
 #include <QFontMetricsF>
 #include <functional>
 #include <limits>
@@ -55,6 +56,48 @@ static const std::vector<double> ZOOM_LEVELS = {5.0,   10.0,  15.0,  20.0,  30.0
 						100.0, 150.0, 200.0, 300.0, 500.0, 750.0, 1000.0};
 
 namespace {
+class PinnedTimelineRuler final : public QWidget {
+public:
+	using Painter = std::function<void(QPainter *)>;
+	PinnedTimelineRuler(QWidget *parent, Painter paint) : QWidget(parent), paintRuler(std::move(paint))
+	{
+		setObjectName("timeline-pinned-ruler");
+		setAttribute(Qt::WA_TransparentForMouseEvents);
+		setAttribute(Qt::WA_OpaquePaintEvent);
+		setFixedHeight(20);
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter painter(this);
+		paintRuler(&painter);
+	}
+
+private:
+	Painter paintRuler;
+};
+
+class TimelineCanvasView final : public QGraphicsView {
+public:
+	using QGraphicsView::QGraphicsView;
+
+protected:
+	void scrollContentsBy(int dx, int dy) override
+	{
+		QGraphicsView::scrollContentsBy(dx, dy);
+		// QWidget's optimized viewport scrolling moves child widgets too.
+		// Reanchor after the base implementation, not in scrollbar signals
+		// (whose delivery can precede the actual viewport scroll).
+		if (auto *ruler =
+			    viewport()->findChild<QWidget *>("timeline-pinned-ruler", Qt::FindDirectChildrenOnly)) {
+			ruler->move(0, 0);
+			ruler->raise();
+			ruler->update();
+		}
+	}
+};
+
 class TimelineCanvasScene final : public QGraphicsScene {
 public:
 	using BackgroundPainter = std::function<void(QPainter *, const QRectF &)>;
@@ -394,7 +437,7 @@ void TimelineDock::setupUi()
 	playheadColor = computePlayheadColor();
 
 	// Instantiate critical infrastructure early
-	view = new QGraphicsView(this);
+	view = new TimelineCanvasView(this);
 	scene = new TimelineCanvasScene(this, [this](QPainter *p, const QRectF &r) { paintTimelineBackground(p, r); });
 	view->setScene(scene);
 
@@ -734,7 +777,18 @@ void TimelineDock::setupUi()
 	view->installEventFilter(this);
 	view->viewport()->installEventFilter(this);
 	view->viewport()->setMouseTracking(true);
-	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() { updateZoomLabelPosition(); });
+	pinnedRuler = new PinnedTimelineRuler(view->viewport(), [this](QPainter *p) { paintPinnedRuler(p); });
+	pinnedRuler->setGeometry(0, 0, view->viewport()->width(), 20);
+	pinnedRuler->show();
+	pinnedRuler->raise();
+	connect(view->horizontalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+		updateZoomLabelPosition();
+		pinnedRuler->update();
+	});
+	connect(view->verticalScrollBar(), &QScrollBar::valueChanged, this, [this]() {
+		pinnedRuler->raise();
+		pinnedRuler->update();
+	});
 
 	// Playhead — main line, slightly thicker and crisp
 	QPen playheadPen(playheadColor, 2);
@@ -1076,6 +1130,11 @@ void TimelineDock::updateViewportGeometry()
 	drawGrid();
 	updateEndMarker();
 	updateZoomLabelPosition();
+	if (pinnedRuler) {
+		pinnedRuler->setGeometry(0, 0, view->viewport()->width(), 20);
+		pinnedRuler->raise();
+		pinnedRuler->update();
+	}
 }
 
 // Helper to update event items
@@ -1110,6 +1169,8 @@ void TimelineDock::drawRuler()
 {
 	if (scene)
 		scene->invalidate(QRectF(), QGraphicsScene::BackgroundLayer);
+	if (pinnedRuler)
+		pinnedRuler->update();
 }
 
 void TimelineDock::previewDurationResize(double sceneX)
@@ -1207,6 +1268,8 @@ void TimelineDock::previewSelectionGesture(const QPoint &point)
 		marqueeBand->setGeometry(area);
 		marqueeBand->show();
 		marqueeBand->raise();
+		if (pinnedRuler)
+			pinnedRuler->raise();
 		QSet<QString> hits;
 		for (auto *graphics : scene->items(view->mapToScene(area), Qt::IntersectsItemShape))
 			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
@@ -1350,7 +1413,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			QPointF scenePos = view->mapToScene(ctxEvent->pos());
 
 			// Check if clicking on an event item
-			QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
+			QList<QGraphicsItem *> itemsAt = ctxEvent->pos().y() < 20 ? QList<QGraphicsItem *>{}
+										  : scene->items(scenePos);
 			bool onItem = false;
 			for (QGraphicsItem *it : itemsAt) {
 				if (it && (it->flags() & QGraphicsItem::ItemIsMovable)) {
@@ -1421,7 +1485,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			if (mouseEvent->button() == Qt::LeftButton) {
 				QPoint pos = mouseEvent->pos();
 				QPointF scenePos = view->mapToScene(pos);
-				if (!scheduler->isPlaying()) {
+				const bool inRuler = pos.y() < 20;
+				if (!inRuler && !scheduler->isPlaying()) {
 					// The ellipse's default shape excludes its duration line.
 					for (auto *graphics : scene->items(scenePos, Qt::IntersectsItemBoundingRect)) {
 						auto *item = dynamic_cast<TimelineEventItem *>(graphics);
@@ -1442,7 +1507,6 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					}
 				}
 				const double playheadX = playheadItem->line().x1();
-				const bool inRuler = scenePos.y() <= 20;
 				const bool onPlayhead =
 					inRuler ? TimelineHitTesting::isOnTimelineMarker(scenePos.x(), playheadX)
 						: std::abs(scenePos.x() - playheadX) <= 8.0;
@@ -1455,7 +1519,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 						: endTimeMs > 0 && std::abs(scenePos.x() - endX) <= 8.0;
 
 				// Check if clicking on a movable item - if so, let it handle the drag
-				QList<QGraphicsItem *> items = scene->items(scenePos);
+				QList<QGraphicsItem *> items = inRuler ? QList<QGraphicsItem *>{}
+								       : scene->items(scenePos);
 				for (QGraphicsItem *item : items) {
 					if (item == playheadGrabHandle) {
 						draggingPlayhead = true;
@@ -1511,6 +1576,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				}
 
 				seekToSceneX(scenePos.x());
+				if (inRuler)
+					draggingPlayhead = true;
 				debounceSaveTimer->start();
 				return true;
 			}
@@ -1520,7 +1587,8 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 			QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 			if (mouseEvent->button() == Qt::LeftButton) {
 				const QPointF scenePos = view->mapToScene(mouseEvent->pos());
-				const QList<QGraphicsItem *> itemsAt = scene->items(scenePos);
+				const QList<QGraphicsItem *> itemsAt =
+					mouseEvent->pos().y() < 20 ? QList<QGraphicsItem *>{} : scene->items(scenePos);
 				const bool onItem =
 					std::any_of(itemsAt.cbegin(), itemsAt.cend(), [](QGraphicsItem *item) {
 						return item && (item->flags() & QGraphicsItem::ItemIsMovable);
@@ -1539,7 +1607,10 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 
 			if (!scheduler->isPlaying() && !draggingPlayhead && !draggingEndMarker) {
 				bool overHandle = false;
-				for (auto *graphics : scene->items(scenePos, Qt::IntersectsItemBoundingRect)) {
+				for (auto *graphics :
+				     mouseEvent->pos().y() < 20
+					     ? QList<QGraphicsItem *>{}
+					     : scene->items(scenePos, Qt::IntersectsItemBoundingRect)) {
 					auto *item = dynamic_cast<TimelineEventItem *>(graphics);
 					if (item && item->durationHandleContains(scenePos)) {
 						overHandle = true;
@@ -1585,7 +1656,9 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 				labelX = view->viewport()->width() - size.width() - 4;
 			hoverTimeLabel->setGeometry(labelX, labelY, size.width(), size.height());
 			hoverTimeLabel->raise();
-			return false; // Let scene process hover events for item hover effects
+			if (pinnedRuler)
+				pinnedRuler->raise();
+			return mouseEvent->pos().y() < 20; // Let scene process hover events for item hover effects
 		}
 
 		if (event->type() == QEvent::Enter) {
@@ -1874,6 +1947,8 @@ void TimelineDock::updateEndMarker()
 			endMarkerGrabHandle->setVisible(false);
 		if (postEndOverlay)
 			postEndOverlay->setVisible(false);
+		if (pinnedRuler)
+			pinnedRuler->update();
 		return;
 	}
 
@@ -1907,6 +1982,8 @@ void TimelineDock::updateEndMarker()
 	endMarkerGrabHandle->setPixmap(endMarkerHandlePixmap);
 	endMarkerGrabHandle->setPos(x - 10, 0);
 	endMarkerGrabHandle->setVisible(true);
+	if (pinnedRuler)
+		pinnedRuler->update();
 
 	// Dimming overlay — create once, resize thereafter
 	const QRectF sceneRect = scene->sceneRect();
@@ -2139,60 +2216,89 @@ void TimelineDock::paintTimelineBackground(QPainter *p, const QRectF &exposed) c
 				p->drawLine(QPointF(x, 20), QPointF(x, bounds.bottom()));
 	}
 
-	if (visible.top() < 20.0 && right >= 0.0) {
-		// Nice time increments at overview zooms; preserve the previous
-		// high-zoom seconds/subseconds scale.
-		double step = 1;
-		if (pixelsPerSecond < 50) {
-			const double minimum = 60.0 / pixelsPerSecond;
-			const double magnitude = std::pow(10.0, std::floor(std::log10(minimum)));
-			const double normalized = minimum / magnitude;
-			step = magnitude * (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10);
-		}
-		const double majorSpacing = step * pixelsPerSecond;
-		QColor rulerColor = palette().color(QPalette::Mid);
-		rulerColor.setAlpha(180);
-		QColor hi = rulerColor.lighter(140);
-		hi.setAlpha(120);
-		QColor minorColor = palette().color(QPalette::Dark);
-		minorColor.setAlpha(140);
-		const QColor textColor = palette().color(QPalette::Text);
-		QFont markerFont = font();
-		markerFont.setPointSize(8);
-		markerFont.setWeight(QFont::DemiBold);
-		p->setFont(markerFont);
-		const QFontMetricsF metrics(markerFont);
-		// Include a preceding major tick so labels/minor ticks scrolling in
-		// from the left are painted as well.
-		const double labelWidth =
-			metrics.horizontalAdvance(QString::number(bounds.right() / pixelsPerSecond, 'f', 1) + "s") + 3;
-		const double start = std::max(0.0, std::floor((left - labelWidth) / majorSpacing) * majorSpacing);
-		for (double x = start; x <= right; x += majorSpacing) {
-			const double seconds = x / pixelsPerSecond;
-			QPen majorPen(rulerColor, 1);
-			majorPen.setCosmetic(true);
-			p->setPen(majorPen);
-			p->drawLine(QPointF(x, 0), QPointF(x, 20));
-			p->setPen(QPen(hi, 1));
-			p->drawLine(QPointF(x, 0), QPointF(x, 2));
-			p->setPen(textColor);
-			p->drawText(QPointF(x + 3, 1 + metrics.ascent()), QString::number(qRound64(seconds)) + "s");
-			if (pixelsPerSecond > 50) {
-				for (int j = 1; j < 10; ++j) {
-					const double xm = x + j * pixelsPerSecond / 10.0;
-					const int tickH = j == 5 ? 14 : 8;
-					p->setPen(QPen(minorColor, 1));
-					p->drawLine(QPointF(xm, 20 - tickH), QPointF(xm, 20));
-					if (pixelsPerSecond > 100 && j == 5) {
-						p->setPen(textColor);
-						p->drawText(QPointF(xm + 3, 1 + metrics.ascent()),
-							    QString::number(seconds + 0.5, 'f', 1) + "s");
-					}
+	if (visible.top() < 20.0 && right >= 0.0)
+		paintRuler(p, left, right);
+	p->restore();
+}
+
+void TimelineDock::paintRuler(QPainter *p, double left, double right) const
+{
+	if (!std::isfinite(pixelsPerSecond) || pixelsPerSecond <= 0 || right < 0)
+		return;
+	// Nice time increments at overview zooms; preserve the previous
+	// high-zoom seconds/subseconds scale.
+	double step = 1;
+	if (pixelsPerSecond < 50) {
+		const double minimum = 60.0 / pixelsPerSecond;
+		const double magnitude = std::pow(10.0, std::floor(std::log10(minimum)));
+		const double normalized = minimum / magnitude;
+		step = magnitude * (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10);
+	}
+	const double majorSpacing = step * pixelsPerSecond;
+	QColor rulerColor = palette().color(QPalette::Mid);
+	rulerColor.setAlpha(180);
+	QColor hi = rulerColor.lighter(140);
+	hi.setAlpha(120);
+	QColor minorColor = palette().color(QPalette::Dark);
+	minorColor.setAlpha(140);
+	const QColor textColor = palette().color(QPalette::Text);
+	QFont markerFont = font();
+	markerFont.setPointSize(8);
+	markerFont.setWeight(QFont::DemiBold);
+	p->setFont(markerFont);
+	const QFontMetricsF metrics(markerFont);
+	// Include a preceding major tick so labels/minor ticks scrolling in
+	// from the left are painted as well.
+	const double labelWidth =
+		metrics.horizontalAdvance(QString::number(scene->sceneRect().right() / pixelsPerSecond, 'f', 1) + "s") +
+		3;
+	const double start = std::max(0.0, std::floor((left - labelWidth) / majorSpacing) * majorSpacing);
+	for (double x = start; x <= right; x += majorSpacing) {
+		const double seconds = x / pixelsPerSecond;
+		QPen majorPen(rulerColor, 1);
+		majorPen.setCosmetic(true);
+		p->setPen(majorPen);
+		p->drawLine(QPointF(x, 0), QPointF(x, 20));
+		p->setPen(QPen(hi, 1));
+		p->drawLine(QPointF(x, 0), QPointF(x, 2));
+		p->setPen(textColor);
+		p->drawText(QPointF(x + 3, 1 + metrics.ascent()), QString::number(qRound64(seconds)) + "s");
+		if (pixelsPerSecond > 50) {
+			for (int j = 1; j < 10; ++j) {
+				const double xm = x + j * pixelsPerSecond / 10.0;
+				const int tickH = j == 5 ? 14 : 8;
+				p->setPen(QPen(minorColor, 1));
+				p->drawLine(QPointF(xm, 20 - tickH), QPointF(xm, 20));
+				if (pixelsPerSecond > 100 && j == 5) {
+					p->setPen(textColor);
+					p->drawText(QPointF(xm + 3, 1 + metrics.ascent()),
+						    QString::number(seconds + 0.5, 'f', 1) + "s");
 				}
 			}
 		}
 	}
+}
+
+void TimelineDock::paintPinnedRuler(QPainter *p) const
+{
+	if (!view || !pinnedRuler || !scene)
+		return;
+	p->fillRect(pinnedRuler->rect(), palette().color(QPalette::Base));
+	const double origin = view->mapToScene(QPoint(0, 0)).x();
+	p->save();
+	p->translate(-origin, 0);
+	paintRuler(p, std::max(0.0, origin), origin + pinnedRuler->width());
+	if (endMarkerGrabHandle && endMarkerGrabHandle->isVisible()) {
+		const double x = endMarkerGrabHandle->pos().x();
+		p->drawPixmap(QPointF(x, 0), endMarkerHandlePixmap);
+	}
+	if (playheadGrabHandle && playheadGrabHandle->isVisible()) {
+		const double x = playheadGrabHandle->pos().x();
+		p->drawPixmap(QPointF(x, 0), playheadHandlePixmap);
+	}
 	p->restore();
+	p->setPen(palette().color(QPalette::Mid));
+	p->drawLine(0, 19, pinnedRuler->width(), 19);
 }
 
 void TimelineDock::onTick(double currentTimeMs)
@@ -2256,6 +2362,8 @@ void TimelineDock::updatePlayhead(double timeMs)
 	refreshPlayheadHandlePixmap();
 	playheadGrabHandle->setPixmap(playheadHandlePixmap);
 	playheadGrabHandle->setPos(x - 10, 0);
+	if (pinnedRuler)
+		pinnedRuler->update();
 
 	// Only auto-scroll when playhead is near an edge
 	QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
@@ -2467,6 +2575,9 @@ void TimelineDock::rebuildEventItems()
 
 		item->setHasDuration(evt.hasDuration && evt.type != TimelineEventType::FreezeTime);
 		item->setDuration(evt.durationMs);
+		item->setRampVisualization(evt.type == TimelineEventType::SetParameterValue && evt.hasDuration
+						   ? MacroParameter::decodeRamp(evt.data.toString())
+						   : std::nullopt);
 		item->setSnapEnabled(snapEnabled);
 		item->setSnapInterval(getSnapIntervalMs());
 

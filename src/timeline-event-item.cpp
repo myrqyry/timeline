@@ -6,6 +6,7 @@
 #include <QMenu>
 #include <QCursor>
 #include <QPainter>
+#include <QPainterPath>
 #include <QStyleOptionGraphicsItem>
 #include <QFontMetrics>
 #include <QFile>
@@ -269,7 +270,24 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 
 		QPen linePen(eventColor, 4, Qt::SolidLine, Qt::RoundCap);
 		painter->setPen(linePen);
-		painter->drawLine(QPointF(startX, mItemSize / 2.0), QPointF(startX + lineLength, mItemSize / 2.0));
+		if (rampSamples && lineLength >= mItemSize) {
+			// Normalized shape sampled from playback's exact easing function.
+			// Constant-size sample storage avoids work proportional to duration.
+			QPainterPath path;
+			for (size_t i = 0; i < rampSamples->size(); ++i) {
+				const double x = startX + lineLength * i / (rampSamples->size() - 1);
+				const double y = mItemSize / 2.0 + 7.0 - 14.0 * (*rampSamples)[i];
+				if (i == 0)
+					path.moveTo(x, y);
+				else
+					path.lineTo(x, y);
+			}
+			painter->setPen(QPen(eventColor, 2.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+			painter->drawPath(path);
+		} else {
+			painter->drawLine(QPointF(startX, mItemSize / 2.0),
+					  QPointF(startX + lineLength, mItemSize / 2.0));
+		}
 
 		// Draw a visible grip; short spans use a small dashed leader to
 		// avoid covering the cue bubble itself.
@@ -368,6 +386,30 @@ void TimelineEventItem::paint(QPainter *painter, const QStyleOptionGraphicsItem 
 
 		painter->restore();
 	}
+}
+
+void TimelineEventItem::setRampVisualization(const std::optional<MacroParameter::Ramp> &ramp)
+{
+	if (!ramp) {
+		if (rampSamples) {
+			rampSamples.reset();
+			update();
+		}
+		return;
+	}
+	const double start = ramp->start.value.toDouble();
+	const int direction = ramp->end > start ? 1 : (ramp->end < start ? -1 : 0);
+	if (rampSamples && rampEasing == ramp->easing && rampDirection == direction)
+		return;
+	rampDirection = direction;
+	rampEasing = ramp->easing;
+	auto normalized = *ramp;
+	normalized.start.value = direction < 0 ? 1.0 : (direction == 0 ? 0.5 : 0.0);
+	normalized.end = direction > 0 ? 1.0 : (direction == 0 ? 0.5 : 0.0);
+	rampSamples.emplace();
+	for (size_t i = 0; i < rampSamples->size(); ++i)
+		(*rampSamples)[i] = MacroParameter::rampValue(normalized, double(i) / (rampSamples->size() - 1));
+	update();
 }
 
 void TimelineEventItem::setDuration(double duration)

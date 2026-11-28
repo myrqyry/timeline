@@ -99,6 +99,8 @@ private:
 	double eventContentHeight = 0.0;
 	double eventContentRight = 0.0;
 	void drawRuler();
+	void paintRuler(QPainter *p, double left, double right) const;
+	void paintPinnedRuler(QPainter *p) const;
 	void drawGrid();
 	void paintTimelineBackground(QPainter *painter, const QRectF &exposed) const;
 	void rebuildEventItems();
@@ -151,6 +153,7 @@ private:
 
 	// UI Elements
 	QGraphicsView *view = nullptr;
+	QWidget *pinnedRuler = nullptr;
 	QGraphicsScene *scene = nullptr;
 
 	// Layout

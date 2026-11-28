@@ -8,6 +8,8 @@
 #include <QString>
 #include <QSvgRenderer>
 #include "event-types.h"
+#include "macro-parameter.h"
+#include <array>
 
 class TimelineEventItem : public QObject, public QGraphicsEllipseItem {
 	Q_OBJECT
@@ -31,6 +33,7 @@ public:
 
 	// Duration
 	void setDuration(double durationMs);
+	void setRampVisualization(const std::optional<MacroParameter::Ramp> &ramp);
 	void setHasDuration(bool enabled);
 	bool durationHandleContains(const QPointF &scenePoint) const;
 	double durationHandleX() const;
@@ -130,6 +133,9 @@ private:
 	// Duration display
 	bool hasDuration = false;
 	double durationMs = 0.0;
+	std::optional<std::array<double, 33>> rampSamples;
+	QString rampEasing;
+	int rampDirection = 0;
 
 	// Theme colors
 	QColor borderColor = Qt::black;
