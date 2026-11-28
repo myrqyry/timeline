@@ -10,10 +10,12 @@
 #include <obs-frontend-api.h>
 #include "macro-button.h"
 #include "macro-button-model.h"
+#include "macro-serialization.h"
 
 class ObsExecutor;
 class QPushButton;
-class QHBoxLayout;
+class QBoxLayout;
+class QTabBar;
 class QScrollArea;
 
 class MacroStripDock : public QWidget {
@@ -68,7 +70,13 @@ private slots:
 private:
 	QScrollArea *m_scrollArea = nullptr;
 	QWidget *m_buttonContainer = nullptr;
-	QHBoxLayout *m_buttonLayout = nullptr;
+	QBoxLayout *m_buttonLayout = nullptr;
+	QBoxLayout *m_stripLayout = nullptr;
+	QTabBar *m_tabs = nullptr;
+	QList<MacroStripDefinition> m_strips{MacroStripDefinition{}};
+	int m_activeStrip = 0;
+	bool m_spacingEdit = false;
+	bool m_editLayout = false;
 	QPushButton *m_addButton = nullptr;
 
 	MacroButtonModel m_model;
@@ -84,5 +92,16 @@ private:
 	void refreshTheme();
 	void connectModel();
 	void showAddEditor();
+	void refreshStripTabs();
+	void setEditLayout(bool editing);
+	void commitLayoutDrag(const QString &id, int destination, int gap);
+	void selectStrip(int index);
+	void addStrip();
+	void renameStrip();
+	void setStripVertical(bool vertical);
+	void removeStrip();
+	void editGridCell(const QString &id, int index);
+	void editGrid(const QString &id);
+	QWidget *createGrid(const MacroButton &button);
 	void showEditEditor(const QString &id);
 };

@@ -259,6 +259,29 @@ loading or dragging, and excludes playhead movement, zoom, grid settings,
 end-marker changes, Macro Strip edits and selection. It is not saved to disk.
 The normal autosave path persists the resulting event data.
 
+## Macro Strip layout
+
+- **+ → 2 × 2 action buttons** adds a cluster with four empty cells.
+  Click an empty cell to assign an action using the usual event editor.
+  Right-click a cell to edit/clear it, change grid labels or remove the grid.
+- **+ → New strip…** creates a named bank. Use the tabs to select a bank,
+  and the same menu to rename, remove or change its orientation. The
+  only strip cannot be removed; tabs are hidden when just one exists.
+- **+ → Edit layout** disables live controls and exposes grips. Drag a
+  grip along the strip to add or reduce spacing or cross a neighbor to
+  reorder. Shift-drag keeps the order fixed even for large gaps.
+  Escape cancels the active preview. Release commits; choose Finish
+  editing layout to return to live mode.
+- Sliders default to following the strip direction, or choose Horizontal
+  or Vertical in their Labels and appearance dialog. Knobs, XY pads and
+  circular buttons keep their intrinsic shape.
+
+Gaps are persisted as control metadata (0–2048 logical pixels), not
+separate spacer controls. Layout mode is transient; documents reopen in
+live mode. The layout is along the strip's axis rather than freeform
+two-dimensional positioning. Back up macro_buttons.json before
+downgrading to a build that predates named strips and button grids.
+
 ## Live parameter controls
 
 Macro Strip mixes immediate action buttons with live numeric sliders/knobs

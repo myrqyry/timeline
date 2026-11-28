@@ -59,8 +59,20 @@ void MacroButtonWidget::setPressedAppearance(bool pressed)
 	refreshInteractionMotion();
 }
 
+void MacroButtonWidget::setGridCell(bool unassigned)
+{
+	m_gridCell = true;
+	m_unassigned = unassigned;
+	setAccessibleName(unassigned ? tr("Assign action") : fallbackLabel(m_button));
+	setToolTip(accessibleName());
+	setFixedSize(34, 34);
+	setRowHeights(0, 34, 0);
+}
+
 QSize MacroButtonWidget::sizeHint() const
 {
+	if (m_gridCell)
+		return QSize(34, 34);
 	QFont labelFont = font();
 	labelFont.setPointSize(8);
 	labelFont.setBold(true);
@@ -157,12 +169,16 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	}
 
 	// Bubble fill + border
-	painter.setBrush(QBrush(m_button.color));
+	painter.setBrush(QBrush(m_unassigned ? palette().color(QPalette::Button) : m_button.color));
 	painter.setPen(QPen(m_borderColor.isValid() ? m_borderColor : palette().color(QPalette::Text), 1.5));
 	painter.drawEllipse(center, radius, radius);
 
 	// Icon (use compact padding = 4 px to mirror TimelineEventItem::paint compact path)
-	if (m_renderer && m_renderer->isValid()) {
+	if (m_unassigned) {
+		painter.setPen(QPen(palette().color(QPalette::ButtonText), 1.5, Qt::SolidLine, Qt::RoundCap));
+		painter.drawLine(center + QPointF(-4, 0), center + QPointF(4, 0));
+		painter.drawLine(center + QPointF(0, -4), center + QPointF(0, 4));
+	} else if (m_renderer && m_renderer->isValid()) {
 		const double pad = 4.0;
 		const QRectF iconRect(center.x() - radius + pad, center.y() - radius + pad, (radius - pad) * 2.0,
 				      (radius - pad) * 2.0);
@@ -171,7 +187,7 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 
 	// Label pill uses the same caption row and font as live controls.
 	const QString label = fallbackLabel(m_button);
-	if (!label.isEmpty()) {
+	if (!m_gridCell && !label.isEmpty()) {
 		const int padX = 4;
 		QFont font = painter.font();
 		font.setPointSize(8);

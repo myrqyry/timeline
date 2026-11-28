@@ -9,6 +9,7 @@
 #include <QTest>
 #include <QSignalSpy>
 #include <QScrollArea>
+#include <QTabBar>
 #include <QScrollBar>
 #include <QFontMetrics>
 #include <QMetaObject>
@@ -5213,6 +5214,197 @@ private slots:
 		TestTimelineMacroButtonAccessor::clickBubble(w);
 		QCOMPARE(spy.count(), 1);
 		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
+	}
+
+	void testMacroStripEditModeDragsSpacingAndOrderWithoutFiring()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		ObsExecutor executor;
+		dock.setObsExecutor(&executor);
+		MacroButton first, second;
+		first.id = "first";
+		first.label = "First";
+		first.type = TimelineEventType::SceneSwitch;
+		first.sourceName = "Scene 2";
+		second.id = "second";
+		second.label = "Second";
+		second.type = TimelineEventType::SceneSwitch;
+		second.sourceName = "Scene 1";
+		dock.buttonModel()->addButton(first);
+		dock.buttonModel()->addButton(second);
+		dock.resize(600, 170);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		auto *add = dock.findChild<QPushButton *>("macro-strip-add");
+		QVERIFY(add);
+		auto choose = [&](const QString &name) {
+			bool found = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions()) {
+					if (action->objectName() == name) {
+						found = true;
+						QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+								  menu->actionGeometry(action).center());
+						return;
+					}
+				}
+				menu->close();
+			});
+			QTest::mouseClick(add, Qt::LeftButton);
+			QCoreApplication::processEvents();
+			return found;
+		};
+		QVERIFY(choose("macro-strip-edit-layout"));
+		auto *grip = dock.findChild<QWidget *>("macro-layout-grip-second");
+		QVERIFY(grip && grip->isVisible());
+		const auto actions = dock.findChildren<MacroButtonWidget *>();
+		QCOMPARE(actions.size(), 2);
+		QVERIFY(!actions[0]->isEnabled() && !actions[1]->isEnabled());
+		QSignalSpy edits(dock.buttonModel(), &MacroButtonModel::modelChanged);
+		auto drag = [&](QWidget *handle, int dx, bool cancel = false,
+				Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+			const QPoint local = handle->rect().center();
+			const QPoint global = handle->mapToGlobal(local);
+			QTest::mousePress(handle, Qt::LeftButton, modifiers, local);
+			QMouseEvent move(QEvent::MouseMove, QPointF(local + QPoint(dx, 0)),
+					 QPointF(global + QPoint(dx, 0)), Qt::NoButton, Qt::LeftButton, modifiers);
+			QCoreApplication::sendEvent(handle, &move);
+			QCOMPARE(edits.count(), 0);
+			if (cancel) {
+				QTest::keyClick(handle, Qt::Key_Escape);
+				return;
+			}
+			QMouseEvent release(QEvent::MouseButtonRelease, QPointF(local + QPoint(dx, 0)),
+					    QPointF(global + QPoint(dx, 0)), Qt::LeftButton, Qt::NoButton,
+					    Qt::NoModifier);
+			QCoreApplication::sendEvent(handle, &release);
+		};
+		drag(grip, 80);
+		QCOMPARE(edits.count(), 1);
+		QCOMPARE(dock.toJson()["buttons"].toArray()[1].toObject()["gapBefore"].toInt(), 80);
+		QCOMPARE(dock.findChild<QWidget *>("macro-layout-grip-second"), grip);
+		// Shift-drag can open a large gap before a middle/first control
+		// without crossing its neighbor's logical ordering.
+		edits.clear();
+		auto *firstGrip = dock.findChild<QWidget *>("macro-layout-grip-first");
+		QVERIFY(firstGrip);
+		drag(firstGrip, 220, false, Qt::ShiftModifier);
+		QCOMPARE(edits.count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("first"));
+		QCOMPARE(dock.toJson()["buttons"].toArray()[0].toObject()["gapBefore"].toInt(), 220);
+		edits.clear();
+		drag(grip, 40, true);
+		QCOMPARE(edits.count(), 0);
+		QCOMPARE(dock.toJson()["buttons"].toArray()[1].toObject()["gapBefore"].toInt(), 80);
+		drag(grip, -250);
+		QCOMPARE(edits.count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("second"));
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QVERIFY(choose("macro-strip-edit-layout"));
+		for (auto *action : dock.findChildren<MacroButtonWidget *>())
+			QVERIFY(action->isEnabled());
+		QVERIFY(dock.saveNow());
+		MacroStripDock restored(nullptr, dir.filePath("macro.json"));
+		QVERIFY(restored.loadNow());
+		QCOMPARE(restored.toJson(), dock.toJson());
+	}
+
+	void testMacroStripBanksOrientationAndActionGridRoundTrip()
+	{
+		auto *source = obs_source_create("timeline_parameter_probe", "Bank target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroButton slider;
+		slider.id = "fader";
+		slider.kind = MacroControlKind::Slider;
+		slider.binding = {QString::fromUtf8(obs_source_get_uuid(source)), {}, "gain", MacroParameterType::Float};
+		MacroButtonModel single;
+		single.addButton(slider);
+		auto fader = MacroSerialization::toJsonObject(single)["buttons"].toArray().first().toObject();
+		QJsonObject fixed = fader;
+		fixed["id"] = "fixed";
+		fixed["orientation"] = "horizontal";
+		QJsonObject on{{"id", "on"},
+			       {"label", "On"},
+			       {"type", int(TimelineEventType::SetParameterValue)},
+			       {"data", MacroParameter::encodeValue({slider.binding, 1.0})}};
+		QJsonObject off{{"id", "off"},
+				{"label", "Off"},
+				{"type", int(TimelineEventType::SetParameterValue)},
+				{"data", MacroParameter::encodeValue({slider.binding, -1.0})}};
+		QJsonObject grid{{"id", "grid"},
+				 {"label", "Levels"},
+				 {"type", -1},
+				 {"control", "button-grid"},
+				 {"slots", QJsonArray{on, off, QJsonValue(), QJsonValue()}}};
+		QJsonObject first{{"id", "first"},
+				  {"name", "Main"},
+				  {"orientation", "horizontal"},
+				  {"buttons", QJsonArray{fader}}};
+		QJsonObject second{{"id", "second"},
+				   {"name", "Audio"},
+				   {"orientation", "vertical"},
+				   {"buttons", QJsonArray{fader, fixed, grid}}};
+		QJsonObject root{{"version", 2}, {"activeStrip", "first"}, {"strips", QJsonArray{first, second}}};
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("macro.json");
+		MacroStripDock dock(nullptr, path);
+		ObsExecutor executor;
+		dock.setObsExecutor(&executor);
+		QVERIFY(dock.fromJson(root));
+		dock.resize(350, 260);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *tabs = dock.findChild<QTabBar *>("macro-strip-tabs");
+		QVERIFY(tabs && tabs->isVisible());
+		QCOMPARE(tabs->count(), 2);
+		QCOMPARE(tabs->tabText(1), QString("Audio"));
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QCOMPARE(dock.findChild<QSlider *>("macro-parameter-slider")->orientation(), Qt::Horizontal);
+		tabs->setCurrentIndex(1);
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		QCoreApplication::processEvents();
+		QCOMPARE(dock.buttonModel()->count(), 3);
+		const auto faders = dock.findChildren<QSlider *>("macro-parameter-slider");
+		QCOMPARE(faders.size(), 2);
+		QCOMPARE(faders[0]->orientation(), Qt::Vertical);
+		QCOMPARE(faders[1]->orientation(), Qt::Horizontal);
+		auto *cluster = dock.findChild<QWidget *>("macro-button-grid");
+		QVERIFY(cluster);
+		const auto cells = cluster->findChildren<MacroButtonWidget *>();
+		QCOMPARE(cells.size(), 4);
+		QVERIFY(cells[0]->y() == cells[1]->y() && cells[0]->x() < cells[1]->x());
+		QVERIFY(cells[0]->y() < cells[2]->y());
+		TestTimelineMacroButtonAccessor::clickBubble(*cells[0]);
+		QCOMPARE(MacroParameter::read(slider.binding).value(), 1.0);
+		TestTimelineMacroButtonAccessor::clickBubble(*cells[1]);
+		QCOMPARE(MacroParameter::read(slider.binding).value(), -1.0);
+		QVERIFY(dock.saveNow());
+		MacroStripDock restored(nullptr, path);
+		QVERIFY(restored.loadNow());
+		QCOMPARE(restored.toJson()["activeStrip"].toString(), QString("second"));
+		QCOMPARE(restored.buttonModel()->count(), 3);
+		QCOMPARE(restored.toJson()["strips"].toArray().size(), 2);
+		const auto saved = restored.toJson();
+		QJsonObject invalid = second;
+		invalid["buttons"] = QJsonArray{QJsonObject{{"control", "button-grid"}, {"slots", QJsonArray{on}}}};
+		root["strips"] = QJsonArray{first, invalid};
+		QVERIFY(!restored.fromJson(root));
+		QCOMPARE(restored.toJson(), saved);
+		// Older single-strip documents still load in their original form.
+		QVERIFY(restored.fromJson(MacroSerialization::toJsonObject(single)));
+		QCOMPARE(restored.buttonModel()->count(), 1);
+		QCOMPARE(restored.toJson()["buttons"].toArray().size(), 1);
 	}
 
 	void testMacroStripFitsThemeSizedControls()

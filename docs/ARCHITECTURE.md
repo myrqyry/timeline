@@ -777,8 +777,20 @@ and type-specific data (`src/timeline-model.cpp`).
 
 ### Macro Strip JSON
 
-Macro data uses an object with `buttons` and `version`. Each button stores its
-ID, label, type, source, optional filter, optional data, and color.
+Legacy macro data uses an object with `buttons` and `version` (1).
+Named, vertical or multiple strips use version 2 with `activeStrip` and
+`strips`; each strip has a stable ID, name, orientation and its own buttons.
+The decoder validates every strip before replacing the active model.
+Only the selected strip has instantiated controls and receives input.
+Each button stores its ID, label, type, source, optional filter, optional
+data, and color. Optional `gapBefore` stores bounded logical-pixel spacing;
+sliders may override orientation. A `button-grid` control has exactly four
+action-only or null slots, using type -1 on the enclosing record. No recursive
+grids are accepted. In layout-edit mode a grip previews spacing without
+writing the model; release commits a single change, or reorders the model.
+Shift preserves order, and Escape or lost mouse grab cancels. Layout editing
+does not execute actions. Downgrading to older versions is not supported for
+new document types.
 Parameter records also store `control` and `binding` (sourceUuid, filterUuid,
 key, type, optional domain), and use the reserved invalid numeric event type -1 so old builds
 cannot execute them as actions. Invalid/unknown parameter records reject the

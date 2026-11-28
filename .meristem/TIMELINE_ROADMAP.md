@@ -22,6 +22,8 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Interaction polish (user-requested, outside numbered feature count): shared lazy paint-only motion for cue and Macro Strip buttons, passive knob/XY readback, immediate direct input, style duration capped at 120 ms. Compact viewport clearance now uses the same visual padding as cue bounds. Focused regressions reproduced abrupt transitions; full strict OBS32 Qt/libobs suite passed (131 passed, 0 failed/skipped, 40.61 s). Native frame pacing and third-party callback costs remain unmeasured.
 
+- Macro Strip layout batch: #32 and #33 implemented; additional 2×2 circular action grids and per-strip/per-slider orientation. Version 2 bank documents validate all banks before replacement; legacy single-strip files still load. Model stores spacing rather than spacer widgets. Edit mode disables live controls, previews gaps without model changes, commits on release, supports Shift spacing-only drag and Escape cancellation. Regression tests reproduce missing bank/layout behavior, verify parameter execution from grid cells, orientation, tab switching, legacy/multi-strip round trip, malformed document preservation, spacing/reorder and cancellation. Strict OBS32 Qt/libobs suite: 133 passed, 0 failed/skipped (40.82s). Native OBS verification, simultaneous independent docks, unrestricted 2D arrangement, animated reordering and layout undo remain open.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
@@ -66,8 +68,8 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 ## 31–40: Macro Strip
 
 31. Live action state feedback
-32. Pages/banks
-33. Drag reordering and separators
+32. Pages/banks (implemented: named strips, persisted active tab and independent contents/orientation)
+33. Drag reordering and separators (implemented: layout-edit grips, axis reorder, Shift spacing-only drag, Escape cancellation, persisted per-control gaps in place of spacer widgets per user request)
 34. Opt-in frontend hotkeys
 35. Undo/redo and duplication
 36. Custom ranges, inversion and double-click reset

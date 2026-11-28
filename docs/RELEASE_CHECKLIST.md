@@ -196,6 +196,9 @@ with matching SDKs; see [PACKAGING.md](../PACKAGING.md).
 - [ ] Verify a scheduled Data Source conditional cue with a fresh matching
   snapshot, then with stale/unshared data and with no provider. A skipped
   cue must leave subsequent ordinary cues running.
+- [ ] Exercise named Macro Strip tabs, horizontal/vertical layout, slider orientation,
+  grid assignment and action dispatch, spacing/reordering with edit-mode safety,
+  and persistence across restarts in native OBS.
 - [ ] Exercise pinned ruler, marquee/group movement, duration resizing, adaptive
   labels, fit zoom, muted cues, manual cue edges, target warnings and ripple edits
   in native OBS; verify undo, cancellation and reopening the saved document.

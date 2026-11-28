@@ -101,11 +101,24 @@ parameter control.
 | Control | Example use |
 | --- | --- |
 | Action button | Switch scenes, run a hotkey or apply a parameter preset. |
+| 2 × 2 action buttons | Four individually assignable circular actions in a compact cluster. |
 | Slider | Adjust mixer volume, effect opacity or another numeric property. |
 | Knob | Adjust shader speed or intensity. |
 | Toggle | Turn a boolean on/off or switch between two defined numeric or text values. |
 | Text entry | Edit a source caption or another exposed string property. |
 | XY controller | Adjust two numeric properties with a single two-axis gesture. |
+
+### Arrange your strips
+
+Use the **+** menu to add a named strip, rename it, select vertical layout
+or enter **Edit layout**. Tabs switch between strips and are hidden when
+only one exists. Each strip saves its own controls and orientation.
+
+In Edit layout, live controls are disabled. Drag a control's grip to move
+it or change the gap before it. Shift-drag changes spacing without
+reordering; Escape cancels the current drag. Finish editing from the same
+menu to return to live operation. Sliders can follow strip orientation
+or override it in **Labels and appearance**.
 
 ### Record Macro Strip automation
 

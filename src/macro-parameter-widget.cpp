@@ -624,7 +624,7 @@ private:
 		writer.stop();
 		const auto value = pending;
 		pending.reset();
-		if (value && isVisible()) {
+		if (value && isVisible() && isEnabled()) {
 			if (!MacroParameter::writePair(x, value->x(), y, value->y())) {
 				refresh();
 				return;
@@ -732,7 +732,7 @@ public:
 			controlLayout->addWidget(editText, 0, Qt::AlignCenter);
 			editText->hide();
 			auto apply = [this] {
-				if (textEntry->isModified() && isVisible() &&
+				if (textEntry->isModified() && isVisible() && isEnabled() &&
 				    MacroParameter::writeText(binding, textEntry->text()))
 					textEntry->setModified(false);
 				refresh(true);
@@ -749,7 +749,7 @@ public:
 										    *current, &accepted);
 				if (!guard)
 					return;
-				if (accepted && isVisible())
+				if (accepted && isVisible() && isEnabled())
 					MacroParameter::writeText(binding, next);
 				refresh(true);
 			});
@@ -765,7 +765,7 @@ public:
 					const auto state =
 						current ? MacroParameter::toggleState(binding, *current, *toggleValues)
 							: std::nullopt;
-					if (state && isVisible()) {
+					if (state && isVisible() && isEnabled()) {
 						const auto &next = *state == 0 ? toggleValues->b : toggleValues->a;
 						if (binding.type == MacroParameterType::Text)
 							MacroParameter::writeText(binding, next.toString());
@@ -789,9 +789,15 @@ public:
 				dial->setFixedSize(32, 32);
 				slider = dial;
 			} else {
-				auto *fader = new QSlider(Qt::Horizontal, this);
+				auto *fader =
+					new QSlider(button.verticalSlider() ? Qt::Vertical : Qt::Horizontal, this);
 				fader->setObjectName("macro-parameter-slider");
-				fader->setFixedWidth(100);
+				if (button.verticalSlider()) {
+					fader->setFixedHeight(100);
+					fader->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+				} else {
+					fader->setFixedWidth(100);
+				}
 				slider = fader;
 			}
 			slider->setAccessibleName(title);
@@ -849,7 +855,7 @@ public:
 		input->ensurePolished();
 		// A dial has an intentional fixed size; native sliders and toggles
 		// need their theme's actual size hint, not a guessed pixel height.
-		const int height = qobject_cast<QDial *>(input)
+		const int height = (qobject_cast<QDial *>(input) || (slider && slider->orientation() == Qt::Vertical))
 					   ? input->height()
 					   : std::max(input->sizeHint().height(), input->minimumSizeHint().height());
 		return QSize(labelHeight, std::max(MacroButtonWidget::kControlHeight, height));
@@ -891,7 +897,7 @@ private:
 					       12,
 				       40, 220);
 		if (slider)
-			width = std::max(width, slider->minimumWidth());
+			width = std::max({width, slider->minimumWidth(), slider->minimumSizeHint().width()});
 		if (toggle) {
 			toggle->ensurePolished();
 			width = std::max(width, toggle->sizeHint().width());
@@ -920,7 +926,7 @@ private:
 		writeTimer.stop();
 		const auto value = pending;
 		pending.reset();
-		if (value && isVisible()) {
+		if (value && isVisible() && isEnabled()) {
 			const bool written = MacroParameter::write(binding, *value);
 			if (written && onCommitted)
 				onCommitted(binding, *value);

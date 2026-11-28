@@ -5,7 +5,7 @@
 #include <QVariant>
 #include <optional>
 
-enum class MacroControlKind { Action, Slider, Knob, Toggle, Text, XY };
+enum class MacroControlKind { Action, Slider, Knob, Toggle, Text, XY, ButtonGrid };
 enum class MacroParameterType { Integer, Float, Boolean, Text };
 
 struct MacroParameterBinding {

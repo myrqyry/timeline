@@ -48,6 +48,8 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 		QJsonObject obj;
 		obj["id"] = b.id;
 		obj["label"] = b.label;
+		if (b.gapBefore > 0)
+			obj["gapBefore"] = qBound(0, b.gapBefore, MacroButton::MaxGap);
 		if (!b.bottomLabel.isEmpty())
 			obj["bottomLabel"] = b.bottomLabel;
 		if (b.showsLiveCaption())
@@ -57,7 +59,23 @@ QJsonObject MacroSerialization::toJsonObject(const MacroButtonModel &model)
 		// An older plugin must skip parameter controls, never execute them
 		// as legacy scene-switch buttons.
 		obj["type"] = b.kind == MacroControlKind::Action ? static_cast<int>(b.type) : -1;
-		if (b.kind != MacroControlKind::Action) {
+		if (b.kind == MacroControlKind::Slider && b.orientation != MacroOrientation::FollowStrip)
+			obj["orientation"] = b.orientation == MacroOrientation::Vertical ? "vertical" : "horizontal";
+		if (b.kind == MacroControlKind::ButtonGrid) {
+			obj["control"] = "button-grid";
+			QJsonArray cells;
+			for (size_t i = 0; i < 4; ++i) {
+				if (i >= b.gridActions.size() || b.gridActions[i].id.isEmpty() ||
+				    b.gridActions[i].kind != MacroControlKind::Action) {
+					cells.append(QJsonValue());
+					continue;
+				}
+				MacroButtonModel cell;
+				cell.setButtons({b.gridActions[i]});
+				cells.append(toJsonObject(cell)["buttons"].toArray().first());
+			}
+			obj["slots"] = cells;
+		} else if (b.kind != MacroControlKind::Action) {
 			obj["control"] = b.kind == MacroControlKind::Slider ? "slider"
 					 : b.kind == MacroControlKind::Knob ? "knob"
 					 : b.kind == MacroControlKind::Toggle
@@ -112,8 +130,50 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 		}
 		seen.insert(b.id);
 		b.label = obj["label"].toString();
+		if (obj.contains("gapBefore")) {
+			b.gapBefore = obj["gapBefore"].toInt(-1);
+			if (b.gapBefore < 0 || b.gapBefore > MacroButton::MaxGap) {
+				if (errorMessage)
+					*errorMessage = "Invalid macro control spacing";
+				return false;
+			}
+		}
 		const int typeInt = obj["type"].toInt(-1);
-		if (obj.contains("control")) {
+		if (obj["control"].toString() == "button-grid") {
+			const auto cells = obj["slots"].toArray();
+			if (cells.size() != 4 || typeInt != -1) {
+				if (errorMessage)
+					*errorMessage = "Button grid requires four action slots";
+				return false;
+			}
+			b.kind = MacroControlKind::ButtonGrid;
+			for (const auto &value : cells) {
+				MacroButton cell;
+				if (value.isNull()) {
+					cell.id.clear();
+				} else {
+					const auto action = value.toObject();
+					const int type = action["type"].toInt(-1);
+					if (!value.isObject() || action.contains("control") || type < 0 ||
+					    type > maxTypeValue) {
+						if (errorMessage)
+							*errorMessage = "Invalid action in button grid";
+						return false;
+					}
+					MacroButtonModel decoded;
+					if (!fromJsonDocument(
+						    QJsonDocument(QJsonObject{{"buttons", QJsonArray{action}}}),
+						    decoded, errorMessage) ||
+					    decoded.count() != 1)
+						return false;
+					cell = decoded.buttons().first();
+					if (seen.contains(cell.id))
+						cell.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+					seen.insert(cell.id);
+				}
+				b.gridActions.push_back(cell);
+			}
+		} else if (obj.contains("control")) {
 			const QString kind = obj["control"].toString();
 			const auto binding = decodeBinding(obj["binding"]);
 			const bool preset = kind == "state-toggle";
@@ -146,6 +206,16 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 				continue;
 			b.type = static_cast<TimelineEventType>(typeInt);
 		}
+		if (b.kind == MacroControlKind::Slider && obj.contains("orientation")) {
+			const auto direction = obj["orientation"].toString();
+			if (direction != "horizontal" && direction != "vertical") {
+				if (errorMessage)
+					*errorMessage = "Invalid slider orientation";
+				return false;
+			}
+			b.orientation = direction == "vertical" ? MacroOrientation::Vertical
+								: MacroOrientation::Horizontal;
+		}
 		b.bottomLabel = obj["bottomLabel"].toString();
 		b.showValue = b.supportsLiveCaption() && obj["showValue"].toBool(false);
 		b.xySize = obj["xySize"].toInt(40);
@@ -162,6 +232,76 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 	}
 	model.setButtons(buttons);
 	emit model.modelChanged();
+	return true;
+}
+
+QJsonObject MacroSerialization::encodeStrips(const QList<MacroStripDefinition> &strips, int active)
+{
+	auto encode = [](const MacroStripDefinition &strip) {
+		MacroButtonModel model;
+		model.setButtons(strip.buttons);
+		return toJsonObject(model);
+	};
+	if (strips.size() == 1 && !strips.first().vertical && strips.first().name == "Macro Strip")
+		return encode(strips.first());
+	QJsonArray array;
+	for (const auto &strip : strips)
+		array.append(QJsonObject{{"id", strip.id},
+					 {"name", strip.name},
+					 {"orientation", strip.vertical ? "vertical" : "horizontal"},
+					 {"buttons", encode(strip)["buttons"]}});
+	return {{"version", 2}, {"activeStrip", strips.at(active).id}, {"strips", array}};
+}
+
+bool MacroSerialization::decodeStrips(const QJsonObject &root, QList<MacroStripDefinition> &strips, int &active,
+				      QString *errorMessage)
+{
+	auto fail = [&](const QString &error) {
+		if (errorMessage)
+			*errorMessage = error;
+		return false;
+	};
+	QList<MacroStripDefinition> parsed;
+	int selected = 0;
+	if (root["version"].toInt(1) == 2) {
+		const auto array = root["strips"].toArray();
+		if (array.isEmpty() || array.size() > 32)
+			return fail("Macro document requires 1–32 strips");
+		QSet<QString> ids;
+		selected = -1;
+		for (const auto &value : array) {
+			const auto obj = value.toObject();
+			MacroStripDefinition strip;
+			strip.id = obj["id"].toString();
+			strip.name = obj["name"].toString().trimmed();
+			const auto orientation = obj["orientation"].toString();
+			if (strip.id.isEmpty() || ids.contains(strip.id) || strip.name.isEmpty() ||
+			    (orientation != "horizontal" && orientation != "vertical"))
+				return fail("Invalid macro strip definition");
+			ids.insert(strip.id);
+			strip.vertical = orientation == "vertical";
+			MacroButtonModel model;
+			if (!fromJsonDocument(QJsonDocument(obj), model, errorMessage))
+				return false;
+			strip.buttons = model.buttons();
+			if (strip.id == root["activeStrip"].toString())
+				selected = parsed.size();
+			parsed.append(strip);
+		}
+		if (selected < 0)
+			return fail("Invalid active macro strip");
+	} else {
+		if (root["version"].toInt(1) != 1)
+			return fail("Unsupported macro document version");
+		MacroButtonModel model;
+		if (!fromJsonDocument(QJsonDocument(root), model, errorMessage))
+			return false;
+		MacroStripDefinition strip;
+		strip.buttons = model.buttons();
+		parsed.append(strip);
+	}
+	strips = std::move(parsed);
+	active = selected;
 	return true;
 }
 

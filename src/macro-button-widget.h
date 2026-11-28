@@ -25,6 +25,7 @@ public:
 	MacroButton button() const { return m_button; }
 
 	void setPressedAppearance(bool pressed);
+	void setGridCell(bool unassigned);
 
 	void setBorderColor(const QColor &color)
 	{
@@ -72,6 +73,8 @@ private:
 	MacroButton m_button;
 	QSvgRenderer *m_renderer = nullptr;
 
+	bool m_gridCell = false;
+	bool m_unassigned = false;
 	bool m_isHovered = false;
 	bool m_isPressed = false;
 	InteractionMotion motion{[this] {
