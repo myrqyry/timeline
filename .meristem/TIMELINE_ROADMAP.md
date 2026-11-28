@@ -10,12 +10,14 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Fourth implementation batch: #1 and #53 implemented, #55 partial. OBS 32 Linux build, focused regressions (including cancellation and duplicate text/preset bindings) and strict full Qt/libobs suite passed. #54 signal-driven readback and #58 cross-poll schema cache remain open.
 
+- Fifth implementation batch: #2 and remaining #10 implemented. Long cues extend the scrollable canvas; overview scale uses adaptive ruler ticks. Focused viewport gesture, clamp, undo, cancel and zoom tests plus strict OBS 32 Linux Qt/libobs suite passed (35.92s). Sticky ruler #3 and visual ramp curves #4 remain open.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
 
 1. Direct duration-handle resizing (implemented: snap, one undo, Escape cancels)
-2. Rubber-band selection and group dragging (one transaction)
+2. Rubber-band selection and group dragging (implemented: modifier selection, shared snapped delta, one undo, Escape cancels)
 3. Viewport-pinned time ruler
 4. Visual ramp curve and direction
 5. Per-cue mute/bypass
@@ -23,7 +25,7 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 7. Broken-target health badges
 8. Ripple insert/delete
 9. Named ruler markers/bookmarks
-10. Cursor-anchored zoom and zoom-to-fit (partial)
+10. Cursor-anchored zoom and zoom-to-fit (implemented: fit includes duration endpoints and end marker; content-aware horizontal extent)
 
 ## 11–20: Documents and show management
 

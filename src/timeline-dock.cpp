@@ -38,12 +38,14 @@
 #include <QApplication>
 #include <QShortcut>
 #include <QScrollBar>
+#include <QRubberBand>
 #include <QMenu>
 #include <QTimer>
 #include <QWidgetAction>
 #include <QPainter>
 #include <QFontMetricsF>
 #include <functional>
+#include <limits>
 #include "event-editor.h"
 #include "plugin-integrations.h"
 #include "timeline-serialization.h"
@@ -378,7 +380,9 @@ void TimelineDock::applyTimelineDocument(const TimelineDocument &doc)
 	showEndTimeCheckbox->blockSignals(true);
 	showEndTimeCheckbox->setChecked(showEndTimeOnDock);
 	showEndTimeCheckbox->blockSignals(false);
-	pixelsPerSecond = doc.zoomPixelsPerSecond;
+	pixelsPerSecond = std::isfinite(doc.zoomPixelsPerSecond) && doc.zoomPixelsPerSecond > 0
+				  ? std::clamp(doc.zoomPixelsPerSecond, 0.001, 1000.0)
+				  : 100.0;
 	scheduler->seek(doc.currentTimeMs);
 }
 
@@ -573,6 +577,9 @@ void TimelineDock::setupUi()
 	settingsMenu->addSeparator();
 	settingsMenu->addAction(obs_module_text("TimelineDock.SaveTimeline"), this, &TimelineDock::onSaveClicked);
 	settingsMenu->addAction(obs_module_text("TimelineDock.LoadTimeline"), this, &TimelineDock::onLoadClicked);
+	auto *fitAction =
+		settingsMenu->addAction(obs_module_text("TimelineDock.ZoomFit"), this, &TimelineDock::onZoomFitClicked);
+	fitAction->setObjectName("timeline-zoom-fit-action");
 	settingsMenu->addSeparator();
 	QMenu *integrationsMenu = settingsMenu->addMenu(obs_module_text("TimelineDock.Integrations"));
 	connect(integrationsMenu, &QMenu::aboutToShow, this, [integrationsMenu]() {
@@ -930,6 +937,27 @@ void TimelineDock::onZoomOutClicked()
 	}
 }
 
+void TimelineDock::onZoomFitClicked()
+{
+	if (isDragging || selectionGesture != SelectionGesture::None)
+		return;
+	double lastMs = std::max(0.0, scheduler->getEndTime());
+	for (const auto &cue : model->getEvents()) {
+		const double end = cue.timeMs + (cue.hasDuration && cue.type != TimelineEventType::FreezeTime
+							 ? std::max(0.0, cue.durationMs)
+							 : 0.0);
+		if (std::isfinite(end))
+			lastMs = std::max(lastMs, end);
+	}
+	// Reserve left padding and space for the rightmost bubble/short-span grip.
+	const double available = std::max(1, view->viewport()->width() - 100);
+	pixelsPerSecond = lastMs > 0 ? std::clamp(available * 1000.0 / lastMs, 0.001, 1000.0) : 100.0;
+	updateLayout();
+	view->horizontalScrollBar()->setValue(view->horizontalScrollBar()->minimum());
+	updateZoomLabel();
+	debounceSaveTimer->start();
+}
+
 void TimelineDock::onSnapIntervalChanged(int index)
 {
 	Q_UNUSED(index);
@@ -1035,9 +1063,9 @@ void TimelineDock::updateViewportGeometry()
 		view->setMinimumHeight(minHeight);
 	const double height = std::max({static_cast<double>(view->viewport()->height()),
 					static_cast<double>(minimumViewport), eventContentHeight});
-	QRectF rect = scene->sceneRect();
-	rect.setHeight(height);
-	scene->setSceneRect(rect);
+	const double right = std::max({5000.0, 300.0 * pixelsPerSecond, eventContentRight + 24.0,
+				       scheduler->getEndTime() * pixelsPerSecond / 1000.0 + 24.0});
+	scene->setSceneRect(-20, 0, right + 20, height);
 	for (auto *lineItem : {playheadItem, dragGuideItem}) {
 		if (lineItem) {
 			QLineF line = lineItem->line();
@@ -1125,8 +1153,148 @@ void TimelineDock::finishDurationResize(bool commit)
 	updateHistoryControls();
 }
 
+void TimelineDock::beginMarquee(const QPoint &point, Qt::KeyboardModifiers modifiers)
+{
+	selectionGesture = SelectionGesture::Marquee;
+	gesturePress = point;
+	gestureMoved = false;
+	marqueeModifiers = modifiers;
+	originalSelection.clear();
+	for (auto *item : eventItemMap)
+		if (item && item->isSelected())
+			originalSelection.insert(item->getEventId());
+	if (!marqueeBand) {
+		marqueeBand = new QRubberBand(QRubberBand::Rectangle, view->viewport());
+		marqueeBand->setAttribute(Qt::WA_TransparentForMouseEvents);
+	}
+	view->setFocus();
+}
+
+bool TimelineDock::beginGroupDrag(TimelineEventItem *anchor, const QPoint &point)
+{
+	if (!anchor->isSelected() || scheduler->isPlaying())
+		return false;
+	groupOriginalTimes.clear();
+	for (const auto &cue : model->getEvents())
+		if (auto *item = eventItemMap.value(cue.id); item && item->isSelected())
+			groupOriginalTimes.insert(cue.id, cue.timeMs);
+	if (groupOriginalTimes.size() < 2) {
+		groupOriginalTimes.clear();
+		return false;
+	}
+	groupAnchorTime = groupOriginalTimes.value(anchor->getEventId());
+	gesturePress = point;
+	gestureSceneX = view->mapToScene(point).x();
+	groupDelta = 0;
+	gestureMoved = false;
+	selectionGesture = SelectionGesture::Group;
+	isDragging = true;
+	view->setFocus();
+	view->viewport()->setCursor(Qt::ClosedHandCursor);
+	updateHistoryControls();
+	return true;
+}
+
+void TimelineDock::previewSelectionGesture(const QPoint &point)
+{
+	if (selectionGesture == SelectionGesture::None)
+		return;
+	if (!gestureMoved && (point - gesturePress).manhattanLength() < QApplication::startDragDistance())
+		return;
+	gestureMoved = true;
+	if (selectionGesture == SelectionGesture::Marquee) {
+		const QRect area = QRect(gesturePress, point).normalized();
+		marqueeBand->setGeometry(area);
+		marqueeBand->show();
+		marqueeBand->raise();
+		QSet<QString> hits;
+		for (auto *graphics : scene->items(view->mapToScene(area), Qt::IntersectsItemShape))
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				hits.insert(item->getEventId());
+		for (auto *item : eventItemMap) {
+			if (!item)
+				continue;
+			const bool hit = hits.contains(item->getEventId());
+			const bool wasSelected = originalSelection.contains(item->getEventId());
+			item->setSelected(marqueeModifiers.testFlag(Qt::ControlModifier) ? hit != wasSelected
+					  : marqueeModifiers.testFlag(Qt::ShiftModifier) ? hit || wasSelected
+											 : hit);
+		}
+		return;
+	}
+
+	double delta = (view->mapToScene(point).x() - gestureSceneX) * 1000.0 / pixelsPerSecond;
+	if (std::abs(delta) > 1e-6)
+		delta = snapTimeMs(groupAnchorTime + delta) - groupAnchorTime;
+	double first = groupAnchorTime, last = groupAnchorTime;
+	for (double time : groupOriginalTimes) {
+		first = std::min(first, time);
+		last = std::max(last, time);
+	}
+	const double end = scheduler->getEndTime();
+	const double upper = end > 0 ? std::max(0.0, end - last) : std::numeric_limits<double>::infinity();
+	groupDelta = std::clamp(delta, -std::max(0.0, first), upper);
+	for (auto it = groupOriginalTimes.cbegin(); it != groupOriginalTimes.cend(); ++it)
+		if (auto *item = eventItemMap.value(it.key()))
+			item->setTimeMs(it.value() + groupDelta);
+	if (dragGuideItem) {
+		const double x = (groupAnchorTime + groupDelta) * pixelsPerSecond / 1000.0;
+		dragGuideItem->setLine(x, 0, x, scene->sceneRect().height());
+		dragGuideItem->setVisible(true);
+	}
+}
+
+void TimelineDock::finishSelectionGesture(bool commit)
+{
+	const auto gesture = selectionGesture;
+	selectionGesture = SelectionGesture::None;
+	if (gesture == SelectionGesture::Marquee) {
+		if (marqueeBand)
+			marqueeBand->hide();
+		if (!commit) {
+			for (auto *item : eventItemMap)
+				if (item)
+					item->setSelected(originalSelection.contains(item->getEventId()));
+		} else if (!gestureMoved && marqueeModifiers == Qt::NoModifier) {
+			scene->clearSelection();
+			seekToSceneX(view->mapToScene(gesturePress).x());
+			debounceSaveTimer->start();
+		}
+		originalSelection.clear();
+		return;
+	}
+	if (gesture != SelectionGesture::Group)
+		return;
+	isDragging = false;
+	view->viewport()->unsetCursor();
+	if (dragGuideItem)
+		dragGuideItem->setVisible(false);
+	QHash<QString, double> changed;
+	bool valid = commit && !scheduler->isPlaying() && gestureMoved && groupDelta != 0;
+	for (const auto &cue : model->getEvents()) {
+		const auto it = groupOriginalTimes.constFind(cue.id);
+		if (it == groupOriginalTimes.cend())
+			continue;
+		if (cue.timeMs != it.value())
+			valid = false;
+		changed.insert(cue.id, it.value() + groupDelta);
+	}
+	if (valid && changed.size() == groupOriginalTimes.size())
+		model->setEventTimes(changed);
+	groupOriginalTimes.clear();
+	rebuildEventItems();
+	updateHistoryControls();
+}
+
 bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 {
+	if (selectionGesture != SelectionGesture::None && (obj == view || obj == view->viewport()) &&
+	    (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) &&
+	    static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) {
+		event->accept();
+		finishSelectionGesture(false);
+		return true;
+	}
 	if (!resizingEventId.isEmpty() && (obj == view || obj == view->viewport()) &&
 	    (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) &&
 	    static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape) {
@@ -1145,6 +1313,21 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 		}
 	}
 	if (obj == view->viewport()) {
+		if (selectionGesture != SelectionGesture::None) {
+			if (event->type() == QEvent::UngrabMouse || event->type() == QEvent::Hide) {
+				finishSelectionGesture(false);
+			} else if (event->type() == QEvent::MouseMove) {
+				previewSelectionGesture(static_cast<QMouseEvent *>(event)->pos());
+				return true;
+			} else if (event->type() == QEvent::MouseButtonRelease &&
+				   static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton) {
+				previewSelectionGesture(static_cast<QMouseEvent *>(event)->pos());
+				finishSelectionGesture(true);
+				return true;
+			} else if (event->type() == QEvent::Wheel) {
+				return true;
+			}
+		}
 		if (!resizingEventId.isEmpty()) {
 			if (event->type() == QEvent::UngrabMouse || event->type() == QEvent::Hide) {
 				finishDurationResize(false);
@@ -1284,8 +1467,20 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 						view->viewport()->setCursor(Qt::SizeHorCursor);
 						return true;
 					}
-					if (item && (item->flags() & QGraphicsItem::ItemIsMovable)) {
-						// Found a movable item - don't scrub, let item handle it
+					if (auto *cueItem = dynamic_cast<TimelineEventItem *>(item)) {
+						if (mouseEvent->modifiers() == Qt::NoModifier &&
+						    beginGroupDrag(cueItem, pos))
+							return true;
+						// Modified clicks toggle membership without handing the
+						// selected group to QGraphicsItem's implicit movement.
+						if (mouseEvent->modifiers().testFlag(Qt::ControlModifier) ||
+						    mouseEvent->modifiers().testFlag(Qt::ShiftModifier)) {
+							cueItem->setSelected(
+								mouseEvent->modifiers().testFlag(Qt::ControlModifier)
+									? !cueItem->isSelected()
+									: true);
+							return true;
+						}
 						return false;
 					}
 				}
@@ -1303,6 +1498,12 @@ bool TimelineDock::eventFilter(QObject *obj, QEvent *event)
 					return true;
 				}
 
+				// Empty body: a click seeks, a drag selects. The ruler
+				// retains its immediate seek behavior.
+				if (!inRuler && !scheduler->isPlaying()) {
+					beginMarquee(pos, mouseEvent->modifiers());
+					return true;
+				}
 				// Not on an item - clear selection and scrub
 				for (TimelineEventItem *item : eventItemMap) {
 					if (item)
@@ -1545,7 +1746,7 @@ void TimelineDock::onEndTimeChanged(double value)
 			item->setMaxTime(value > 0 ? value * 1000.0 : -1.0);
 	}
 	updateDependentControlStates();
-	updateEndMarker();
+	updateViewportGeometry();
 	debounceSaveTimer->start();
 }
 
@@ -1829,6 +2030,8 @@ void TimelineDock::copySelectedEvents()
 
 void TimelineDock::pasteEvents()
 {
+	if (isDragging)
+		return;
 	if (clipboard.isEmpty())
 		return;
 
@@ -1862,6 +2065,8 @@ void TimelineDock::pasteEvents()
 
 void TimelineDock::deleteSelectedEvents()
 {
+	if (isDragging)
+		return;
 	QStringList ids;
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item && item->isSelected())
@@ -1872,6 +2077,8 @@ void TimelineDock::deleteSelectedEvents()
 
 void TimelineDock::nudgeSelectedEvents(double deltaMs)
 {
+	if (isDragging || scheduler->isPlaying())
+		return;
 	QHash<QString, double> times;
 	for (TimelineEventItem *item : eventItemMap) {
 		if (item && item->isSelected()) {
@@ -1933,7 +2140,15 @@ void TimelineDock::paintTimelineBackground(QPainter *p, const QRectF &exposed) c
 	}
 
 	if (visible.top() < 20.0 && right >= 0.0) {
-		const int step = pixelsPerSecond < 10 ? 10 : (pixelsPerSecond < 50 ? 5 : 1);
+		// Nice time increments at overview zooms; preserve the previous
+		// high-zoom seconds/subseconds scale.
+		double step = 1;
+		if (pixelsPerSecond < 50) {
+			const double minimum = 60.0 / pixelsPerSecond;
+			const double magnitude = std::pow(10.0, std::floor(std::log10(minimum)));
+			const double normalized = minimum / magnitude;
+			step = magnitude * (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10);
+		}
 		const double majorSpacing = step * pixelsPerSecond;
 		QColor rulerColor = palette().color(QPalette::Mid);
 		rulerColor.setAlpha(180);
@@ -2360,9 +2575,14 @@ void TimelineDock::rebuildEventItems()
 	}
 
 	eventContentHeight = 0;
-	for (auto *item : eventItemMap)
-		if (item)
-			eventContentHeight = std::max(eventContentHeight, item->sceneBoundingRect().bottom());
+	eventContentRight = 0;
+	for (auto *item : eventItemMap) {
+		if (item) {
+			const auto bounds = item->sceneBoundingRect();
+			eventContentHeight = std::max(eventContentHeight, bounds.bottom());
+			eventContentRight = std::max(eventContentRight, bounds.right());
+		}
+	}
 	updateViewportGeometry();
 
 	// Empty hint
@@ -2418,7 +2638,7 @@ void TimelineDock::onEventDoubleClicked(TimelineEventItem *item, const QString &
 
 void TimelineDock::updateZoomLabel()
 {
-	QString zoomText = QString("x%1").arg(pixelsPerSecond / 100.0, 0, 'f', 1);
+	QString zoomText = QString("x%1").arg(pixelsPerSecond / 100.0, 0, 'g', 3);
 
 	zoomLabelCache = zoomText;
 	if (zoomLabel) {

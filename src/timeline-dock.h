@@ -11,6 +11,7 @@
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QHash>
+#include <QSet>
 #include <QFrame>
 #include <QPixmap>
 #include "timeline-model.h"
@@ -25,6 +26,7 @@ class QGraphicsLineItem;
 class QGraphicsSimpleTextItem;
 class TimecodeDisplay;
 class QAction;
+class QRubberBand;
 
 class TimelineDock : public QWidget {
 	Q_OBJECT
@@ -77,6 +79,7 @@ private slots:
 	void onTimelineLooped();
 	void onZoomInClicked();
 	void onZoomOutClicked();
+	void onZoomFitClicked();
 	void onSnapIntervalChanged(int index);
 	void onGridModeChanged(int index);
 	void onNoteLengthChanged(int index);
@@ -94,6 +97,7 @@ private:
 	void updateLayout();
 	void updateViewportGeometry();
 	double eventContentHeight = 0.0;
+	double eventContentRight = 0.0;
 	void drawRuler();
 	void drawGrid();
 	void paintTimelineBackground(QPainter *painter, const QRectF &exposed) const;
@@ -123,6 +127,10 @@ private:
 	void seekToSceneX(double x);
 	void previewDurationResize(double sceneX);
 	void finishDurationResize(bool commit);
+	void beginMarquee(const QPoint &point, Qt::KeyboardModifiers modifiers);
+	void previewSelectionGesture(const QPoint &point);
+	void finishSelectionGesture(bool commit);
+	bool beginGroupDrag(TimelineEventItem *anchor, const QPoint &point);
 	void applyThemeColorsToItems();
 	QColor computePlayheadColor() const;
 	void refreshPlayheadHandlePixmap();
@@ -232,6 +240,17 @@ private:
 	double resizeInitialMs = 0;
 	double resizePreviewMs = 0;
 	double resizePressX = 0;
+	enum class SelectionGesture { None, Marquee, Group };
+	SelectionGesture selectionGesture = SelectionGesture::None;
+	QRubberBand *marqueeBand = nullptr;
+	QPoint gesturePress;
+	double gestureSceneX = 0;
+	bool gestureMoved = false;
+	Qt::KeyboardModifiers marqueeModifiers = Qt::NoModifier;
+	QSet<QString> originalSelection;
+	QHash<QString, double> groupOriginalTimes;
+	double groupAnchorTime = 0;
+	double groupDelta = 0;
 	double manualSnapIntervalMs = 500.0;
 	bool loadingTimeline = false;
 	bool configLoadFailed = false;

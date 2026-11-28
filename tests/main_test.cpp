@@ -4891,6 +4891,94 @@ private slots:
 		QCOMPARE(spy.count(), 1);
 	}
 
+	void testTimelineMarqueeAndGroupDragPreserveOffsets()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		TimelineEvent a, b, c;
+		a.timeMs = 1000;
+		b.timeMs = 2750;
+		c.timeMs = 5000;
+		initial.addEvents({a, b, c});
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path, QJsonObject{{"events", initial.toJson()},
+					  {"settings", QJsonObject{{"snap", true},
+								   {"snapIntervalMs", 500.0},
+								   {"zoomPixelsPerSecond", 100.0},
+								   {"endTime", 6.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(850, 260);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		auto *model = dock.findChild<TimelineModel *>();
+		auto *scheduler = dock.findChild<TimelineScheduler *>();
+		QVERIFY(view && model && scheduler);
+		QHash<QString, TimelineEventItem *> markers;
+		for (auto *graphics : view->scene()->items())
+			if (auto *item = dynamic_cast<TimelineEventItem *>(graphics))
+				markers.insert(item->getEventId(), item);
+		QCOMPARE(markers.size(), 3);
+		auto center = [&](const QString &id) {
+			return view->mapFromScene(markers[id]->mapToScene(markers[id]->rect().center()));
+		};
+		auto move = [&](QPoint point, Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+			QMouseEvent event(QEvent::MouseMove, QPointF(point),
+					  QPointF(view->viewport()->mapToGlobal(point)), Qt::NoButton, Qt::LeftButton,
+					  modifiers);
+			QCoreApplication::sendEvent(view->viewport(), &event);
+		};
+		const QPoint start = center(a.id) - QPoint(25, 18);
+		const QPoint end = center(b.id) + QPoint(25, 18);
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, start);
+		move(end);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, end);
+		QVERIFY(markers[a.id]->isSelected());
+		QVERIFY(markers[b.id]->isSelected());
+		QVERIFY(!markers[c.id]->isSelected());
+		QCOMPARE(scheduler->getCurrentTime(), 0.0);
+		const QPoint press = center(a.id);
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, press);
+		move(press + QPoint(76, 0));
+		QCOMPARE(model->findEventById(a.id)->timeMs, 1000.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 2750.0);
+		QCOMPARE(markers[a.id]->getTimeMs(), 2000.0);
+		QCOMPARE(markers[b.id]->getTimeMs(), 3750.0);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, press + QPoint(76, 0));
+		QCOMPARE(model->findEventById(a.id)->timeMs, 2000.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 3750.0);
+		QCOMPARE(model->findEventById(c.id)->timeMs, 5000.0);
+		QVERIFY(model->undo());
+		QCOMPARE(model->findEventById(a.id)->timeMs, 1000.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 2750.0);
+		QVERIFY(!model->canUndo());
+		QCoreApplication::processEvents();
+		// Ctrl click toggles membership, Shift click extends it.
+		QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::ControlModifier, center(b.id));
+		QVERIFY(!markers[b.id]->isSelected());
+		QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::ShiftModifier, center(b.id));
+		QVERIFY(markers[b.id]->isSelected());
+		const QPoint second = center(a.id);
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+		move(second - QPoint(200, 0));
+		QCOMPARE(markers[a.id]->getTimeMs(), 0.0);
+		QCOMPARE(markers[b.id]->getTimeMs(), 1750.0);
+		QTest::keyClick(view, Qt::Key_Escape);
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, second - QPoint(200, 0));
+		QCOMPARE(markers[a.id]->getTimeMs(), 1000.0);
+		QCOMPARE(markers[b.id]->getTimeMs(), 2750.0);
+		QVERIFY(!model->canUndo());
+		QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+		move(second + QPoint(450, 0));
+		QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, second + QPoint(450, 0));
+		QCOMPARE(model->findEventById(a.id)->timeMs, 4250.0);
+		QCOMPARE(model->findEventById(b.id)->timeMs, 6000.0);
+		QVERIFY(model->undo());
+		QVERIFY(!model->canUndo());
+	}
+
 	void testTimelineDurationHandleResizesWithOneUndo()
 	{
 		QTemporaryDir dir;
@@ -4951,6 +5039,45 @@ private slots:
 		QVERIFY(model->undo());
 		QCOMPARE(model->getEvents().front().durationMs, 1000.0);
 		QVERIFY(!model->canUndo());
+	}
+
+	void testTimelineZoomFitIncludesLongDurationAndEndMarker()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		TimelineModel initial;
+		TimelineEvent cue;
+		cue.timeMs = 800000;
+		cue.hasDuration = true;
+		cue.durationMs = 200000;
+		cue.type = TimelineEventType::FilterEnable;
+		initial.addEvent(cue);
+		const auto path = dir.filePath("timeline.json");
+		QVERIFY(TimelineSerialization::saveToFile(
+			path,
+			QJsonObject{{"events", initial.toJson()},
+				    {"settings", QJsonObject{{"endTime", 900.0}, {"zoomPixelsPerSecond", 100.0}}}}));
+		TimelineDock dock(nullptr, path);
+		dock.resize(800, 240);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto *view = dock.findChild<QGraphicsView *>();
+		QVERIFY(view);
+		QVERIFY2(view->sceneRect().right() >= 100000, "Long cues must remain reachable before zoom fit");
+		auto *fit = dock.findChild<QAction *>("timeline-zoom-fit-action");
+		QVERIFY(fit);
+		fit->trigger();
+		QCoreApplication::processEvents();
+		TimelineEventItem *item = nullptr;
+		for (auto *graphics : view->scene()->items())
+			if (auto *candidate = dynamic_cast<TimelineEventItem *>(graphics))
+				item = candidate;
+		QVERIFY(item);
+		const QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
+		QVERIFY(visible.left() <= 0.0);
+		QVERIFY(visible.right() >= item->sceneBoundingRect().right());
+		QVERIFY(visible.right() - item->sceneBoundingRect().right() < 150.0);
+		QCOMPARE(item->getTimeMs(), cue.timeMs);
 	}
 
 	void testTimelineCursorAnchoredZoom()
