@@ -266,12 +266,22 @@ The normal autosave path persists the resulting event data.
   Right-click a cell to edit/clear it, change grid labels or remove the grid.
 - **+ → New strip…** creates a named bank. Use the tabs to select a bank,
   and the same menu to rename, remove or change its orientation. The
-  only strip cannot be removed; tabs are hidden when just one exists.
+  only tabbed strip cannot be removed; tabs are hidden when just one exists.
+- **+ → New individual dock…** creates a separately dockable strip. Move
+  a tab to an individual dock, then use that dock's **Move strip back to tabs**
+  command to return it. At least one tab stays in the main dock. Closing an
+  individual dock hides it without deleting its controls; reopen it through
+  OBS Docks or the main strip's Show individual dock menu. Removing it is
+  a separate, confirmed action.
 - **+ → Edit layout** disables live controls and exposes grips. Drag a
   grip along the strip to add or reduce spacing or cross a neighbor to
   reorder. Shift-drag keeps the order fixed even for large gaps.
-  Escape cancels the active preview. Release commits; choose Finish
-  editing layout to return to live mode.
+  Escape cancels the active preview. Release commits; Undo layout edit and
+  Redo layout edit are in the same menu. History is session-local, up to
+  32 edits per strip, and clears when controls are edited/replaced or the
+  strip is moved between docks. Reordering eases visible controls briefly;
+  the next drag interrupts that animation. Choose Finish editing layout
+  to return to live mode.
 - Sliders default to following the strip direction, or choose Horizontal
   or Vertical in their Labels and appearance dialog. Knobs, XY pads and
   circular buttons keep their intrinsic shape.

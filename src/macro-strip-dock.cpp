@@ -28,6 +28,11 @@
 #include <QKeyEvent>
 #include <QPainter>
 #include <QScopedValueRollback>
+#include <QDockWidget>
+#include <QCryptographicHash>
+#include <QVariantAnimation>
+#include <QStyle>
+#include <QApplication>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QMenu>
@@ -193,6 +198,83 @@ private:
 	int originalGap = 0;
 	int delta = 0;
 };
+// A single paint-only overlay animates only affected visible controls.
+// The actual layout already holds its final geometry; no input or property
+// writes are driven by these frames.
+class StripReorderOverlay final : public QWidget {
+public:
+	struct Sprite {
+		QPointer<QWidget> widget;
+		QPixmap image;
+		QPoint from, to;
+		QSizePolicy previousPolicy;
+	};
+	explicit StripReorderOverlay(QWidget *parent) : QWidget(parent)
+	{
+		setObjectName("macro-layout-motion");
+		setAttribute(Qt::WA_TransparentForMouseEvents);
+		setAttribute(Qt::WA_NoSystemBackground);
+		animation.setEasingCurve(QEasingCurve::OutCubic);
+		connect(&animation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+			progress = value.toReal();
+			update();
+		});
+		connect(&animation, &QVariantAnimation::finished, this, [this] { finish(); });
+	}
+	~StripReorderOverlay() override { restore(); }
+	void add(QWidget *widget, const QPoint &from)
+	{
+		Sprite sprite{widget, widget->grab(), from, widget->pos(), widget->sizePolicy()};
+		if (sprite.image.isNull())
+			return;
+		auto policy = sprite.previousPolicy;
+		policy.setRetainSizeWhenHidden(true);
+		widget->setSizePolicy(policy);
+		widget->hide();
+		sprites.append(std::move(sprite));
+	}
+	bool empty() const { return sprites.isEmpty(); }
+	void start(int duration)
+	{
+		setGeometry(parentWidget()->rect());
+		raise();
+		show();
+		animation.setDuration(duration);
+		animation.setStartValue(0.0);
+		animation.setEndValue(1.0);
+		animation.start();
+	}
+	void finish()
+	{
+		animation.stop();
+		hide();
+		restore();
+		deleteLater();
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter painter(this);
+		for (const auto &sprite : std::as_const(sprites))
+			painter.drawPixmap(QPointF(sprite.from) + QPointF(sprite.to - sprite.from) * progress,
+					   sprite.image);
+	}
+
+private:
+	void restore()
+	{
+		for (const auto &sprite : std::as_const(sprites))
+			if (sprite.widget) {
+				sprite.widget->setSizePolicy(sprite.previousPolicy);
+				sprite.widget->show();
+			}
+		sprites.clear();
+	}
+	QList<Sprite> sprites;
+	QVariantAnimation animation;
+	qreal progress = 0.0;
+};
 } // namespace
 
 MacroStripDock::MacroStripDock(QWidget *parent, const QString &storageFilePath, const QString &legacyFilePath)
@@ -214,7 +296,175 @@ MacroStripDock::MacroStripDock(QWidget *parent, const QString &storageFilePath, 
 	rebuildFromModel();
 }
 
-MacroStripDock::~MacroStripDock() = default;
+MacroStripDock::~MacroStripDock()
+{
+	stopLayoutAnimation();
+	closeIndividualDocks();
+}
+
+QByteArray MacroStripDock::individualDockId(const QString &id)
+{
+	return QByteArray("timeline_macro_strip_") +
+	       QCryptographicHash::hash(id.toUtf8(), QCryptographicHash::Sha256).toHex();
+}
+
+void MacroStripDock::closeIndividualDocks()
+{
+	const auto docks = m_individualDocks;
+	m_individualDocks.clear();
+	for (auto it = docks.cbegin(); it != docks.cend(); ++it) {
+		auto child = it.value();
+		if (child) {
+			child->disconnect(this);
+			child->setEnabled(false);
+			child->hide();
+			obs_frontend_remove_dock(individualDockId(it.key()).constData());
+			if (child)
+				child->deleteLater();
+		}
+	}
+}
+
+void MacroStripDock::syncIndividualDocks()
+{
+	if (m_workspaceOwner)
+		return;
+	const auto registered = m_individualDocks.keys();
+	for (const auto &id : registered) {
+		if (std::none_of(m_individualStrips.cbegin(), m_individualStrips.cend(),
+				 [&](const auto &strip) { return strip.id == id; })) {
+			auto child = m_individualDocks.take(id);
+			if (child) {
+				child->disconnect(this);
+				child->setEnabled(false);
+				child->hide();
+				obs_frontend_remove_dock(individualDockId(id).constData());
+				if (child)
+					child->deleteLater();
+			}
+		}
+	}
+	for (const auto &strip : std::as_const(m_individualStrips)) {
+		auto child = m_individualDocks.value(strip.id);
+		const auto document = MacroSerialization::encodeStrips({strip}, 0);
+		if (child) {
+			// Do not rebuild a live dock when its canonical data is unchanged.
+			if (child->toJson() != document) {
+				const QSignalBlocker block(child);
+				child->setEditLayout(false);
+				child->m_layoutHistory.clear();
+				child->m_strips = {strip};
+				child->m_activeStrip = 0;
+				child->m_model.setButtons(strip.buttons);
+				child->refreshStripTabs();
+				child->rebuildFromModel();
+			}
+			if (auto *dock = qobject_cast<QDockWidget *>(child->parentWidget()))
+				dock->setWindowTitle(tr("Macro Strip: %1").arg(strip.name));
+		} else {
+			child = new MacroStripDock;
+			child->m_workspaceOwner = this;
+			child->m_strips = {strip};
+			child->m_model.setButtons(strip.buttons);
+			child->refreshStripTabs();
+			child->rebuildFromModel();
+			child->setObsExecutor(m_executor);
+			const auto title = QString(tr("Macro Strip: %1")).arg(strip.name).toUtf8();
+			if (!obs_frontend_add_dock_by_id(individualDockId(strip.id).constData(), title.constData(),
+							 child)) {
+				blog(LOG_WARNING,
+				     "[MacroStrip] Could not register individual dock %s; preserving its definition",
+				     title.constData());
+				delete child;
+				continue;
+			}
+			m_individualDocks.insert(strip.id, child);
+			connect(child, &MacroStripDock::parameterCommitted, this, &MacroStripDock::parameterCommitted);
+			connect(child, &MacroStripDock::saveRequested, this, [this, child, id = strip.id] {
+				if (!child || m_individualDocks.value(id) != child)
+					return;
+				for (auto &definition : m_individualStrips)
+					if (definition.id == id) {
+						definition = child->m_strips.first();
+						definition.buttons = child->m_model.buttons();
+						break;
+					}
+				if (auto *dock = qobject_cast<QDockWidget *>(child->parentWidget()))
+					dock->setWindowTitle(tr("Macro Strip: %1").arg(child->m_strips.first().name));
+				emit saveRequested();
+			});
+		}
+	}
+}
+
+void MacroStripDock::showIndividualStrip(const QString &id)
+{
+	syncIndividualDocks();
+	if (auto child = m_individualDocks.value(id)) {
+		if (auto *dock = qobject_cast<QDockWidget *>(child->parentWidget())) {
+			dock->show();
+			dock->raise();
+		} else {
+			child->show();
+			child->raise();
+		}
+	}
+}
+
+void MacroStripDock::addIndividualStrip(bool detach)
+{
+	if (m_workspaceOwner || m_individualStrips.size() >= 32 || (detach && m_strips.size() <= 1))
+		return;
+	MacroStripDefinition strip;
+	if (detach) {
+		strip = m_strips[m_activeStrip];
+		strip.buttons = m_model.buttons();
+	} else {
+		bool ok = false;
+		strip.name = QInputDialog::getText(this, tr("New individual strip"), tr("Name"), QLineEdit::Normal,
+						   tr("Strip %1").arg(m_individualStrips.size() + 1), &ok)
+				     .trimmed();
+		if (!ok || strip.name.isEmpty())
+			return;
+		strip.vertical = m_strips[m_activeStrip].vertical;
+	}
+	m_individualStrips.append(strip);
+	syncIndividualDocks();
+	if (!m_individualDocks.value(strip.id)) {
+		m_individualStrips.removeLast();
+		QMessageBox::warning(this, tr("Macro Strip"), tr("OBS could not register the new dock."));
+		return;
+	}
+	if (detach) {
+		m_layoutHistory.remove(strip.id);
+		m_strips.removeAt(m_activeStrip);
+		m_activeStrip = std::min(m_activeStrip, int(m_strips.size()) - 1);
+		m_model.setButtons(m_strips[m_activeStrip].buttons);
+		refreshStripTabs();
+		rebuildFromModel();
+	}
+	showIndividualStrip(strip.id);
+	emit saveRequested();
+}
+
+void MacroStripDock::removeIndividualStrip(const QString &id, bool returnToTabs)
+{
+	for (int i = 0; i < m_individualStrips.size(); ++i) {
+		if (m_individualStrips[i].id != id)
+			continue;
+		if (returnToTabs && m_strips.size() >= 32)
+			return;
+		m_layoutHistory.remove(id);
+		if (returnToTabs)
+			m_strips.append(m_individualStrips[i]);
+		m_individualStrips.removeAt(i);
+		syncIndividualDocks();
+		refreshStripTabs();
+		updateStripHeight();
+		emit saveRequested();
+		return;
+	}
+}
 
 void MacroStripDock::setupUi()
 {
@@ -256,6 +506,7 @@ void MacroStripDock::setupUi()
 	m_buttonLayout->addStretch();
 
 	m_scrollArea->setWidget(m_buttonContainer);
+	m_scrollArea->viewport()->installEventFilter(this);
 	m_stripLayout->addWidget(m_scrollArea, 1);
 	refreshStripTabs();
 }
@@ -264,6 +515,8 @@ void MacroStripDock::connectModel()
 {
 	connect(&m_model, &MacroButtonModel::modelChanged, this, [this] {
 		m_strips[m_activeStrip].buttons = m_model.buttons();
+		if (!m_applyingLayout)
+			m_layoutHistory.remove(m_strips[m_activeStrip].id);
 		if (m_spacingEdit)
 			emit saveRequested();
 		else
@@ -274,10 +527,14 @@ void MacroStripDock::connectModel()
 void MacroStripDock::setObsExecutor(ObsExecutor *executor)
 {
 	m_executor = executor;
+	for (auto child : std::as_const(m_individualDocks))
+		if (child)
+			child->setObsExecutor(executor);
 }
 
 void MacroStripDock::rebuildFromModel()
 {
+	stopLayoutAnimation();
 	QLayoutItem *child;
 	while ((child = m_buttonLayout->takeAt(0)) != nullptr) {
 		if (child->widget()) {
@@ -347,6 +604,7 @@ void MacroStripDock::rebuildFromModel()
 		// changes layout. Crossing another center reorders the control.
 		auto centers = std::make_shared<QList<int>>();
 		grip->started = [this, centers, vertical] {
+			stopLayoutAnimation();
 			centers->clear();
 			for (int i = 0; i < m_buttonLayout->count(); ++i) {
 				auto *control = m_buttonLayout->itemAt(i)->widget();
@@ -437,6 +695,7 @@ void MacroStripDock::setEditLayout(bool editing)
 {
 	if (m_editLayout == editing)
 		return;
+	stopLayoutAnimation();
 	m_editLayout = editing;
 	for (int i = 0; i < m_buttonLayout->count(); ++i) {
 		auto *widget = m_buttonLayout->itemAt(i)->widget();
@@ -448,6 +707,128 @@ void MacroStripDock::setEditLayout(bool editing)
 	m_addButton->setText(editing ? tr("✓") : QStringLiteral("+"));
 	m_addButton->setToolTip(editing ? tr("Layout edit mode — open menu to finish")
 					: tr("Add controls and manage strips"));
+}
+
+MacroStripDock::LayoutSnapshot MacroStripDock::captureLayout() const
+{
+	LayoutSnapshot snapshot;
+	for (const auto &button : m_model.buttons())
+		snapshot.append({button.id, button.gapBefore});
+	return snapshot;
+}
+
+void MacroStripDock::rememberLayout()
+{
+	auto &history = m_layoutHistory[m_strips[m_activeStrip].id];
+	history.undo.append(captureLayout());
+	if (history.undo.size() > 32)
+		history.undo.removeFirst();
+	history.redo.clear();
+}
+
+void MacroStripDock::restoreLayout(bool redo)
+{
+	auto &history = m_layoutHistory[m_strips[m_activeStrip].id];
+	auto &source = redo ? history.redo : history.undo;
+	auto &destination = redo ? history.undo : history.redo;
+	if (source.isEmpty())
+		return;
+	const auto current = captureLayout();
+	const auto snapshot = source.takeLast();
+	destination.append(current);
+	applyLayout(snapshot);
+}
+
+void MacroStripDock::applyLayout(const LayoutSnapshot &snapshot)
+{
+	auto buttons = m_model.buttons();
+	if (snapshot.size() != buttons.size())
+		return;
+	QList<MacroButton> ordered;
+	for (const auto &[id, gap] : snapshot) {
+		auto it = std::find_if(buttons.begin(), buttons.end(), [&](const auto &b) { return b.id == id; });
+		if (it == buttons.end())
+			return;
+		auto button = *it;
+		button.gapBefore = gap;
+		ordered.append(button);
+		buttons.erase(it);
+	}
+	stopLayoutAnimation();
+	const auto before = controlPositions();
+	const QScopedValueRollback<bool> guard(m_applyingLayout, true);
+	m_model.setButtons(ordered);
+	emit m_model.modelChanged();
+	animateLayout(before);
+}
+
+QHash<QString, QPoint> MacroStripDock::controlPositions() const
+{
+	QHash<QString, QPoint> result;
+	if (!m_editLayout || !isVisible())
+		return result;
+	m_buttonLayout->activate();
+	for (int i = 0; i < m_buttonLayout->count(); ++i)
+		if (auto *widget = m_buttonLayout->itemAt(i)->widget()) {
+			const auto id = widget->property("macro-control-id").toString();
+			if (!id.isEmpty())
+				result.insert(id, widget->pos());
+		}
+	return result;
+}
+
+void MacroStripDock::animateLayout(const QHash<QString, QPoint> &before)
+{
+	if (before.isEmpty() || !m_editLayout || !isVisible())
+		return;
+	const int duration = style()->styleHint(QStyle::SH_Widget_Animation_Duration);
+	if (duration <= 0)
+		return;
+	m_buttonLayout->activate();
+	auto *overlay = new StripReorderOverlay(m_buttonContainer);
+	const QRect visible(m_buttonContainer->mapFrom(m_scrollArea->viewport(), QPoint()),
+			    m_scrollArea->viewport()->size());
+	int count = 0;
+	for (int i = 0; i < m_buttonLayout->count() && count < 16; ++i) {
+		auto *widget = m_buttonLayout->itemAt(i)->widget();
+		if (!widget)
+			continue;
+		const auto id = widget->property("macro-control-id").toString();
+		if (!before.contains(id) || before.value(id) == widget->pos())
+			continue;
+		if (!visible.intersects(widget->geometry()) &&
+		    !visible.intersects(QRect(before.value(id), widget->size())))
+			continue;
+		widget->show();
+		overlay->add(widget, before.value(id));
+		++count;
+	}
+	if (overlay->empty()) {
+		delete overlay;
+		return;
+	}
+	m_layoutOverlay = overlay;
+	overlay->start(qMin(120, duration));
+}
+
+void MacroStripDock::stopLayoutAnimation()
+{
+	if (auto *overlay = dynamic_cast<StripReorderOverlay *>(m_layoutOverlay.data()))
+		overlay->finish();
+	m_layoutOverlay.clear();
+}
+
+void MacroStripDock::hideEvent(QHideEvent *event)
+{
+	stopLayoutAnimation();
+	QWidget::hideEvent(event);
+}
+
+bool MacroStripDock::eventFilter(QObject *object, QEvent *event)
+{
+	if (m_scrollArea && object == m_scrollArea->viewport() && event->type() == QEvent::Resize)
+		stopLayoutAnimation();
+	return QWidget::eventFilter(object, event);
 }
 
 void MacroStripDock::commitLayoutDrag(const QString &id, int destination, int gap)
@@ -463,17 +844,20 @@ void MacroStripDock::commitLayoutDrag(const QString &id, int destination, int ga
 	if (index == destination) {
 		if (buttons[index].gapBefore == gap)
 			return;
+		rememberLayout();
+		const QScopedValueRollback<bool> applying(m_applyingLayout, true);
 		buttons[index].gapBefore = gap;
 		// Commit the preview without rebuilding or discarding control state.
 		const QScopedValueRollback<bool> guard(m_spacingEdit, true);
 		m_model.replaceButtonById(id, buttons[index]);
 		return;
 	}
-	auto moved = buttons.takeAt(index);
-	moved.gapBefore = gap;
-	buttons.insert(destination, moved);
-	m_model.setButtons(buttons);
-	emit m_model.modelChanged();
+	rememberLayout();
+	auto snapshot = captureLayout();
+	auto moved = snapshot.takeAt(index);
+	moved.second = gap;
+	snapshot.insert(destination, moved);
+	applyLayout(snapshot);
 }
 
 void MacroStripDock::refreshStripTabs()
@@ -544,6 +928,7 @@ void MacroStripDock::removeStrip()
 	if (QMessageBox::question(this, tr("Remove strip"), tr("Delete this strip and all its controls?")) !=
 	    QMessageBox::Yes)
 		return;
+	m_layoutHistory.remove(m_strips[m_activeStrip].id);
 	m_strips.removeAt(m_activeStrip);
 	m_activeStrip = std::min(m_activeStrip, int(m_strips.size()) - 1);
 	m_model.setButtons(m_strips[m_activeStrip].buttons);
@@ -725,16 +1110,42 @@ void MacroStripDock::addButtonAtEnd()
 	editLayout->setObjectName("macro-strip-edit-layout");
 	editLayout->setCheckable(true);
 	editLayout->setChecked(m_editLayout);
+	auto *undo = menu.addAction(tr("Undo layout edit"));
+	undo->setObjectName("macro-layout-undo");
+	auto *redo = menu.addAction(tr("Redo layout edit"));
+	redo->setObjectName("macro-layout-redo");
+	const auto history = m_layoutHistory.value(m_strips[m_activeStrip].id);
+	undo->setEnabled(!history.undo.isEmpty());
+	redo->setEnabled(!history.redo.isEmpty());
 	auto *newStrip = menu.addAction(tr("New strip…"));
+	newStrip->setVisible(!m_workspaceOwner);
 	newStrip->setEnabled(m_strips.size() < 32);
 	newStrip->setObjectName("macro-add-strip");
+	auto *individual = menu.addAction(tr("New individual dock…"));
+	individual->setObjectName("macro-add-individual");
+	individual->setVisible(!m_workspaceOwner);
+	individual->setEnabled(m_individualStrips.size() < 32);
+	auto *detach = menu.addAction(tr("Move current strip to individual dock"));
+	detach->setObjectName("macro-detach-strip");
+	detach->setVisible(!m_workspaceOwner);
+	detach->setEnabled(m_strips.size() > 1 && m_individualStrips.size() < 32);
+	auto *returnToTabs = menu.addAction(tr("Move strip back to tabs"));
+	returnToTabs->setObjectName("macro-reattach-strip");
+	returnToTabs->setVisible(bool(m_workspaceOwner));
+	returnToTabs->setEnabled(m_workspaceOwner && m_workspaceOwner->m_strips.size() < 32);
+	auto *show = menu.addMenu(tr("Show individual dock"));
+	show->menuAction()->setVisible(!m_workspaceOwner && !m_individualStrips.isEmpty());
+	for (const auto &strip : std::as_const(m_individualStrips)) {
+		auto *entry = show->addAction(strip.name);
+		entry->setData(strip.id);
+	}
 	auto *rename = menu.addAction(tr("Rename strip…"));
 	auto *orientation = menu.addAction(tr("Vertical strip"));
 	orientation->setCheckable(true);
 	orientation->setChecked(m_strips[m_activeStrip].vertical);
 	orientation->setObjectName("macro-strip-vertical");
 	auto *remove = menu.addAction(tr("Remove strip…"));
-	remove->setEnabled(m_strips.size() > 1);
+	remove->setEnabled(m_workspaceOwner || m_strips.size() > 1);
 	auto *chosen = menu.exec(m_addButton->mapToGlobal(QPoint(0, m_addButton->height())));
 	if (chosen == action)
 		showAddEditor();
@@ -747,14 +1158,47 @@ void MacroStripDock::addButtonAtEnd()
 		m_model.addButton(b);
 	} else if (chosen == editLayout) {
 		setEditLayout(editLayout->isChecked());
+	} else if (chosen == undo || chosen == redo) {
+		restoreLayout(chosen == redo);
 	} else if (chosen == newStrip) {
 		addStrip();
+	} else if (chosen == individual) {
+		addIndividualStrip(false);
+	} else if (chosen == detach) {
+		addIndividualStrip(true);
+	} else if (chosen == returnToTabs && m_workspaceOwner) {
+		auto owner = m_workspaceOwner;
+		const auto id = m_strips.first().id;
+		QMetaObject::invokeMethod(
+			owner,
+			[owner, id] {
+				if (owner)
+					owner->removeIndividualStrip(id, true);
+			},
+			Qt::QueuedConnection);
+	} else if (chosen && show->actions().contains(chosen)) {
+		showIndividualStrip(chosen->data().toString());
 	} else if (chosen == rename) {
 		renameStrip();
 	} else if (chosen == orientation) {
 		setStripVertical(orientation->isChecked());
 	} else if (chosen == remove) {
-		removeStrip();
+		if (m_workspaceOwner) {
+			if (QMessageBox::question(this, tr("Remove individual strip"),
+						  tr("Delete this strip and its controls?")) == QMessageBox::Yes) {
+				auto owner = m_workspaceOwner;
+				const auto id = m_strips.first().id;
+				QMetaObject::invokeMethod(
+					owner,
+					[owner, id] {
+						if (owner)
+							owner->removeIndividualStrip(id, false);
+					},
+					Qt::QueuedConnection);
+			}
+		} else {
+			removeStrip();
+		}
 	} else if (chosen == parameter || chosen == xy) {
 		MacroButton initial;
 		initial.kind = chosen == xy ? MacroControlKind::XY : MacroControlKind::Slider;
@@ -911,7 +1355,7 @@ void MacroStripDock::moveLeft(const QString &id)
 	const auto buttons = m_model.buttons();
 	for (int i = 0; i < buttons.size(); ++i) {
 		if (buttons[i].id == id) {
-			m_model.moveButton(id, std::max(0, i - 1));
+			commitLayoutDrag(id, std::max(0, i - 1), buttons[i].gapBefore);
 			return;
 		}
 	}
@@ -922,7 +1366,8 @@ void MacroStripDock::moveRight(const QString &id)
 	const auto buttons = m_model.buttons();
 	for (int i = 0; i < buttons.size(); ++i) {
 		if (buttons[i].id == id) {
-			m_model.moveButton(id, std::min(static_cast<int>(buttons.size()) - 1, i + 1));
+			commitLayoutDrag(id, std::min(static_cast<int>(buttons.size()) - 1, i + 1),
+					 buttons[i].gapBefore);
 			return;
 		}
 	}
@@ -937,20 +1382,23 @@ QJsonObject MacroStripDock::toJson() const
 {
 	auto strips = m_strips;
 	strips[m_activeStrip].buttons = m_model.buttons();
-	return MacroSerialization::encodeStrips(strips, m_activeStrip);
+	return MacroSerialization::encodeStrips(strips, m_activeStrip, m_individualStrips);
 }
 
 bool MacroStripDock::fromJson(const QJsonObject &root, QString *errorMessage)
 {
-	QList<MacroStripDefinition> strips;
+	QList<MacroStripDefinition> strips, individual;
 	int active = 0;
-	if (!MacroSerialization::decodeStrips(root, strips, active, errorMessage))
+	if (!MacroSerialization::decodeWorkspace(root, strips, active, individual, errorMessage) || m_workspaceOwner)
 		return false;
 	setEditLayout(false);
+	m_layoutHistory.clear();
 	m_strips = std::move(strips);
 	m_activeStrip = active;
 	m_model.setButtons(m_strips[active].buttons);
 	refreshStripTabs();
+	m_individualStrips = std::move(individual);
+	syncIndividualDocks();
 	emit m_model.modelChanged();
 	return true;
 }
@@ -966,6 +1414,8 @@ QString MacroStripDock::dataFilePath() const
 
 bool MacroStripDock::saveNow()
 {
+	if (m_workspaceOwner)
+		return m_workspaceOwner->saveNow();
 	const QString path = dataFilePath();
 	if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
 		blog(LOG_WARNING, "[MacroStrip] cannot create config directory for %s", path.toUtf8().constData());
@@ -996,9 +1446,10 @@ bool MacroStripDock::restoreFromObsJson(const QByteArray &json)
 		return false;
 	}
 	QString error;
-	QList<MacroStripDefinition> backup;
+	QList<MacroStripDefinition> backup, individual;
 	int active = 0;
-	if (!document.isObject() || !MacroSerialization::decodeStrips(document.object(), backup, active, &error)) {
+	if (!document.isObject() ||
+	    !MacroSerialization::decodeWorkspace(document.object(), backup, active, individual, &error)) {
 		blog(LOG_WARNING, "[MacroStrip] Ignoring invalid OBS profile macros: %s", error.toUtf8().constData());
 		return false;
 	}
@@ -1062,6 +1513,9 @@ void MacroStripDock::onFrontendEvent(enum obs_frontend_event event)
 	switch (event) {
 	case OBS_FRONTEND_EVENT_THEME_CHANGED:
 		refreshTheme();
+		for (auto child : std::as_const(m_individualDocks))
+			if (child)
+				child->refreshTheme();
 		break;
 	default:
 		break;
@@ -1072,6 +1526,7 @@ void MacroStripDock::refreshTheme()
 {
 	if (!m_buttonLayout || !m_scrollArea || !m_addButton)
 		return;
+	stopLayoutAnimation();
 	// Refresh geometry and painting in place. Rebuilding discards text
 	// drafts and active gestures, and incorrectly schedules a save.
 	updateStripHeight();

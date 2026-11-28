@@ -26,6 +26,7 @@ public:
 	~MacroStripDock() override;
 
 	void setObsExecutor(ObsExecutor *executor);
+	void closeIndividualDocks();
 
 	// Public accessor for the model so tests and other widgets can drive it.
 	MacroButtonModel *buttonModel() { return &m_model; }
@@ -62,6 +63,8 @@ signals:
 
 protected:
 	void changeEvent(QEvent *event) override;
+	void hideEvent(QHideEvent *event) override;
+	bool eventFilter(QObject *object, QEvent *event) override;
 
 private slots:
 	void rebuildFromModel();
@@ -75,8 +78,31 @@ private:
 	QTabBar *m_tabs = nullptr;
 	QList<MacroStripDefinition> m_strips{MacroStripDefinition{}};
 	int m_activeStrip = 0;
+	using LayoutSnapshot = QList<QPair<QString, int>>;
+	struct LayoutHistory {
+		QList<LayoutSnapshot> undo, redo;
+	};
+	QHash<QString, LayoutHistory> m_layoutHistory;
+	QPointer<QWidget> m_layoutOverlay;
+	bool m_applyingLayout = false;
 	bool m_spacingEdit = false;
+	LayoutSnapshot captureLayout() const;
+	void rememberLayout();
+	void restoreLayout(bool redo);
+	void applyLayout(const LayoutSnapshot &snapshot);
+	QHash<QString, QPoint> controlPositions() const;
+	void animateLayout(const QHash<QString, QPoint> &before);
+	void stopLayoutAnimation();
 	bool m_editLayout = false;
+	QPointer<MacroStripDock> m_workspaceOwner;
+	QList<MacroStripDefinition> m_individualStrips;
+	QHash<QString, QPointer<MacroStripDock>> m_individualDocks;
+	void syncIndividualDocks();
+	void addIndividualStrip(bool detach);
+	void removeIndividualStrip(const QString &id, bool returnToTabs);
+	void showIndividualStrip(const QString &id);
+	static QByteArray individualDockId(const QString &id);
+
 	QPushButton *m_addButton = nullptr;
 
 	MacroButtonModel m_model;

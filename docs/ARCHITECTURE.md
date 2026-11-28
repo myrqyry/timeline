@@ -780,8 +780,15 @@ and type-specific data (`src/timeline-model.cpp`).
 Legacy macro data uses an object with `buttons` and `version` (1).
 Named, vertical or multiple strips use version 2 with `activeStrip` and
 `strips`; each strip has a stable ID, name, orientation and its own buttons.
-The decoder validates every strip before replacing the active model.
-Only the selected strip has instantiated controls and receives input.
+The optional `individualStrips` array stores separately registered docks
+using the same definition format. The decoder validates all definitions
+and rejects duplicate workspace strip IDs before replacing the active
+model. Only the selected tab and each independent dock have instantiated
+controls. Independent docks share the primary dock's executor, parameter
+recording signal and single canonical save path. Stable hashed OBS dock
+IDs allow the frontend to restore the dock positions on startup; dock
+registration precedes frontend layout restore. Closing an individual
+dock is distinct from removing its saved definition.
 Each button stores its ID, label, type, source, optional filter, optional
 data, and color. Optional `gapBefore` stores bounded logical-pixel spacing;
 sliders may override orientation. A `button-grid` control has exactly four
@@ -789,8 +796,14 @@ action-only or null slots, using type -1 on the enclosing record. No recursive
 grids are accepted. In layout-edit mode a grip previews spacing without
 writing the model; release commits a single change, or reorders the model.
 Shift preserves order, and Escape or lost mouse grab cancels. Layout editing
-does not execute actions. Downgrading to older versions is not supported for
-new document types.
+does not execute actions. Up to 32 order/spacing snapshots per strip are
+kept in session-local undo/redo history; model replacement or ordinary
+control editing invalidates that history. Animated reordering uses one
+bounded GUI animation and a maximum of sixteen visible control pixmaps;
+the actual layout is already at its committed geometry. The overlay
+restores the real widgets on completion, interruption, resize or hide.
+No animation frames write the model or OBS settings.
+Downgrading to older versions is not supported for new document types.
 Parameter records also store `control` and `binding` (sourceUuid, filterUuid,
 key, type, optional domain), and use the reserved invalid numeric event type -1 so old builds
 cannot execute them as actions. Invalid/unknown parameter records reject the

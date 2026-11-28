@@ -5216,6 +5216,152 @@ private slots:
 		QCOMPARE(spy.takeFirst().at(0).value<MacroButton>().id, QString("x"));
 	}
 
+	void testIndividualMacroStripMenusMoveBankWithoutDuplicatingControls()
+	{
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		QJsonObject main{{"id", "main"},
+				 {"name", "Main"},
+				 {"orientation", "horizontal"},
+				 {"buttons", QJsonArray{}}};
+		QJsonObject tab{
+			{"id", "tab"},
+			{"name", "Audio"},
+			{"orientation", "vertical"},
+			{"buttons",
+			 QJsonArray{QJsonObject{{"id", "unique"}, {"label", "One"}, {"type", 0}, {"gapBefore", 55}}}}};
+		QVERIFY(dock.fromJson({{"version", 2}, {"activeStrip", "tab"}, {"strips", QJsonArray{main, tab}}}));
+		dock.resize(500, 250);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		auto choose = [&](MacroStripDock *strip, const QString &name, const QString &dialogText = QString()) {
+			auto *add = strip->findChild<QPushButton *>("macro-strip-add");
+			if (!add)
+				return false;
+			bool found = false;
+			QTimer::singleShot(0, &dock, [&] {
+				auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+				if (!menu)
+					return;
+				for (auto *action : menu->actions())
+					if (action->objectName() == name && action->isEnabled()) {
+						found = true;
+						if (!dialogText.isEmpty())
+							QTimer::singleShot(0, &dock, [&] {
+								if (auto *dialog = qobject_cast<QInputDialog *>(
+									    QApplication::activeModalWidget())) {
+									dialog->setTextValue(dialogText);
+									dialog->accept();
+								}
+							});
+						QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+								  menu->actionGeometry(action).center());
+						return;
+					}
+				menu->close();
+			});
+			QTest::mouseClick(add, Qt::LeftButton);
+			QCoreApplication::processEvents();
+			return found;
+		};
+		extern QHash<QString, QWidget *> g_mockMacroDocks;
+		QVERIFY(choose(&dock, "macro-add-individual", "New dock"));
+		QCOMPARE(g_mockMacroDocks.size(), 1);
+		QVERIFY(choose(&dock, "macro-detach-strip"));
+		QCOMPARE(g_mockMacroDocks.size(), 2);
+		QCOMPARE(dock.buttonModel()->count(), 0);
+		MacroStripDock *detached = nullptr;
+		for (auto *widget : g_mockMacroDocks) {
+			auto *strip = qobject_cast<MacroStripDock *>(widget);
+			if (strip && strip->buttonModel()->count() == 1)
+				detached = strip;
+		}
+		QVERIFY(detached);
+		QCOMPARE(detached->buttonModel()->buttons().first().id, QString("unique"));
+		QCOMPARE(detached->buttonModel()->buttons().first().gapBefore, 55);
+		QVERIFY(choose(detached, "macro-reattach-strip"));
+		QTRY_COMPARE(g_mockMacroDocks.size(), 1);
+		auto *tabs = dock.findChild<QTabBar *>("macro-strip-tabs");
+		QCOMPARE(tabs->count(), 2);
+		tabs->setCurrentIndex(1);
+		QCOMPARE(dock.buttonModel()->count(), 1);
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("unique"));
+		QCOMPARE(dock.buttonModel()->buttons().first().gapBefore, 55);
+		QCOMPARE(dock.toJson()["individualStrips"].toArray().size(), 1);
+	}
+
+	void testIndividualMacroStripsRegisterPersistAndShareExecutor()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("macro.json");
+		auto *source =
+			obs_source_create("timeline_parameter_probe", "Individual strip target", nullptr, nullptr);
+		QVERIFY(source);
+		auto cleanup = qScopeGuard([&] {
+			obs_source_remove(source);
+			obs_source_release(source);
+		});
+		MacroParameterBinding binding{QString::fromUtf8(obs_source_get_uuid(source)),
+					      {},
+					      "gain",
+					      MacroParameterType::Float};
+		QJsonObject action{{"id", "a"},
+				   {"label", "Set"},
+				   {"type", int(TimelineEventType::SetParameterValue)},
+				   {"data", MacroParameter::encodeValue({binding, 1.0})}};
+		QJsonObject one{{"id", "one"},
+				{"name", "Audio"},
+				{"orientation", "vertical"},
+				{"buttons", QJsonArray{action}}};
+		QJsonObject two{{"id", "two"},
+				{"name", "Scenes"},
+				{"orientation", "horizontal"},
+				{"buttons", QJsonArray{}}};
+		QJsonObject root{{"version", 1}, {"buttons", QJsonArray{}}, {"individualStrips", QJsonArray{one, two}}};
+		ObsExecutor executor;
+		MacroStripDock dock(nullptr, path);
+		dock.setObsExecutor(&executor);
+		QVERIFY(dock.fromJson(root));
+		extern QHash<QString, QWidget *> g_mockMacroDocks;
+		QCOMPARE(g_mockMacroDocks.size(), 2);
+		const auto registered = g_mockMacroDocks;
+		MacroStripDock *audio = nullptr;
+		MacroStripDock *scenes = nullptr;
+		for (auto *widget : registered) {
+			auto *strip = qobject_cast<MacroStripDock *>(widget);
+			QVERIFY(strip);
+			if (strip->buttonModel()->count() == 1)
+				audio = strip;
+			else
+				scenes = strip;
+		}
+		QVERIFY(audio && scenes);
+		TestTimelineMacroButtonAccessor::clickBubble(*audio->findChild<MacroButtonWidget *>());
+		QCOMPARE(MacroParameter::read(binding).value(), 1.0);
+		MacroButton added;
+		added.label = "Independent";
+		scenes->buttonModel()->addButton(added);
+		QCOMPARE(dock.buttonModel()->count(), 0);
+		QVERIFY(dock.saveNow());
+		QJsonDocument saved;
+		QVERIFY(MacroSerialization::loadFromFile(path, saved));
+		QCOMPARE(saved.object()["individualStrips"].toArray().size(), 2);
+		QVERIFY(dock.loadNow());
+		QCOMPARE(g_mockMacroDocks, registered);
+		QCOMPARE(scenes->buttonModel()->count(), 1);
+		auto bad = root;
+		bad["individualStrips"] = QJsonArray{one, one};
+		QVERIFY(!dock.fromJson(bad));
+		QCOMPARE(g_mockMacroDocks, registered);
+		QCOMPARE(scenes->buttonModel()->count(), 1);
+		// Closing a dock is not deleting its configuration.
+		audio->hide();
+		QCOMPARE(dock.toJson()["individualStrips"].toArray().size(), 2);
+		QVERIFY(dock.fromJson(QJsonObject{{"version", 1}, {"buttons", QJsonArray{}}}));
+		QVERIFY(g_mockMacroDocks.isEmpty());
+	}
+
 	void testMacroStripEditModeDragsSpacingAndOrderWithoutFiring()
 	{
 		QTemporaryDir dir;
@@ -5305,6 +5451,17 @@ private slots:
 		drag(grip, -250);
 		QCOMPARE(edits.count(), 1);
 		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("second"));
+		const auto moved = dock.toJson();
+		if (dock.style()->styleHint(QStyle::SH_Widget_Animation_Duration) > 0) {
+			auto *overlay = dock.findChild<QWidget *>("macro-layout-motion");
+			QVERIFY(overlay && overlay->isVisible());
+			QTRY_VERIFY_WITH_TIMEOUT(!dock.findChild<QWidget *>("macro-layout-motion"), 400);
+		}
+		QVERIFY(choose("macro-layout-undo"));
+		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("first"));
+		QCOMPARE(dock.toJson()["buttons"].toArray()[1].toObject()["gapBefore"].toInt(), 80);
+		QVERIFY(choose("macro-layout-redo"));
+		QCOMPARE(dock.toJson(), moved);
 		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 		QVERIFY(choose("macro-strip-edit-layout"));
 		for (auto *action : dock.findChildren<MacroButtonWidget *>())
@@ -5405,6 +5562,32 @@ private slots:
 		QVERIFY(restored.fromJson(MacroSerialization::toJsonObject(single)));
 		QCOMPARE(restored.buttonModel()->count(), 1);
 		QCOMPARE(restored.toJson()["buttons"].toArray().size(), 1);
+	}
+
+	void testMacroStripShortCaptionsFitThemePadding()
+	{
+		QTemporaryDir dir;
+		MacroStripDock dock(nullptr, dir.filePath("macro.json"));
+		dock.setStyleSheet("QLabel { padding: 5px; }");
+		MacroButton fader;
+		fader.kind = MacroControlKind::Slider;
+		fader.orientation = MacroOrientation::Vertical;
+		fader.label = "Volume";
+		dock.buttonModel()->addButton(fader);
+		MacroButton xy;
+		xy.kind = MacroControlKind::XY;
+		xy.label = "Position";
+		dock.buttonModel()->addButton(xy);
+		dock.resize(500, 220);
+		dock.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&dock));
+		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+		const auto captions = dock.findChildren<QLabel *>("macro-parameter-caption");
+		QCOMPARE(captions.size(), 2);
+		for (auto *caption : captions)
+			QVERIFY2(caption->contentsRect().width() - 12 >=
+					 QFontMetricsF(caption->font(), caption).horizontalAdvance(caption->text()),
+				 qPrintable(caption->text()));
 	}
 
 	void testMacroStripFitsThemeSizedControls()

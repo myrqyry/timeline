@@ -76,9 +76,10 @@ QSize MacroButtonWidget::sizeHint() const
 	QFont labelFont = font();
 	labelFont.setPointSize(8);
 	labelFont.setBold(true);
-	int labelWidth = QFontMetrics(labelFont).horizontalAdvance(fallbackLabel(m_button)) + 8;
+	int labelWidth = qCeil(QFontMetricsF(labelFont, this).horizontalAdvance(fallbackLabel(m_button))) + 10;
 	labelFont.setBold(false);
-	labelWidth = std::max(labelWidth, QFontMetrics(labelFont).horizontalAdvance(m_button.bottomLabel) + 8);
+	labelWidth = std::max(labelWidth,
+			      qCeil(QFontMetricsF(labelFont, this).horizontalAdvance(m_button.bottomLabel)) + 10);
 	// Keep labels readable without making a long macro name dominate the strip.
 	return QSize(qBound(static_cast<int>(kBubbleSize) + 12, labelWidth, 160),
 		     m_labelHeight + m_controlHeight + m_bottomHeight);
@@ -189,13 +190,13 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 	const QString label = fallbackLabel(m_button);
 	if (!m_gridCell && !label.isEmpty()) {
 		const int padX = 4;
-		QFont font = painter.font();
+		QFont font = this->font();
 		font.setPointSize(8);
 		font.setBold(true);
 		painter.setFont(font);
-		QFontMetrics fm(font);
-		const int textW = fm.horizontalAdvance(label);
-		const int boxW = qMin(textW + padX * 2, width());
+		const auto fm = painter.fontMetrics();
+		const int textW = qCeil(QFontMetricsF(font, this).horizontalAdvance(label));
+		const int boxW = qMin(textW + padX * 2 + 2, width());
 		const int boxH = m_labelHeight;
 		const int boxX = (width() - boxW) / 2;
 		const int boxY = 0;
@@ -211,7 +212,9 @@ void MacroButtonWidget::paintEvent(QPaintEvent *event)
 		painter.drawRoundedRect(box, 3.0, 3.0);
 
 		painter.setPen(textColor);
-		painter.drawText(box, Qt::AlignCenter, fm.elidedText(label, Qt::ElideRight, boxW - padX * 2));
+		const int budget = boxW - padX * 2;
+		painter.drawText(box, Qt::AlignCenter,
+				 textW <= budget ? label : fm.elidedText(label, Qt::ElideRight, budget));
 	}
 	if (m_bottomHeight > 0 && !m_button.bottomLabel.isEmpty()) {
 		QFont font = painter.font();

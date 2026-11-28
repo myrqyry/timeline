@@ -75,6 +75,8 @@ bool obs_module_load(void)
 				 &TimelineDock::recordParameterChange);
 	}
 
+	// Restore registered dock IDs before OBS restores its main-window layout.
+	g_macroStripDock->loadNow();
 	obs_frontend_add_save_callback(macroStripSaveCallback, nullptr);
 	g_macroStripEventCb = macroStripFrontendEvent;
 	obs_frontend_add_event_callback(g_macroStripEventCb, nullptr);
@@ -97,6 +99,7 @@ void obs_module_unload(void)
 
 	if (g_macroStripDock) {
 		g_macroStripDock->saveNow();
+		g_macroStripDock->closeIndividualDocks();
 		obs_frontend_remove_dock("timeline_macro_strip");
 		g_macroStripDock->deleteLater();
 	}

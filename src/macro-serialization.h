@@ -15,7 +15,10 @@ struct MacroStripDefinition {
 class MacroSerialization {
 public:
 	static QJsonObject toJsonObject(const MacroButtonModel &model);
-	static QJsonObject encodeStrips(const QList<MacroStripDefinition> &strips, int active);
+	static QJsonObject encodeStrips(const QList<MacroStripDefinition> &strips, int active,
+					const QList<MacroStripDefinition> &individual = {});
+	static bool decodeWorkspace(const QJsonObject &root, QList<MacroStripDefinition> &strips, int &active,
+				    QList<MacroStripDefinition> &individual, QString *errorMessage = nullptr);
 	static bool decodeStrips(const QJsonObject &root, QList<MacroStripDefinition> &strips, int &active,
 				 QString *errorMessage = nullptr);
 

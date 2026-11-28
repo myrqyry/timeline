@@ -235,22 +235,30 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 	return true;
 }
 
-QJsonObject MacroSerialization::encodeStrips(const QList<MacroStripDefinition> &strips, int active)
+QJsonObject MacroSerialization::encodeStrips(const QList<MacroStripDefinition> &strips, int active,
+					     const QList<MacroStripDefinition> &individual)
 {
 	auto encode = [](const MacroStripDefinition &strip) {
 		MacroButtonModel model;
 		model.setButtons(strip.buttons);
 		return toJsonObject(model);
 	};
-	if (strips.size() == 1 && !strips.first().vertical && strips.first().name == "Macro Strip")
+	if (individual.isEmpty() && strips.size() == 1 && !strips.first().vertical &&
+	    strips.first().name == "Macro Strip")
 		return encode(strips.first());
-	QJsonArray array;
-	for (const auto &strip : strips)
-		array.append(QJsonObject{{"id", strip.id},
-					 {"name", strip.name},
-					 {"orientation", strip.vertical ? "vertical" : "horizontal"},
-					 {"buttons", encode(strip)["buttons"]}});
-	return {{"version", 2}, {"activeStrip", strips.at(active).id}, {"strips", array}};
+	auto encodeArray = [&](const QList<MacroStripDefinition> &definitions) {
+		QJsonArray array;
+		for (const auto &strip : definitions)
+			array.append(QJsonObject{{"id", strip.id},
+						 {"name", strip.name},
+						 {"orientation", strip.vertical ? "vertical" : "horizontal"},
+						 {"buttons", encode(strip)["buttons"]}});
+		return array;
+	};
+	QJsonObject result{{"version", 2}, {"activeStrip", strips.at(active).id}, {"strips", encodeArray(strips)}};
+	if (!individual.isEmpty())
+		result["individualStrips"] = encodeArray(individual);
+	return result;
 }
 
 bool MacroSerialization::decodeStrips(const QJsonObject &root, QList<MacroStripDefinition> &strips, int &active,
@@ -301,6 +309,47 @@ bool MacroSerialization::decodeStrips(const QJsonObject &root, QList<MacroStripD
 		parsed.append(strip);
 	}
 	strips = std::move(parsed);
+	active = selected;
+	return true;
+}
+
+bool MacroSerialization::decodeWorkspace(const QJsonObject &root, QList<MacroStripDefinition> &strips, int &active,
+					 QList<MacroStripDefinition> &individual, QString *errorMessage)
+{
+	QList<MacroStripDefinition> parsed, extra;
+	int selected = 0;
+	if (!decodeStrips(root, parsed, selected, errorMessage))
+		return false;
+	if (root.contains("individualStrips")) {
+		const auto value = root["individualStrips"];
+		if (!value.isArray()) {
+			if (errorMessage)
+				*errorMessage = "Invalid individual strips array";
+			return false;
+		}
+		const auto array = value.toArray();
+		if (!array.isEmpty()) {
+			int ignored = 0;
+			if (!decodeStrips(QJsonObject{{"version", 2},
+						      {"strips", array},
+						      {"activeStrip", array.first().toObject()["id"]}},
+					  extra, ignored, errorMessage))
+				return false;
+		}
+		QSet<QString> ids;
+		for (const auto &strip : parsed)
+			ids.insert(strip.id);
+		for (const auto &strip : extra) {
+			if (ids.contains(strip.id)) {
+				if (errorMessage)
+					*errorMessage = "Duplicate macro strip ID";
+				return false;
+			}
+			ids.insert(strip.id);
+		}
+	}
+	strips = std::move(parsed);
+	individual = std::move(extra);
 	active = selected;
 	return true;
 }

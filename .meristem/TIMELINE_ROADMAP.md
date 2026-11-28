@@ -24,6 +24,8 @@ Source: user-supplied "Architectural & Product Strategy Analysis: Timeline for O
 
 - Macro Strip layout batch: #32 and #33 implemented; additional 2×2 circular action grids and per-strip/per-slider orientation. Version 2 bank documents validate all banks before replacement; legacy single-strip files still load. Model stores spacing rather than spacer widgets. Edit mode disables live controls, previews gaps without model changes, commits on release, supports Shift spacing-only drag and Escape cancellation. Regression tests reproduce missing bank/layout behavior, verify parameter execution from grid cells, orientation, tab switching, legacy/multi-strip round trip, malformed document preservation, spacing/reorder and cancellation. Strict OBS32 Qt/libobs suite: 133 passed, 0 failed/skipped (40.82s). Native OBS verification, simultaneous independent docks, unrestricted 2D arrangement, animated reordering and layout undo remain open.
 
+- Individual Macro Strip docks and layout polish: #32/#33 extended, #35 partial. Independent docks register with stable hashed IDs before OBS restores layout; one canonical workspace document validates tabs and all individual strips, forwards direct parameter recording, and preserves hidden dock definitions. Menu-driven creation, moving a bank to a dock and returning it without duplication, registration identity, real parameter actions, invalid-document preservation, layout history and bounded visible-control reorder animation tested. Theme-padding regression reproduced and corrected short-label clipping. Strict OBS32 Qt/libobs: 136 passed, zero failures/skips (41.15s). Real isolated OBS 32.2.0 probe passed 15 first-run and 5 restart checks, including actual mixer writes, scene-switch actions, dock placement and visibility restore, layout edit/undo/redo and saved spacing. Captured and inspected native dock screenshots; full labels fit. Native evidence: /tmp/timeline-macro-native.ewxuE8; reproducible probe tests/native/run-macro-layout.sh. Unrestricted 2D arrangement, general macro undo/duplication, native streaming-load profiling and Windows/macOS acceptance remain open. Normal profile/installation not touched.
+
 All unmarked items remain open or require reconciliation. Implementation order: hot-path safety and efficiency, direct manipulation, shared typed target/control model, interoperability and creative extensions, then distribution and coverage. Do not introduce new work on the audio/video callback thread; preserve fail-closed targeting, undo semantics, load/save safety, and isolated test configurations.
 
 ## 1–10: Core editing
@@ -68,10 +70,10 @@ All unmarked items remain open or require reconciliation. Implementation order: 
 ## 31–40: Macro Strip
 
 31. Live action state feedback
-32. Pages/banks (implemented: named strips, persisted active tab and independent contents/orientation)
+32. Pages/banks (implemented: named tabs and native individual docks; persisted stable IDs, active tab, independent contents/orientation and frontend dock placement)
 33. Drag reordering and separators (implemented: layout-edit grips, axis reorder, Shift spacing-only drag, Escape cancellation, persisted per-control gaps in place of spacer widgets per user request)
 34. Opt-in frontend hotkeys
-35. Undo/redo and duplication
+35. Undo/redo and duplication (partial: per-strip order/spacing undo/redo, 32 session-local edits; general control editing history and duplication remain open)
 36. Custom ranges, inversion and double-click reset
 37. Momentary action and toggle mode
 38. Smooth timed preset/A-B glides

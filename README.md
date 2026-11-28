@@ -113,11 +113,16 @@ parameter control.
 Use the **+** menu to add a named strip, rename it, select vertical layout
 or enter **Edit layout**. Tabs switch between strips and are hidden when
 only one exists. Each strip saves its own controls and orientation.
+Choose **New individual dock…** for a separately dockable strip, or move
+an existing tab out to its own dock and back. Closing an individual dock
+hides it; reopen it from OBS's Docks menu or the main strip's Show individual
+dock menu.
 
 In Edit layout, live controls are disabled. Drag a control's grip to move
 it or change the gap before it. Shift-drag changes spacing without
-reordering; Escape cancels the current drag. Finish editing from the same
-menu to return to live operation. Sliders can follow strip orientation
+reordering; Escape cancels the current drag. Undo/redo layout edits from
+the same menu. Reordering uses brief paint-only motion in edit mode.
+Finish editing to return to live operation. Sliders can follow strip orientation
 or override it in **Labels and appearance**.
 
 ### Record Macro Strip automation

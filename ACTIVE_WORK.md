@@ -7,14 +7,16 @@ Implement the accepted 100-item improvement program in [the roadmap](.meristem/T
 
 ## Current state — 2026-11-27
 
-- Branch `feat/timeline-runtime-improvements` at code checkpoint `428f246`, based on shared CI checkpoint `f7503ce`. Local `main` and local tracking ref `origin/main` were both `b8adbda` when inspected; no new remote fetch is implied.
-- Roadmap: 19 implemented, 6 partial, 75 remaining. The nine implementation batches are recorded in the roadmap and Git history.
+- Branch `feat/timeline-runtime-improvements` at prior runtime checkpoint `a30efab` plus the individual-dock follow-up (see HEAD), based on shared CI checkpoint `f7503ce`. Local `main` and local tracking ref `origin/main` were both `b8adbda` when inspected; no new remote fetch is implied.
+- Roadmap: 19 implemented, 7 partial, 74 remaining. The nine implementation batches are recorded in the roadmap and Git history.
 - Current code checkpoint built with the matching local OBS32 SDK; strict Xvfb Qt/libobs suite: 127 passed, 0 failed, 0 skipped (39.22 s). This is not interactive OBS or hosted cross-platform qualification.
 - Earlier documentation reconciliation has been reviewed and updated to reflect the current branch. Historical handoff remains available via `git show b8adbda:ACTIVE_WORK.md`; machine-specific evidence remains under ignored `.meristem/local/`.
 
 - Follow-up interaction polish: shared paint-only motion for cue and macro action feedback and passive knob/XY readback; direct input and OBS execution remain exact. Current strict suite: 131 passed, zero failures/skips (40.61 s). No change to numbered roadmap counts. Native frame-time profiling remains open.
 
 - Macro Strip layout batch: #32/#33 completed, 2×2 action grids, bank tabs, independent strip/slider orientation and layout-edit drag grips with per-widget spacing. Strict suite: 133 passed, zero failures/skips (40.82 s). Native OBS visual verification and unrestricted canvas layout remain open.
+
+- Individual Macro Strip follow-up: separate OBS docks, stable layout restoration, shared workspace persistence and automation, per-strip layout undo/redo (#35 partial), interruptible reorder overlay, caption fit. Latest strict suite: 136 passed, zero failures/skips (41.15 s). Native isolated OBS32.2.0 probe passed 20 checks across two launches; screenshots and logs at /tmp/timeline-macro-native.ewxuE8. General control history/duplication, arbitrary 2D layout and cross-platform qualification remain open.
 
 ## Locked decisions and constraints
 

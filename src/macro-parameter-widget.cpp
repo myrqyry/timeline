@@ -332,6 +332,14 @@ public:
 		setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
 	}
 
+	int requiredWidth(const QString &sample)
+	{
+		ensurePolished();
+		const auto margins = contentsMargins();
+		return qCeil(QFontMetricsF(font(), this).horizontalAdvance(sample)) + margins.left() + margins.right() +
+		       14;
+	}
+
 protected:
 	void paintEvent(QPaintEvent *) override
 	{
@@ -339,7 +347,11 @@ protected:
 		painter.setRenderHint(QPainter::Antialiasing);
 		painter.setFont(font());
 		const auto area = contentsRect().adjusted(2, 0, -2, 0);
-		const QString visible = fontMetrics().elidedText(text(), Qt::ElideRight, std::max(0, area.width() - 8));
+		const auto metrics = painter.fontMetrics();
+		const int budget = std::max(0, area.width() - 8);
+		const QString visible = metrics.horizontalAdvance(text()) <= budget
+						? text()
+						: metrics.elidedText(text(), Qt::ElideRight, budget);
 		if (visible.isEmpty())
 			return;
 		const auto group = !isEnabled() ? QPalette::Disabled
@@ -589,11 +601,8 @@ public:
 		bottom->setFixedHeight(bottomHeight);
 		bottom->setVisible(bottomHeight > 0);
 		setFixedHeight(captionHeight + row->height() + bottomHeight);
-		const int titleWidth = QFontMetrics(caption->font()).horizontalAdvance(title) + 12;
-		const int valueWidth =
-			QFontMetrics(bottom->font())
-				.horizontalAdvance(showValue ? QStringLiteral("-0.000 / -0.000") : subtitle) +
-			12;
+		const int titleWidth = caption->requiredWidth(title);
+		const int valueWidth = bottom->requiredWidth(showValue ? QStringLiteral("-0.000 / -0.000") : subtitle);
 		setFixedWidth(std::clamp(std::max({titleWidth, valueWidth, pad->width()}), pad->width(), 220) + 6);
 	}
 
@@ -874,7 +883,6 @@ public:
 private:
 	void reserveColumnWidth()
 	{
-		const QFontMetrics fm(label->font());
 		// Width depends on the assigned caption and control kind, never
 		// the live value or current availability of the target.
 		QString sample = showValue ? (kind == MacroControlKind::Toggle
@@ -892,10 +900,7 @@ private:
 					sample = candidate;
 			}
 		}
-		int width = std::clamp(std::max(fm.horizontalAdvance(title),
-						QFontMetrics(bottom->font()).horizontalAdvance(sample)) +
-					       12,
-				       40, 220);
+		int width = std::clamp(std::max(label->requiredWidth(title), bottom->requiredWidth(sample)), 40, 220);
 		if (slider)
 			width = std::max({width, slider->minimumWidth(), slider->minimumSizeHint().width()});
 		if (toggle) {
@@ -1050,7 +1055,7 @@ private:
 	QPushButton *applyText = nullptr;
 	QWidget *textRow = nullptr;
 	QPushButton *editText = nullptr;
-	QLabel *label = nullptr;
+	StableCaption *label = nullptr;
 	StableCaption *bottom = nullptr;
 	QWidget *controlRow = nullptr;
 	QString title, subtitle;
