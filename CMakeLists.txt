@@ -9,6 +9,11 @@ set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
 option(ENABLE_OBS_WEBSOCKET_VENDOR "Enable obs-websocket vendor integration" ON)
 option(TIMELINE_BUILD_OBS_FROM_SOURCE "Build the selected OBS compatibility target from source" OFF)
+option(TIMELINE_EXTERNAL_SDK "Use an explicitly provisioned OBS SDK" OFF)
+if(TIMELINE_EXTERNAL_SDK AND (TIMELINE_BUILD_OBS_FROM_SOURCE OR NOT EXISTS "${libobs_DIR}/libobsConfig.cmake"))
+  message(FATAL_ERROR "External Timeline SDK requires libobs_DIR and no source bootstrap")
+endif()
+
 
 if(TIMELINE_OBS_COMPATIBILITY STREQUAL "obs31")
   set(TIMELINE_EXPECTED_OBS_MAJOR 31)
@@ -180,6 +185,9 @@ else()
     set(_timeline_modern_plugin_destination "${OBS_PLUGIN_DESTINATION}")
     cmake_path(GET _timeline_modern_plugin_destination PARENT_PATH _timeline_modern_plugin_destination)
     cmake_path(GET _timeline_modern_plugin_destination PARENT_PATH _timeline_modern_plugin_destination)
+    if(_timeline_modern_plugin_destination STREQUAL "")
+      set(_timeline_modern_plugin_destination ".")
+    endif()
     install(
       TARGETS ${PROJECT_NAME}
       LIBRARY DESTINATION "${_timeline_modern_plugin_destination}"
