@@ -1810,6 +1810,69 @@ private slots:
 			 static_cast<int>(TimelineHitTesting::kMarkerGrabRadiusPx * 2.0));
 	}
 
+	void testTimelineRecoveryImportPreservesOriginalAndResumesPersistence()
+	{
+		QTemporaryDir dir;
+		QVERIFY(dir.isValid());
+		const auto path = dir.filePath("timeline.json");
+		const auto imported = dir.filePath("import.json");
+		const QByteArray corrupt = "{broken config";
+		{
+			QFile file(path);
+			QVERIFY(file.open(QIODevice::WriteOnly));
+			QCOMPARE(file.write(corrupt), corrupt.size());
+		}
+		TimelineModel initial;
+		TimelineEvent cue;
+		cue.id = "recovered";
+		cue.type = TimelineEventType::SceneSwitch;
+		cue.timeMs = 1234;
+		initial.addEvent(cue);
+		QVERIFY(TimelineSerialization::saveToFile(imported, QJsonObject{{"events", initial.toJson()}}));
+		{
+			TimelineDock dock(nullptr, path);
+			auto *model = dock.findChild<TimelineModel *>();
+			QVERIFY(model);
+			dock.save();
+			{
+				QFile original(path);
+				QVERIFY(original.open(QIODevice::ReadOnly));
+				QCOMPARE(original.readAll(), corrupt);
+			}
+			QString error;
+			QVERIFY(!dock.importTimelineFile(path, &error));
+			QVERIFY(QDir(dir.path()).entryList({"timeline.json.recovery-*"}, QDir::Files).isEmpty());
+			QVERIFY2(dock.importTimelineFile(imported, &error), qPrintable(error));
+			QCOMPARE(model->getEvents().size(), 1);
+			const auto backups = QDir(dir.path()).entryList({"timeline.json.recovery-*"}, QDir::Files);
+			QCOMPARE(backups.size(), 1);
+			QFile backup(dir.filePath(backups.first()));
+			QVERIFY(backup.open(QIODevice::ReadOnly));
+			QCOMPARE(backup.readAll(), corrupt);
+			cue.id = "later-edit";
+			cue.timeMs = 2345;
+			model->addEvent(cue);
+			dock.save();
+		}
+		TimelineDock restored(nullptr, path);
+		auto *model = restored.findChild<TimelineModel *>();
+		QVERIFY(model);
+		QCOMPARE(model->getEvents().size(), 2);
+		QCOMPARE(model->getEvents().back().id, QString("later-edit"));
+
+		// A recovery which cannot preserve the original must not import or
+		// clear the guard.
+		const auto blockedPath = dir.filePath("blocked.json");
+		QVERIFY(QDir().mkdir(blockedPath));
+		TimelineDock blocked(nullptr, blockedPath);
+		QString error;
+		QVERIFY(!blocked.importTimelineFile(imported, &error));
+		QVERIFY(!error.isEmpty());
+		QVERIFY(blocked.findChild<TimelineModel *>()->getEvents().empty());
+		blocked.save();
+		QVERIFY(QFileInfo(blockedPath).isDir());
+	}
+
 	void testTimelineCenteredDefaultAndClockDivider()
 	{
 		QTemporaryDir dir;
@@ -5452,15 +5515,27 @@ private slots:
 		QCOMPARE(edits.count(), 1);
 		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("second"));
 		const auto moved = dock.toJson();
+		auto verifyVisualOrder = [&](const QString &leftId, const QString &rightId) {
+			QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+			QCoreApplication::processEvents();
+			auto *left = dock.findChild<QWidget *>("macro-layout-grip-" + leftId);
+			auto *right = dock.findChild<QWidget *>("macro-layout-grip-" + rightId);
+			return left && right && left->isVisible() && right->isVisible() &&
+			       left->mapTo(&dock, QPoint()).x() < right->mapTo(&dock, QPoint()).x();
+		};
+
 		if (dock.style()->styleHint(QStyle::SH_Widget_Animation_Duration) > 0) {
 			auto *overlay = dock.findChild<QWidget *>("macro-layout-motion");
 			QVERIFY(overlay && overlay->isVisible());
 			QTRY_VERIFY_WITH_TIMEOUT(!dock.findChild<QWidget *>("macro-layout-motion"), 400);
 		}
+		QVERIFY(verifyVisualOrder("second", "first"));
 		QVERIFY(choose("macro-layout-undo"));
 		QCOMPARE(dock.buttonModel()->buttons().first().id, QString("first"));
 		QCOMPARE(dock.toJson()["buttons"].toArray()[1].toObject()["gapBefore"].toInt(), 80);
+		QVERIFY(verifyVisualOrder("first", "second"));
 		QVERIFY(choose("macro-layout-redo"));
+		QVERIFY(verifyVisualOrder("second", "first"));
 		QCOMPARE(dock.toJson(), moved);
 		QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 		QVERIFY(choose("macro-strip-edit-layout"));

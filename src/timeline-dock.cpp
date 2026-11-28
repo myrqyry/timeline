@@ -1918,40 +1918,59 @@ void TimelineDock::onSaveClicked()
 	}
 }
 
+bool TimelineDock::importTimelineFile(const QString &fileName, QString *errorMessage)
+{
+	QJsonDocument doc;
+	if (!TimelineSerialization::loadFromFile(fileName, doc, errorMessage))
+		return false;
+
+	// Validate before touching the live model or its protected configuration.
+	TimelineModel candidate;
+	TimelineDocument timelineDoc;
+	if (!TimelineSerialization::fromJsonDocument(doc, candidate, timelineDoc, errorMessage))
+		return false;
+
+	if (configLoadFailed) {
+		const auto path = configFilePath();
+		const auto backup = path + ".recovery-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+		// QFile::copy refuses an existing destination. Never enable writes
+		// until the original bytes have been preserved separately.
+		if (path.isEmpty() || !QFile::copy(path, backup)) {
+			if (errorMessage)
+				*errorMessage =
+					tr("Could not preserve the unreadable timeline configuration: %1").arg(path);
+			return false;
+		}
+		blog(LOG_INFO, "[Timeline] Preserved unreadable config at %s", backup.toUtf8().constData());
+	}
+
+	finishAutomationRecording(false);
+	debounceSaveTimer->stop();
+	loadingTimeline = true;
+	model->blockSignals(true);
+	model->fromJson(candidate.toJson());
+	applyTimelineDocument(timelineDoc);
+	model->blockSignals(false);
+	loadingTimeline = false;
+	configLoadFailed = false;
+	updateHistoryControls();
+	rebuildEventItems();
+	updateLayout();
+	debounceSaveTimer->start();
+	blog(LOG_INFO, "[Timeline] Imported → %s", fileName.toUtf8().constData());
+	return true;
+}
+
 void TimelineDock::onLoadClicked()
 {
-	QString fileName = QFileDialog::getOpenFileName(this, "Load Timeline", "", "JSON Files (*.json)");
+	const QString fileName = QFileDialog::getOpenFileName(this, "Load Timeline", "", "JSON Files (*.json)");
 	if (fileName.isEmpty())
 		return;
 
-	QJsonDocument doc;
 	QString errorMessage;
-	if (TimelineSerialization::loadFromFile(fileName, doc, &errorMessage)) {
-		TimelineDocument timelineDoc;
-		loadingTimeline = true;
-		model->blockSignals(true);
-		if (!TimelineSerialization::fromJsonDocument(doc, *model, timelineDoc, &errorMessage)) {
-			model->blockSignals(false);
-			loadingTimeline = false;
-			blog(LOG_WARNING, "[Timeline] ┌─ Import failed");
-			blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", fileName.toStdString().c_str());
-			blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
-			return;
-		}
-
-		applyTimelineDocument(timelineDoc);
-		model->blockSignals(false);
-		loadingTimeline = false;
-		updateHistoryControls();
-
-		blog(LOG_INFO, "[Timeline] Imported → %s", fileName.toStdString().c_str());
-		rebuildEventItems();
-		updateLayout();
-		debounceSaveTimer->start();
-	} else {
-		blog(LOG_WARNING, "[Timeline] ┌─ Load failed");
-		blog(LOG_WARNING, "[Timeline] ├─ Path   : %s", fileName.toStdString().c_str());
-		blog(LOG_WARNING, "[Timeline] └─ Detail : %s", errorMessage.toUtf8().constData());
+	if (!importTimelineFile(fileName, &errorMessage)) {
+		blog(LOG_WARNING, "[Timeline] Import failed: %s", errorMessage.toUtf8().constData());
+		QMessageBox::warning(this, tr("Load Timeline"), errorMessage);
 	}
 }
 

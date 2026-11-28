@@ -38,6 +38,7 @@ public:
 	// Persistence
 	void save();
 	void load();
+	bool importTimelineFile(const QString &fileName, QString *errorMessage = nullptr);
 
 	void setObsWebSocketVendor(void *vendor);
 

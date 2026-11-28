@@ -318,11 +318,35 @@ void MacroStripDock::closeIndividualDocks()
 			child->disconnect(this);
 			child->setEnabled(false);
 			child->hide();
-			obs_frontend_remove_dock(individualDockId(it.key()).constData());
+			const auto dockId = individualDockId(it.key());
+			obs_frontend_remove_dock(dockId.constData());
 			if (child)
 				child->deleteLater();
 		}
 	}
+}
+
+// Synchronize a child from the owner's canonical definition without emitting
+// a save request or invalidating unchanged live controls.
+void MacroStripDock::updateIndividualDefinition(const MacroStripDefinition &strip)
+{
+	if (toJson() == MacroSerialization::encodeStrips({strip}, 0))
+		return;
+	const QSignalBlocker block(this);
+	setEditLayout(false);
+	m_layoutHistory.clear();
+	m_strips = {strip};
+	m_activeStrip = 0;
+	m_model.setButtons(strip.buttons);
+	refreshStripTabs();
+	rebuildFromModel();
+}
+
+MacroStripDefinition MacroStripDock::individualDefinition() const
+{
+	auto definition = m_strips[m_activeStrip];
+	definition.buttons = m_model.buttons();
+	return definition;
 }
 
 void MacroStripDock::syncIndividualDocks()
@@ -338,7 +362,8 @@ void MacroStripDock::syncIndividualDocks()
 				child->disconnect(this);
 				child->setEnabled(false);
 				child->hide();
-				obs_frontend_remove_dock(individualDockId(id).constData());
+				const auto dockId = individualDockId(id);
+				obs_frontend_remove_dock(dockId.constData());
 				if (child)
 					child->deleteLater();
 			}
@@ -346,32 +371,18 @@ void MacroStripDock::syncIndividualDocks()
 	}
 	for (const auto &strip : std::as_const(m_individualStrips)) {
 		auto child = m_individualDocks.value(strip.id);
-		const auto document = MacroSerialization::encodeStrips({strip}, 0);
 		if (child) {
-			// Do not rebuild a live dock when its canonical data is unchanged.
-			if (child->toJson() != document) {
-				const QSignalBlocker block(child);
-				child->setEditLayout(false);
-				child->m_layoutHistory.clear();
-				child->m_strips = {strip};
-				child->m_activeStrip = 0;
-				child->m_model.setButtons(strip.buttons);
-				child->refreshStripTabs();
-				child->rebuildFromModel();
-			}
+			child->updateIndividualDefinition(strip);
 			if (auto *dock = qobject_cast<QDockWidget *>(child->parentWidget()))
 				dock->setWindowTitle(tr("Macro Strip: %1").arg(strip.name));
 		} else {
 			child = new MacroStripDock;
 			child->m_workspaceOwner = this;
-			child->m_strips = {strip};
-			child->m_model.setButtons(strip.buttons);
-			child->refreshStripTabs();
-			child->rebuildFromModel();
+			child->updateIndividualDefinition(strip);
 			child->setObsExecutor(m_executor);
 			const auto title = QString(tr("Macro Strip: %1")).arg(strip.name).toUtf8();
-			if (!obs_frontend_add_dock_by_id(individualDockId(strip.id).constData(), title.constData(),
-							 child)) {
+			const auto dockId = individualDockId(strip.id);
+			if (!obs_frontend_add_dock_by_id(dockId.constData(), title.constData(), child)) {
 				blog(LOG_WARNING,
 				     "[MacroStrip] Could not register individual dock %s; preserving its definition",
 				     title.constData());
@@ -380,19 +391,20 @@ void MacroStripDock::syncIndividualDocks()
 			}
 			m_individualDocks.insert(strip.id, child);
 			connect(child, &MacroStripDock::parameterCommitted, this, &MacroStripDock::parameterCommitted);
-			connect(child, &MacroStripDock::saveRequested, this, [this, child, id = strip.id] {
-				if (!child || m_individualDocks.value(id) != child)
-					return;
-				for (auto &definition : m_individualStrips)
-					if (definition.id == id) {
-						definition = child->m_strips.first();
-						definition.buttons = child->m_model.buttons();
-						break;
-					}
-				if (auto *dock = qobject_cast<QDockWidget *>(child->parentWidget()))
-					dock->setWindowTitle(tr("Macro Strip: %1").arg(child->m_strips.first().name));
-				emit saveRequested();
-			});
+			connect(child, &MacroStripDock::saveRequested, this,
+				[this, child = QPointer<MacroStripDock>(child), id = strip.id] {
+					if (!child || m_individualDocks.value(id) != child)
+						return;
+					for (auto &definition : m_individualStrips)
+						if (definition.id == id) {
+							definition = child->individualDefinition();
+							break;
+						}
+					if (auto *dock = qobject_cast<QDockWidget *>(child->parentWidget()))
+						dock->setWindowTitle(
+							tr("Macro Strip: %1").arg(child->individualDefinition().name));
+					emit saveRequested();
+				});
 		}
 	}
 }
@@ -745,7 +757,9 @@ void MacroStripDock::applyLayout(const LayoutSnapshot &snapshot)
 	if (snapshot.size() != buttons.size())
 		return;
 	QList<MacroButton> ordered;
-	for (const auto &[id, gap] : snapshot) {
+	for (const auto &entry : snapshot) {
+		const auto &id = entry.first;
+		const auto gap = entry.second;
 		auto it = std::find_if(buttons.begin(), buttons.end(), [&](const auto &b) { return b.id == id; });
 		if (it == buttons.end())
 			return;

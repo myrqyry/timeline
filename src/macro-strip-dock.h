@@ -98,6 +98,8 @@ private:
 	QList<MacroStripDefinition> m_individualStrips;
 	QHash<QString, QPointer<MacroStripDock>> m_individualDocks;
 	void syncIndividualDocks();
+	void updateIndividualDefinition(const MacroStripDefinition &strip);
+	MacroStripDefinition individualDefinition() const;
 	void addIndividualStrip(bool detach);
 	void removeIndividualStrip(const QString &id, bool returnToTabs);
 	void showIndividualStrip(const QString &id);

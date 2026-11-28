@@ -147,7 +147,7 @@ bool MacroSerialization::fromJsonDocument(const QJsonDocument &doc, MacroButtonM
 				return false;
 			}
 			b.kind = MacroControlKind::ButtonGrid;
-			for (const auto &value : cells) {
+			for (const auto value : cells) {
 				MacroButton cell;
 				if (value.isNull()) {
 					cell.id.clear();
@@ -277,7 +277,7 @@ bool MacroSerialization::decodeStrips(const QJsonObject &root, QList<MacroStripD
 			return fail("Macro document requires 1–32 strips");
 		QSet<QString> ids;
 		selected = -1;
-		for (const auto &value : array) {
+		for (const auto value : array) {
 			const auto obj = value.toObject();
 			MacroStripDefinition strip;
 			strip.id = obj["id"].toString();
